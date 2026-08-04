@@ -3,7 +3,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://<your-backend>.up.railway.app/api/:path*"
+      "destination": "https://value-agent-api.onrender.com/api/:path*"
     }
   ]
 }
