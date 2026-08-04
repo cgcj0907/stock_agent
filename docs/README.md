@@ -11,6 +11,7 @@
 | 5 | [05-coding-conventions.md](05-coding-conventions.md) | **工程规范**：目录/命名、数据口径、LLM 约束、测试、提交规范 | 写代码前读 |
 | 6 | [06-tech-stack.md](06-tech-stack.md) | **技术选型与部署**：前后端/数据库选型、Render+Supabase+Vercel 选型依据、备选方案 | 准备上线前读 |
 | 7 | [07-deployment-guide.md](07-deployment-guide.md) | **部署指南**：Render(后端) + Supabase(数据库) + Vercel(前端) 操作手册、配置文件模板 | 实际部署时照着做 |
+| 8 | [08-frontend-plan.md](08-frontend-plan.md) | **前端规划**：Next.js + Vercel 前端设计与实施计划（素材库/设计系统/路由/数据模型/里程碑） | 写前端前必读 |
 | 6 | [templates/module-spec.md](templates/module-spec.md) | **模块规格模板**：新增/完善模块时填写 | 开发某个模块时 |
 | 7 | [progress.md](progress.md) | **开发进度追踪**：勾选已完成任务，记录日期 | 每个里程碑结束时更新 |
 
