@@ -93,7 +93,7 @@ flowchart LR
 | 成本 | $0/月（Render 750h + Supabase 500MB + Vercel Hobby） |
 | 省心 | 不用自建服务器、不用国内采集链路，GitHub 全自动部署 |
 | 代价 1 | Render 免费 Web Service **15 分钟休眠** + 冷启动 30–60s（个人低频可接受） |
-| 代价 2 | Supabase **7 天不活跃暂停**（Render cron 每日写入即保活） |
+| 代价 2 | Supabase **7 天不活跃暂停**（GitHub Actions 每日写入即保活） |
 | 代价 3 | 海外节点 → 国内访问有延迟波动；适合个人自用/演示/海外用户 |
 | 代价 4 | Supabase 无 TimescaleDB、仅 500MB → 自选股 ≤100 只 |
 

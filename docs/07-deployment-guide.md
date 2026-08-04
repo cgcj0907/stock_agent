@@ -13,10 +13,9 @@ flowchart LR
     U["用户"] --> V["Vercel<br/>Next.js 前端"]
     V -- "直连(CORS) 或 /api rewrite" --> R["Render Web Service<br/>FastAPI(免费 750h/月)"]
     R --> DB["Supabase<br/>PostgreSQL + pgvector(免费 500MB)"]
-    C["Render Cron Job<br/>每日免费源更新/监控"] --> R
-    C --> DB
+    G["GitHub Actions<br/>每日免费源更新/监控"] --> DB
     R --> EXT["BaoStock/AkShare / LLM API"]
-    DB -. 7天不活跃会暂停 .-> C
+    DB -. 7天不活跃会暂停 .-> G
 ```
 
 **模式说明**：全部服务走海外（Render 美东 / Supabase 新加坡 / Vercel 全球边缘），
@@ -29,7 +28,7 @@ flowchart LR
 | 服务 | 免费额度 | 对本项目 |
 |---|---|---|
 | Render Web Service | 512MB RAM / 0.1 CPU / 750 小时·月；**15 分钟无流量休眠**，冷启动 30–60s | API 个人低频够用；0.1 CPU 跑全量分析偏慢 |
-| Render Cron | 免费层可用，按 crontab 调度 | 每日数据更新/监控 OK |
+| GitHub Actions | 私有仓库 **2000 分钟/月**（公共无限）；无需绑卡 | 每日采集/监控每次 3–10 分钟，绰绰有余（**替代 Render Cron：cron 最低 $1/月**） |
 | Render 静态站 | 100GB 带宽/月 | 前端可托管（本方案用 Vercel） |
 | Supabase | **500MB DB** / 1GB 存储 / 2 项目；**7 天不活跃自动暂停**；pgvector ✅ / TimescaleDB ❌ | 自选股 ≤100 只可容纳；每日写入即保活 |
 | Vercel | Hobby 免费；函数时长有限 | 只做页面 + rewrites，长连接走直连 |
@@ -52,7 +51,7 @@ flowchart LR
 > **部署后先跑 `python -m value_agent data ping`**，实测各源连通性。
 
 **按需 + 缓存**：用户分析某公司时才拉取（未缓存则实时取数），命中缓存直接分析；
-**每日 cron**：只更新自选股池（≤100 只）的行情与财报，控制 Supabase 容量与数据源请求量。
+**每日 GitHub Actions**（`.github/workflows/daily.yml`，替代 Render Cron）：只更新自选股池（≤100 只）的行情与财报，控制 Supabase 容量与数据源请求量；Render Cron 最低 $1/月，故用免费的 Actions。
 
 ---
 
@@ -81,21 +80,17 @@ services:
         sync: false            # 在控制台填 Supabase Pooler 连接串
       - key: LLM_API_KEY
         sync: false
-
-  - type: cron
-    name: value-agent-daily
-    runtime: docker
-    dockerfilePath: deploy/Dockerfile
-    schedule: "0 18 * * *"     # 每天 18:00（UTC）更新数据 + 跑监控
-    plan: free
-    envVars:
-      - key: DATABASE_URL
-        sync: false
-    # startCommand 在 Dockerfile CMD 覆盖为: python -m value_agent data update --daily && python -m value_agent monitor --daily
+      - key: LLM_MODEL
+        value: deepseek-chat
+      - key: LLM_BASE_URL
+        value: https://api.deepseek.com/v1
+      - key: CORS_ORIGINS
+        value: "*"
 ```
 
 > `envVars.sync: false` 表示值在控制台手动设置，不进代码库。
-> cron 服务与 web 服务共用镜像，CMD 覆盖成一次性任务（跑完退出，不计常驻小时）。
+> **每日采集/监控不在 Render 做**（Render Cron 最低 $1/月），改走 GitHub Actions —— 见 §1.7。
+> Blueprint 部署要求绑支付方式（仅验证不扣费）；不想绑卡就手动创建 Free Web Service，见 §2.6。
 
 ### 1.3 Dockerfile（`deploy/Dockerfile` 模板）
 
@@ -148,12 +143,18 @@ render open --service value-agent-api   # 打开 https://xxx.onrender.com
 
 - 免费 Web Service 15 分钟无流量休眠 → 首次访问冷启动 30–60s，属正常。
 
-### 1.7 Cron：每日数据更新 + 监控
+### 1.7 每日数据更新 + 监控（GitHub Actions，替代 Render Cron）
 
-- render.yaml 中 cron 服务每天 18:00（UTC）跑：
+> **为什么不用 Render Cron**：Render 官方文档明确 cron job **最低 $1/月/服务**，不是免费。
+> 改用 GitHub Actions schedule：**免费**（私有仓库 2000 分钟/月）、**无需绑卡**。
+
+- 文件：`.github/workflows/daily.yml`，每天 **UTC 18:00（北京 02:00）** 跑：
   `python -m value_agent data update --daily`（免费源更新自选股行情/财报 → 写 Supabase）
   `python -m value_agent monitor --daily`（触发监控规则 → 飞书/企微推送）
-- cron 运行也**顺带给 Supabase 保活**（避免 7 天暂停）。
+- 运行也**顺带给 Supabase 保活**（避免 7 天暂停）。
+- 前提：在 GitHub 仓库 **Settings → Secrets and variables → Actions** 添加：
+  `DATABASE_URL`（Supabase Session Pooler 连接串）、`LLM_API_KEY`（可选）。
+- 排错：Actions → 对应 run → 看日志；或手动点 **Run workflow** 触发调试。
 
 ---
 
@@ -202,7 +203,7 @@ DATABASE_URL=postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supaba
 ### 2.4 保活策略
 
 - **7 天不活跃自动暂停**（数据不删，恢复即用）。
-- 保活来源：Render cron 每日写入行情（天然保活）；如某天没跑，dashboard 手动 Restore 或下次 API 调用自动唤醒（有延迟）。
+- 保活来源：GitHub Actions 每日写入行情（天然保活）；如某天没跑，dashboard 手动 Restore 或下次 API 调用自动唤醒（有延迟）。
 
 ### 2.5 容量规划（500MB）
 
@@ -218,27 +219,43 @@ DATABASE_URL=postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supaba
 
 ---
 
-## 2.6 Render 部署步骤（Blueprint 方式，推荐）
+## 2.6 Render 部署步骤（手动创建 Free Web Service，**免绑卡**）
+
+> **为什么不用 Blueprint**：Blueprint 一键部署要求 workspace 先绑定支付方式
+> （"payment information on file"，仅验证、免费额度内不扣费）。不想绑卡 →
+> 按下面**手动创建**即可，同样免费。`deploy/render.yaml` 仅作配置参考。
 
 1. **推送代码到 GitHub**（Render 支持 GitHub 集成自动部署）。
-2. Render 控制台 → **New + → Blueprint** → 选择仓库 → 识别 `deploy/render.yaml`。
-3. 首次构建后，在 **value-agent-api** 服务设置里填环境变量（蓝图已声明，值在控制台填）：
+2. Render 控制台 → **New + → Web Service** → 连接你的 GitHub 仓库。
+3. 关键配置：
+   - **Runtime**: Docker（识别 `deploy/Dockerfile`）
+   - **Region**: Singapore 或 Oregon
+   - **Instance Type**: **Free**（512MB / 750h·月，15 分钟休眠）
+   - **Health Check Path**: `/health`
+   - **Start Command** 留空（用 Dockerfile 的 CMD）
+4. 在 **Environment** 里填：
    ```text
    DATABASE_URL=postgresql://postgres.doiffzrpziubnqgovmir:密码@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres
    LLM_API_KEY=你的 key
+   LLM_MODEL=deepseek-chat
+   LLM_BASE_URL=https://api.deepseek.com/v1
+   CORS_ORIGINS=https://your-app.vercel.app
    ```
-4. 服务启动后访问 `https://<service>.onrender.com/health` → 应返回 `{"status":"ok"}`。
-5. 跑连通性自检：Render 控制台 → Shell，执行
+5. Deploy → 构建完成访问 `https://<service>.onrender.com/health` → 应返回 `{"status":"ok"}`。
+6. 跑连通性自检：Render 控制台 → Shell，执行
    ```bash
    python -m value_agent data ping
    ```
    - BaoStock/AkShare 从海外可达 → 数据可实时拉取；
    - 不可达 → **分析会自动读 Supabase 已入库数据**（存储优先，见 data/manager.py），不影响使用。
-6. **数据刷新**：本地（国内）执行 `uv run python -m value_agent data update --daily` → 写入 Supabase；Render 只读。
 
 > ⚠️ 免费层限制：web 服务 15 分钟无流量休眠、冷启动 30-60s；会话存于实例临时磁盘，
 > 重启/换实例会丢（生产建议把 SessionStore 也迁到 Supabase，待做）。
-> cron 服务按计划启动、跑完即退（不计常驻小时）。
+> 每日数据刷新与监控由 GitHub Actions 完成（见 §1.7），不占 Render 常驻时间。
+>
+> 🔧 若未来绑卡后仍想用 Blueprint：Docker 运行时用 **`dockerCommand`** 而非 `startCommand`；
+> cron 服务不要写 `plan`（cron 不支持 plan 字段）。但注意 **cron 最低 $1/月**，建议继续用 GitHub Actions。
+
 
 ## 3. Vercel 前端
 
@@ -295,7 +312,7 @@ vercel --prod
 - [ ] Render `/health` 返回 200，服务不反复重启
 - [ ] 首次分析触发按需取数（BaoStock/AkShare）→ 入库 Supabase → 工作流跑完 → 备忘录生成
 - [ ] 第二次分析命中缓存，不再重复取数
-- [ ] Render cron 每日更新自选股并推送飞书/企微
+- [ ] GitHub Actions 每日更新自选股并推送飞书/企微（Actions 页面有绿色对勾）
 - [ ] Supabase 7 天不暂停（每天有写入）
 - [ ] CORS 白名单正确、环境变量无密钥泄露
 - [ ] 容量监控：Supabase 用量 < 500MB
@@ -315,8 +332,10 @@ vercel --prod
 ## 6. 相关文件
 
 ```text
+.github/workflows/
+└── daily.yml          # 每日采集+监控（替代 Render Cron，免费）
 deploy/
-├── render.yaml        # Render 蓝图：web + cron 服务（本方案主用）
+├── render.yaml        # Render 蓝图：仅 web 服务（参考；主推手动创建免绑卡）
 ├── Dockerfile         # FastAPI 镜像（含免费数据源 baostock/akshare）
 └── vercel.json        # 前端 rewrites 模板
 ```

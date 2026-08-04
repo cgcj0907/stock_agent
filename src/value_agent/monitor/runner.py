@@ -1,6 +1,6 @@
 """每日监控运行器：对已完成会话评估价格触发条件并推送事件。
 
-调用：python -m value_agent monitor --daily（配合 Render cron，docs/07 §1.7）。
+调用：python -m value_agent monitor --daily（由 GitHub Actions 每日触发，docs/07 §1.7）。
 """
 from __future__ import annotations
 

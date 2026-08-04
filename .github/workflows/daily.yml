@@ -1,0 +1,37 @@
+# 每日数据采集 + 监控（替换 Render Cron：Render cron 最低 $1/月，GitHub Actions 免费）
+# 调度：UTC 18:00 = 北京时间 02:00（A 股收盘后次日凌晨更新）
+# 免费额度：私有仓库 2000 分钟/月，公共仓库无限；每次运行约 3-10 分钟，绰绰有余。
+# 所需 Secrets（GitHub 仓库 → Settings → Secrets and variables → Actions）：
+#   DATABASE_URL  → Supabase Session Pooler 连接串（同 Render 用的那个）
+#   LLM_API_KEY   → DeepSeek API Key（仅 monitor 生成/更新监控规则时用，可选）
+name: daily-data-update
+
+on:
+  schedule:
+    - cron: "0 18 * * *"   # 每天 UTC 18:00
+  workflow_dispatch: {}    # 支持手动触发调试
+
+jobs:
+  daily:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install value-agent
+        run: pip install --no-cache-dir .
+
+      - name: Daily data update (BaoStock/AkShare -> Supabase)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python -m value_agent data update --daily || true
+
+      - name: Daily monitor (M11 rules -> Feishu/WeCom push)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+        run: python -m value_agent monitor --daily || true

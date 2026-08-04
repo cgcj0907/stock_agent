@@ -1,5 +1,9 @@
-# Render 蓝图（docs/07-deployment-guide.md §8）
-# 说明：docker 运行时用 dockerCommand（非 startCommand）；cron 不设 plan（随 workspace 计划）
+# Render 蓝图（docs/07-deployment-guide.md §1.2 / §2.6）
+# ⚠️ 说明：
+#   1. Blueprint 部署要求 workspace 先绑定支付方式（仅验证，免费额度内不扣费）。
+#      不想绑卡 → 不提交此文件，直接在 Render 控制台手动创建 Free Web Service（免绑卡）。
+#   2. Render 的 Cron Job 有最低 $1/月收费 → 已移除，每日采集/监控改用
+#      GitHub Actions（.github/workflows/daily.yml，免费、无需绑卡）。
 services:
   - type: web
     name: value-agent-api
@@ -18,13 +22,3 @@ services:
         value: https://api.deepseek.com/v1
       - key: CORS_ORIGINS
         value: "*"
-
-  - type: cron
-    name: value-agent-daily
-    runtime: docker
-    dockerfilePath: deploy/Dockerfile
-    dockerCommand: "sh -c 'python -m value_agent data update --daily || true; python -m value_agent monitor --daily || true'"
-    schedule: "0 18 * * *"
-    envVars:
-      - key: DATABASE_URL
-        sync: false

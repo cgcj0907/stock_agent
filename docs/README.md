@@ -9,7 +9,7 @@
 | 3 | [03-session-management.md](03-session-management.md) | **Agent 会话管理**：会话生命周期、状态机、追问/重算/断点续跑、API | 开发 S1 前读 |
 | 4 | [04-development-guide.md](04-development-guide.md) | **开发引导**：里程碑路线图、开发会话工作流、模块开发流程、验收标准 | 每个里程碑开工前读 |
 | 5 | [05-coding-conventions.md](05-coding-conventions.md) | **工程规范**：目录/命名、数据口径、LLM 约束、测试、提交规范 | 写代码前读 |
-| 6 | [06-tech-stack.md](06-tech-stack.md) | **技术选型与部署**：前后端/数据库选型、Render/Railway 评估、国内部署方案 | 准备上线前读 |
+| 6 | [06-tech-stack.md](06-tech-stack.md) | **技术选型与部署**：前后端/数据库选型、Render+Supabase+Vercel 选型依据、备选方案 | 准备上线前读 |
 | 7 | [07-deployment-guide.md](07-deployment-guide.md) | **部署指南**：Render(后端) + Supabase(数据库) + Vercel(前端) 操作手册、配置文件模板 | 实际部署时照着做 |
 | 6 | [templates/module-spec.md](templates/module-spec.md) | **模块规格模板**：新增/完善模块时填写 | 开发某个模块时 |
 | 7 | [progress.md](progress.md) | **开发进度追踪**：勾选已完成任务，记录日期 | 每个里程碑结束时更新 |
