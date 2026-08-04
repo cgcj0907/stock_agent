@@ -1,0 +1,11 @@
+# 指标定义（公式、阈值、适用行业）—— 详见 docs/value-investing-agent-design.md 第 4 节
+indicators:
+  roe_min: {value: 15, unit: "%", years: 10, source: fina_indicator}
+  pe_max_defensive: {value: 15, unit: "x", source: valuation_history}
+  pb_max_defensive: {value: 1.5, unit: "x", source: valuation_history}
+  current_ratio_min: {value: 2, unit: "x", years: 5}
+  dividend_years_min: {value: 10, unit: "years"}
+  ocf_to_np_min: {value: 1.0, years: 5}
+  debt_to_assets_max: {value: 0.6, years: 5}
+  interest_debt_ratio_max: {value: 0.3}
+  margin_of_safety_min: {value: 0.3, note: "现价需低于内在价值下沿 30%"}

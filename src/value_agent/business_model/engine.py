@@ -1,0 +1,91 @@
+"""M1 商业模式认知引擎：生意类型分类 + 能力圈评级（确定性规则）。"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+from value_agent.financials.quality import latest_annual
+
+FINANCIAL_KEYWORDS = ["银行", "保险", "证券", "金融", "信托"]
+CYCLICAL_KEYWORDS = ["有色", "钢铁", "煤炭", "化工", "石油", "航运", "房地产", "建材", "水泥", "机械", "汽车"]
+ASSET_KEYWORDS = ["房地产", "煤炭", "高速公路", "港口"]
+
+TYPE_LABEL = {
+    "consumer_monopoly": "消费垄断（高毛利/高ROE/低杠杆）",
+    "growth": "成长",
+    "cyclical": "周期",
+    "financial": "金融",
+    "asset_based": "资产型",
+    "stable_dividend": "高分红稳定",
+}
+
+UNDERSTAND = {
+    "consumer_monopoly": "能力圈内（模式直观）",
+    "growth": "能力圈内（看增长与赛道）",
+    "cyclical": "边缘（需行业周期专识）",
+    "financial": "边缘（需专业会计与监管知识）",
+    "asset_based": "边缘（需资产质量判断）",
+    "stable_dividend": "能力圈内（看分红与现金流）",
+}
+
+
+@dataclass
+class BusinessModelResult:
+    business_type: str
+    one_liner: str
+    understandability: str
+    industry: str
+    score: float
+    evidence: list[str] = field(default_factory=list)
+
+
+def classify_business_type(
+    industry: str, roe: float | None, gross_margin: float | None, debt: float | None
+) -> str:
+    """规则分类（M4 估值方法路由的依据）。"""
+    if any(k in industry for k in FINANCIAL_KEYWORDS):
+        return "financial"
+    if any(k in industry for k in ASSET_KEYWORDS):
+        return "asset_based"
+    if any(k in industry for k in CYCLICAL_KEYWORDS):
+        return "cyclical"
+    if (
+        roe is not None and roe >= 15
+        and gross_margin is not None and gross_margin >= 40
+        and (debt is None or debt <= 0.5)
+    ):
+        return "consumer_monopoly"
+    if roe is not None and roe >= 10:
+        return "growth"
+    return "cyclical"  # 未知行业保守按周期（估值禁用 DCF/唐朝）
+
+
+def analyze_business_model(company_info: dict, financials: dict) -> BusinessModelResult:
+    recs = [r for r in financials.get("records", []) if r.get("period")]
+    industry = company_info.get("industry", "")
+    roe = latest_annual(recs, "roe")               # 年度口径（BaoStock 无行业时靠它分类）
+    gm = latest_annual(recs, "grossprofit_margin")
+    debt = latest_annual(recs, "debt_to_assets")
+
+    btype = classify_business_type(industry or "", roe, gm, debt)
+    one_liner = f"{company_info.get('name', company_info.get('code'))}：{industry or '未知行业'}，{TYPE_LABEL[btype]}型生意"
+    und = UNDERSTAND[btype]
+    # 评分：数据完整度 + 简单性
+    score = 60.0
+    if industry:
+        score += 15
+    if roe is not None and gm is not None:
+        score += 15
+    if btype in ("consumer_monopoly", "growth", "stable_dividend"):
+        score += 10
+    score = min(100.0, score)
+
+    evidence = [
+        f"行业：{industry or '未知'}；ROE {roe}%；毛利率 {gm}%；资产负债率 {debt}",
+        f"生意类型：{btype}（{TYPE_LABEL[btype]}）—— M4 估值方法将按此路由",
+        f"可理解性：{und}",
+    ]
+    return BusinessModelResult(
+        business_type=btype, one_liner=one_liner,
+        understandability=und, industry=industry, score=round(score, 1),
+        evidence=evidence,
+    )

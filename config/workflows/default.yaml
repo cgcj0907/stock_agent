@@ -1,0 +1,16 @@
+# 默认工作流（与 workflow/defaults.py 等价，供参考/修改后覆盖）
+id: default
+name: 标准价值投资分析
+description: M1–M11 全模块标准分析流
+steps:
+  - {id: M1, agent: M1_business_model}
+  - {id: M2, agent: M2_financial_quality}
+  - {id: M3, agent: M3_growth, deps: [M2]}
+  - {id: M4, agent: M4_valuation, deps: [M1, M2, M3, M5, M6]}
+  - {id: M5, agent: M5_moat}
+  - {id: M6, agent: M6_governance}
+  - {id: M7, agent: M7_market}
+  - {id: M8, agent: M8_safety_margin, deps: [M4, M7]}
+  - {id: M9, agent: M9_risk, deps: [M2, M3, M5, M6]}
+  - {id: M10, agent: M10_decision, deps: [M4, M7, M8, M9]}
+  - {id: M11, agent: M11_monitor, deps: [M10]}

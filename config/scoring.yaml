@@ -1,0 +1,18 @@
+# 评分卡权重与档位 —— 可回测调参
+weights:
+  moat: 25
+  financial_quality: 20
+  growth_prosperity: 20
+  valuation_margin: 25
+  governance_risk: 10
+
+bands:
+  strong:  {min_score: 80, position: 0.10, label: 强烈关注/可建仓}
+  watch:   {min_score: 65, position: 0.05, label: 关注}
+  neutral: {min_score: 50, position: 0.00, label: 中性/观察}
+  avoid:   {min_score: 0,  position: 0.00, label: 回避}
+
+veto:
+  - non_standard_audit      # 审计意见非标准
+  - fraud_signal_hit        # 造假信号命中
+  - pledge_ratio_gt_80      # 质押率 > 80%

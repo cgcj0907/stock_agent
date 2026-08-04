@@ -1,0 +1,54 @@
+"""M8 安全边际智能体：读 M4 估值结果 → 计算折扣/买卖区间。"""
+from __future__ import annotations
+
+from value_agent.agents.base import Agent, AgentContext, AgentSpec
+from value_agent.sessions.models import ModuleResult, ModuleStatus
+
+from .engine import run_safety_margin
+
+
+class M8SafetyMarginAgent(Agent):
+    spec = AgentSpec(
+        id="M8_safety_margin",
+        name="安全边际智能体",
+        description="折扣率/要求折扣/买卖区间（格雷厄姆核心）",
+        inputs=["M4_valuation", "M7_market"],
+        requires_llm=False,
+    )
+
+    def run(self, ctx: AgentContext) -> ModuleResult:
+        m4 = ctx.inputs.get("M4_valuation")
+        if m4 is None or not m4.outputs.get("intrinsic_value"):
+            return ModuleResult(
+                module=self.spec.id,
+                status=ModuleStatus.SKIPPED,
+                outputs={"reason": "缺少 M4 估值结果"},
+                evidence=["依赖 M4_valuation 未产出内在价值区间"],
+            )
+        intrinsic = m4.outputs["intrinsic_value"]
+        price = m4.outputs.get("current_price")
+        business_type = m4.outputs.get("business_type", "consumer_monopoly")
+        required_discount = ctx.assumptions.get("required_discount")
+
+        result = run_safety_margin(
+            price=price, intrinsic=intrinsic,
+            business_type=business_type, required_discount=required_discount,
+        )
+        evidence = list(result.evidence)
+        m7 = ctx.inputs.get("M7_market")
+        if m7 and m7.outputs.get("position") in ("高估", "泡沫"):
+            evidence.append(f"M7 估值位置：{m7.outputs['position']}（卖出参考触发）")
+        return ModuleResult(
+            module=self.spec.id,
+            status=ModuleStatus.DONE,
+            score=result.score,
+            outputs={
+                "price": price,
+                "discount": result.discount,
+                "required_discount": result.required_discount,
+                "buy_price": result.buy_price,
+                "sell_price": result.sell_price,
+                "status": result.status,
+            },
+            evidence=evidence,
+        )

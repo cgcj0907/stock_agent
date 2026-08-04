@@ -1,0 +1,8 @@
+# 自定义工作流示例：快速估值流（只跑硬核三件套）
+id: quick
+name: 快速估值流
+description: 只跑财务质量 → 估值 → 安全边际，用于快速筛查
+steps:
+  - {id: M2, agent: M2_financial_quality}
+  - {id: M4, agent: M4_valuation, deps: [M2]}
+  - {id: M8, agent: M8_safety_margin, deps: [M4]}

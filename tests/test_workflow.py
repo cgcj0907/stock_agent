@@ -1,0 +1,175 @@
+"""工作流引擎单元测试：默认流、自定义流、条件跳过、run_always、注册自定义 agent。"""
+import pytest
+
+from value_agent.agents import Agent, AgentContext, AgentRegistry, AgentSpec
+from value_agent.agents.builtin import register_builtin_agents
+from value_agent.sessions import (
+    ModuleResult,
+    ModuleStatus,
+    PIPELINE_ORDER,
+    SessionManager,
+    SessionStatus,
+    InMemoryStore,
+)
+from value_agent.workflow import (
+    Workflow,
+    WorkflowEngine,
+    WorkflowStep,
+    WorkflowValidationError,
+    default_workflow,
+    load_workflow_from_dict,
+)
+
+
+@pytest.fixture
+def registry() -> AgentRegistry:
+    return register_builtin_agents(AgentRegistry())
+
+
+@pytest.fixture
+def engine(registry: AgentRegistry) -> WorkflowEngine:
+    return WorkflowEngine(registry, SessionManager(InMemoryStore()))
+
+
+def test_default_workflow_runs_all_modules(engine, registry):
+    session = SessionManager(InMemoryStore()).create_session("600519", "贵州茅台")
+    flow = default_workflow()
+    flow.validate(available_agents=set(registry.ids()))
+    engine.run(session, flow)
+    assert session.status == SessionStatus.COMPLETED
+    done = [r for r in session.module_results.values() if r.status == ModuleStatus.DONE]
+    assert len(done) == len(PIPELINE_ORDER)
+
+
+def test_custom_workflow_topological_order(engine):
+    manager = SessionManager(InMemoryStore())
+    session = manager.create_session("600519", "贵州茅台")
+    flow = Workflow(
+        id="quick",
+        name="快速估值流",
+        steps=[
+            WorkflowStep(id="M2", agent_id="M2_financial_quality"),
+            WorkflowStep(id="M4", agent_id="M4_valuation", deps=["M2"]),
+            WorkflowStep(id="M8", agent_id="M8_safety_margin", deps=["M4"]),
+        ],
+    )
+    engine.run(session, flow)
+    assert session.status == SessionStatus.COMPLETED
+    ran = [aid for aid, r in session.module_results.items() if r.status == ModuleStatus.DONE]
+    assert ran == ["M2_financial_quality", "M4_valuation", "M8_safety_margin"]
+
+
+def test_condition_skip(engine):
+    session = SessionManager(InMemoryStore()).create_session("600519", "贵州茅台")
+    flow = Workflow(
+        id="cond",
+        name="条件流",
+        steps=[
+            WorkflowStep(id="M2", agent_id="M2_financial_quality"),
+            WorkflowStep(
+                id="M4",
+                agent_id="M4_valuation",
+                deps=["M2"],
+                condition="inputs['M2'].outputs.get('skip') == True",
+            ),
+        ],
+    )
+    engine.run(session, flow)
+    assert session.module_results["M4_valuation"].status == ModuleStatus.SKIPPED
+
+
+def test_run_always_after_dependency_failure(engine, registry):
+    class FailingAnalysisAgent(Agent):
+        spec = AgentSpec(id="M1_business_model", name="bad")
+
+        def run(self, ctx):
+            raise RuntimeError("boom")
+
+    registry.register(FailingAnalysisAgent(), overwrite=True)
+    flow = Workflow(
+        id="f",
+        name="失败流",
+        steps=[
+            WorkflowStep(id="M1", agent_id="M1_business_model"),
+            WorkflowStep(id="M9", agent_id="M9_risk", deps=["M1"], run_always=True),
+        ],
+    )
+    session = SessionManager(InMemoryStore()).create_session("600519", "贵州茅台")
+    engine.run(session, flow)
+    assert session.module_results["M1_business_model"].status == ModuleStatus.FAILED
+    assert session.module_results["M9_risk"].status == ModuleStatus.DONE  # run_always
+    assert session.status == SessionStatus.FAILED
+
+
+def test_validate_rejects_unknown_agent(registry):
+    flow = Workflow(
+        id="x",
+        name="坏流",
+        steps=[WorkflowStep(id="X", agent_id="nope_agent")],
+    )
+    with pytest.raises(WorkflowValidationError):
+        flow.validate(available_agents=set(registry.ids()))
+
+
+def test_validate_rejects_cycle(registry):
+    flow = Workflow(
+        id="c",
+        name="环",
+        steps=[
+            WorkflowStep(id="A", agent_id="M1_business_model", deps=["B"]),
+            WorkflowStep(id="B", agent_id="M2_financial_quality", deps=["A"]),
+        ],
+    )
+    with pytest.raises(WorkflowValidationError):
+        flow.validate(available_agents=set(registry.ids()))
+
+
+def test_custom_agent_in_workflow(engine, registry):
+    registry.register(EsgAgent())
+    flow = Workflow(
+        id="esg",
+        name="含自定义智能体",
+        steps=[
+            WorkflowStep(id="M2", agent_id="M2_financial_quality"),
+            WorkflowStep(id="ESG", agent_id="M12_esg_rating", deps=["M2"]),
+        ],
+    )
+    session = SessionManager(InMemoryStore()).create_session("600519", "贵州茅台")
+    engine.run(session, flow)
+    r = session.module_results["M12_esg_rating"]
+    assert r.status == ModuleStatus.DONE
+    assert r.outputs["esg_level"] == "A"
+
+
+def test_load_workflow_from_dict():
+    flow = load_workflow_from_dict(
+        {
+            "id": "quick",
+            "steps": [
+                {"id": "M2", "agent": "M2_financial_quality"},
+                {"id": "M4", "agent": "M4_valuation", "deps": ["M2"]},
+            ],
+        }
+    )
+    assert flow.step("M4").deps == ["M2"]
+    assert flow.step("M4").agent_id == "M4_valuation"
+
+
+# ---- 自定义智能体（示例） ----
+class EsgAgent(Agent):
+    spec = AgentSpec(
+        id="M12_esg_rating",
+        name="ESG 评级智能体",
+        inputs=["M2_financial_quality"],
+        requires_llm=True,
+    )
+
+    def run(self, ctx: AgentContext) -> ModuleResult:
+        assert "M2_financial_quality" in ctx.inputs  # 依赖结果可访问
+        return ModuleResult(
+            module="M12_esg_rating",
+            status=ModuleStatus.DONE,
+            score=70.0,
+            outputs={"esg_level": "A"},
+            evidence=["自定义智能体示例"],
+        )

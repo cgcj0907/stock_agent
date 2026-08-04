@@ -1,0 +1,21 @@
+# 全局配置
+data_sources:
+  primary: baostock          # 免费：baostock（无积分，含 PE/PB/PS 估值历史）
+  fallback: [akshare, mock]  # 依次回退（akshare=新浪/东财，需实测海外连通性）
+
+storage:
+  backend: sqlite           # sqlite 本地 / postgres(Supabase)
+  path: data/market.db
+
+llm:
+  provider_env: LLM_PROVIDER
+  model_env: LLM_MODEL
+  temperature: 0.2
+
+monitor:
+  schedule: "0 18 * * *"    # 每日 18:00 运行
+  channels: [feishu, wechat]
+
+session:
+  store: memory              # memory 起步；生产换 duckdb/postgres
+  default_model_version: "0.1.0"

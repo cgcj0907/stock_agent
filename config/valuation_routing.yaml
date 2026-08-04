@@ -1,0 +1,21 @@
+# M4 估值方法路由表：生意类型 → 适用估值方法（由 M1 商业模式认知输出路由）
+routing:
+  consumer_monopoly:        # 消费垄断/稳定增长
+    methods: [dcf, dividend_discount, relative_percentile]
+    forbidden: [current_pe_only]
+  growth:                   # 成长型
+    methods: [dcf_three_stage, ps, peg, scenario]
+    forbidden: [linear_extrapolation]
+    note: "DCF 需保守参数 + 敏感性"
+  cyclical:                 # 周期型
+    methods: [normalized_earnings, ev_ebitda, replacement_cost]
+    forbidden: [dcf_on_peak_earnings, tang_method]
+  financial:                # 金融型
+    methods: [pb_roe, dividend_yield]
+    forbidden: [dcf, tang_method]
+  asset_based:              # 资产型/困境
+    methods: [nav, liquidation_value, ncav]
+    forbidden: [earnings_multiple]
+  stable_dividend:          # 高分红稳定型
+    methods: [ddm, dividend_yield_vs_rfr]
+    forbidden: []

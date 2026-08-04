@@ -1,0 +1,53 @@
+"""M1 商业模式智能体：规则分类 + 可选 LLM 定性。"""
+from __future__ import annotations
+
+from value_agent.agents.base import Agent, AgentContext, AgentSpec
+from value_agent.sessions.models import ModuleResult, ModuleStatus
+
+from .engine import analyze_business_model
+
+_LLM_SYSTEM = "你是价值投资分析师。基于给定公司信息，用一句话描述其商业模式并判断是否容易理解。"
+
+
+class M1BusinessModelAgent(Agent):
+    spec = AgentSpec(
+        id="M1_business_model",
+        name="商业模式认知智能体",
+        description="生意类型分类 + 能力圈评级（M4 路由依据）",
+        requires_llm=True,
+    )
+
+    def run(self, ctx: AgentContext) -> ModuleResult:
+        if ctx.data is None:
+            raise RuntimeError("M1 需要数据访问（ctx.data）")
+        code = ctx.session.company_code
+        info = ctx.data.company_info(code)
+        fin = ctx.data.financials(code)
+        result = analyze_business_model(info, fin)
+
+        outputs = {
+            "business_type": result.business_type,
+            "one_liner": result.one_liner,
+            "understandability": result.understandability,
+            "industry": result.industry,
+        }
+        evidence = list(result.evidence)
+
+        if ctx.llm is not None:  # LLM 定性层（可选）
+            try:
+                text = ctx.llm.chat(
+                    _LLM_SYSTEM,
+                    f"公司：{info.get('name')}（{code}），行业：{result.industry}，"
+                    f"规则判定类型：{result.business_type}。请点评并给出是否可理解的结论。",
+                )
+                outputs["llm_qualitative"] = text
+                evidence.append("LLM 定性：已接入")
+            except Exception as exc:  # noqa: BLE001
+                evidence.append(f"LLM 调用失败，使用规则结果：{type(exc).__name__}")
+        else:
+            evidence.append("未配置 LLM（LLM_API_KEY），当前为规则引擎结果")
+
+        return ModuleResult(
+            module=self.spec.id, status=ModuleStatus.DONE, score=result.score,
+            outputs=outputs, evidence=evidence,
+        )
