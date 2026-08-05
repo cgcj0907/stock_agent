@@ -45,3 +45,33 @@ drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
+
+-- 5) LLM 服务商配置表（M2）
+-- api_key_enc：AES-256-GCM 密文（iv.tag.cipher base64），由前端服务端环境变量 LLM_SETTINGS_ENCRYPTION_KEY 加解密
+create table if not exists public.user_llm_settings (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  provider text not null,                 -- deepseek / openai / qwen / ollama / custom
+  name text not null default '',
+  base_url text not null,
+  model text not null,
+  api_key_enc text not null default '',
+  is_default boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.user_llm_settings enable row level security;
+
+create policy "llm_settings_select_own" on public.user_llm_settings
+  for select using (auth.uid() = user_id);
+create policy "llm_settings_insert_own" on public.user_llm_settings
+  for insert with check (auth.uid() = user_id);
+create policy "llm_settings_update_own" on public.user_llm_settings
+  for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy "llm_settings_delete_own" on public.user_llm_settings
+  for delete using (auth.uid() = user_id);
+
+-- 每用户最多一个默认服务商
+create unique index if not exists user_llm_settings_one_default
+  on public.user_llm_settings (user_id) where is_default;

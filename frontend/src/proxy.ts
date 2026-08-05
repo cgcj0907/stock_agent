@@ -12,9 +12,11 @@ export async function proxy(request: NextRequest) {
   const isPublic = PUBLIC_PATHS.some(
     (p) => pathname === p || pathname.startsWith(`${p}/`)
   );
+  // API 路由不重定向：由 Route Handler 自行返回 401 JSON
+  const isApi = pathname.startsWith("/api");
 
   // 未登录 → 跳转登录页（带回跳地址）
-  if (!user && !isPublic) {
+  if (!user && !isPublic && !isApi) {
     url.pathname = "/login";
     url.searchParams.set("redirectTo", pathname);
     return NextResponse.redirect(url);

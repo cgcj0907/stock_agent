@@ -25,7 +25,7 @@ npm run start   # 生产预览
 ## 里程碑
 - [x] M0 脚手架：Next.js 16 + shadcn/ui + 设计系统 + App Shell（侧边栏/顶栏/仪表盘占位）
 - [x] M1 认证（Supabase Auth：登录/注册/忘记密码/更新密码 + 路由保护）
-- [ ] M2 LLM 服务商配置（/settings/llm）
+- [x] M2 LLM 服务商配置（/settings/llm：多服务商预设 CRUD + 默认 + 测试连通 + Key 加密存储）
 - [ ] M3 智能体广场（/agents）
 - [ ] M4 工作流分析（/workflows，React Flow DAG + SSE）
 - [ ] M5 对话记录（/conversations）
