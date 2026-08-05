@@ -11,7 +11,7 @@
 ```bash
 npm install
 cp .env.example .env.local   # 填写后端地址与 Supabase 配置
-npm run dev                  # http://localhost:3000（用 127.0.0.1 访问避免跨源拦截）
+npm run dev                  # http://127.0.0.1:3000（API 用 127.0.0.1:8000 避免 localhost 解析问题）
 ```
 
 ## 常用命令
@@ -28,5 +28,5 @@ npm run start   # 生产预览
 - [x] M2 LLM 服务商配置（/settings/llm：多服务商预设 CRUD + 默认 + 测试连通 + Key 加密存储）
 - [x] M3 智能体广场（/agents：卡片/搜索/分类/详情/收藏 + 本地目录兜底）
 - [x] M4 工作流分析（/workflows：React Flow DAG + 会话创建 + SSE 实时进度 + 结果卡片 + 备忘录）
-- [ ] M5 对话记录（/conversations）
+- [x] M5 对话记录（/conversations：列表/筛选/搜索/删除 + 详情恢复/重新分析 + 仪表盘最近会话）
 - [ ] M6 打磨与部署

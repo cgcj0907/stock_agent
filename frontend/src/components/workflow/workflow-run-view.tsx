@@ -48,11 +48,12 @@ export function WorkflowRunView({ workflow }: { workflow: WorkflowInfo }) {
     ? Math.round((doneCount / stepIds.length) * 100)
     : 0;
 
-  const orderedResults = stepIds
-    .map((id) => ({
-      step: id,
-      agent: workflow.steps.find((s) => s.id === id)?.agent,
-      result: results[id],
+  // module_results 以 agent id 为键（如 M2_financial_quality）
+  const orderedResults = workflow.steps
+    .map((s) => ({
+      step: s.id,
+      agent: s.agent,
+      result: results[s.agent],
     }))
     .filter((x) => x.result);
 

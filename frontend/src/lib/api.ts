@@ -56,3 +56,23 @@ export async function streamSse(
     }
   }
 }
+
+/** 通过 SSE 运行既有会话并推送进度事件 */
+export async function runSessionViaSse(
+  sessionId: string,
+  handlers: {
+    onStep: (step: string, status: string) => void;
+    onDone: (status: string) => void;
+    onError: (message: string) => void;
+  }
+): Promise<void> {
+  await streamSse(`${API_BASE}/api/sessions/${sessionId}/events`, (evt) => {
+    if (evt.type === "step") {
+      handlers.onStep(String(evt.step), String(evt.status));
+    } else if (evt.type === "done") {
+      handlers.onDone(String(evt.status ?? "completed"));
+    } else if (evt.type === "error") {
+      handlers.onError(String(evt.message ?? "运行失败"));
+    }
+  });
+}

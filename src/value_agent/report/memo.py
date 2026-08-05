@@ -73,6 +73,7 @@ def build_memo(session: Session) -> str:
 
     # M4 方法对照 + M8
     m4 = results.get("M4_valuation")
+    m8 = results.get("M8_safety_margin")
     if m4 and m4.outputs.get("methods"):
         lines += ["", "## 3 估值与安全边际（M4/M8）", "", "| 方法 | 每股价值 |", "|---|---|"]
         for name, m in m4.outputs["methods"].items():

@@ -12,6 +12,11 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { createClient } from "@/lib/supabase/server";
+import { getCurrentUser } from "@/lib/supabase/auth";
+import { getWorkflow } from "@/lib/workflows/catalog";
+import { timeAgo } from "@/lib/time";
+import type { Conversation } from "@/types/conversation";
 import {
   Card,
   CardContent,
@@ -55,7 +60,23 @@ const FEATURED_AGENTS = [
   },
 ];
 
-export default function DashboardPage() {
+export default async function DashboardPage() {
+  let recent: Conversation[] = [];
+  try {
+    const user = await getCurrentUser();
+    if (user) {
+      const supabase = await createClient();
+      const { data } = await supabase
+        .from("conversations")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("updated_at", { ascending: false })
+        .limit(4);
+      recent = (data ?? []) as Conversation[];
+    }
+  } catch {
+    // conversations 表未创建时忽略
+  }
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6">
       {/* Hero */}
@@ -162,23 +183,59 @@ export default function DashboardPage() {
         </Card>
 
         <Card className="rounded-xl">
-          <CardHeader>
-            <CardTitle className="text-base">最近会话</CardTitle>
-            <CardDescription>继续上次的分析或查看历史记录</CardDescription>
-          </CardHeader>
-          <CardContent className="flex min-h-40 flex-col items-center justify-center gap-3 rounded-xl border border-dashed text-center">
-            <div className="flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
-              <History className="size-6" />
-            </div>
+          <CardHeader className="flex-row items-center justify-between space-y-0">
             <div>
-              <p className="text-sm font-medium">还没有对话记录</p>
-              <p className="text-xs text-muted-foreground">
-                完成一次分析后，会话会出现在这里
-              </p>
+              <CardTitle className="text-base">最近会话</CardTitle>
+              <CardDescription>继续上次的分析或查看历史记录</CardDescription>
             </div>
-            <Button asChild variant="outline" size="sm" className="rounded-lg">
-              <Link href="/conversations">查看全部</Link>
-            </Button>
+            {recent.length > 0 && (
+              <Button asChild variant="ghost" size="sm" className="rounded-lg">
+                <Link href="/conversations">查看全部</Link>
+              </Button>
+            )}
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2">
+            {recent.length === 0 ? (
+              <div className="flex min-h-40 flex-col items-center justify-center gap-3 rounded-xl border border-dashed text-center">
+                <div className="flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                  <History className="size-6" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium">还没有对话记录</p>
+                  <p className="text-xs text-muted-foreground">
+                    完成一次分析后，会话会出现在这里
+                  </p>
+                </div>
+                <Button asChild variant="outline" size="sm" className="rounded-lg">
+                  <Link href="/workflows">发起分析</Link>
+                </Button>
+              </div>
+            ) : (
+              recent.map((c) => {
+                const wf = getWorkflow(c.workflow_id);
+                return (
+                  <Link
+                    key={c.id}
+                    href={`/conversations/${c.id}`}
+                    className="group flex items-center gap-3 rounded-xl border p-3 transition-colors hover:border-emerald-300 hover:bg-emerald-50/50 dark:hover:border-emerald-700 dark:hover:bg-emerald-950/30"
+                  >
+                    <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-400">
+                      📈
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-medium">
+                        {c.company_name || c.company_code}
+                      </div>
+                      <div className="truncate text-xs text-muted-foreground">
+                        {c.company_code}
+                        {wf ? ` · ${wf.name}` : ""} · {timeAgo(c.updated_at)}
+                      </div>
+                    </div>
+                    <ArrowRight className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-emerald-600" />
+                  </Link>
+                );
+              })
+            )}
           </CardContent>
         </Card>
       </section>
