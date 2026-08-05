@@ -3,6 +3,7 @@
 import * as React from "react";
 import { LinkedText } from "@/lib/linkify";
 import { isMarkdownText, MarkdownValue } from "@/components/workflow/markdown-value";
+import { tryParseJson } from "@/lib/json";
 
 function isPrimitive(v: unknown): boolean {
   return (
@@ -39,6 +40,8 @@ export function ValueView({ value, label }: { value: unknown; label?: string }) 
     const text = fmtPrimitive(value);
     if (typeof value === "string") {
       if (!text) return <Dash />;
+      const parsed = tryParseJson(text);
+      if (parsed !== null) return <ValueView value={parsed} label={label} />;
       if (isMarkdownText(text)) {
         return <MarkdownValue text={text} label={label} />;
       }

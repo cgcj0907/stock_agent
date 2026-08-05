@@ -28,14 +28,21 @@ def parse_llm_json(text: str) -> dict | None:
     t = text.strip()
     t = re.sub(r"^```(?:json)?\s*", "", t, flags=re.IGNORECASE)
     t = re.sub(r"\s*```$", "", t)
-    start, end = t.find("{"), t.rfind("}")
-    if start != -1 and end > start:
-        t = t[start : end + 1]
+    # 优先整体解析（严格）：必须是 JSON 对象
     try:
         data = json.loads(t)
         return data if isinstance(data, dict) else None
     except (ValueError, TypeError):
-        return None
+        pass
+    # 容忍首尾杂文：提取首个 {...} 块再解析
+    start, end = t.find("{"), t.rfind("}")
+    if start != -1 and end > start:
+        try:
+            data = json.loads(t[start : end + 1])
+            return data if isinstance(data, dict) else None
+        except (ValueError, TypeError):
+            return None
+    return None
 
 
 class LlmClient:

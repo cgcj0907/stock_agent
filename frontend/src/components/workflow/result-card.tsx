@@ -15,6 +15,7 @@ import {
   CardContent,
   CardHeader,
 } from "@/components/ui/card";
+import { LlmResultView } from "@/components/workflow/llm-result-view";
 import {
   isMarkdownText,
   MarkdownValue,
@@ -63,13 +64,14 @@ const STATUS_BADGE: Record<
 const MAX_OUTPUTS = 8;
 const MAX_EVIDENCE = 4;
 
-/** 输出字段名含这些关键词时，即使未检测到 Markdown 语法也按 Markdown 折叠渲染。 */
-const MD_KEY_RE = /llm|qualitative|red_team|explanation|conclusion|summary|note/i;
+/** 输出字段名含这些关键词时，按「LLM 结构化结果」占满整行渲染（JSON → TS 数据）。 */
+const LLM_KEY_RE = /llm|qualitative|red_team/i;
 
-function isMarkdownValue(v: unknown, key: string): boolean {
+/** 需要占满整行渲染的值：LLM 结构化结果，或含 Markdown 语法的长文本。 */
+function isFullWidthValue(v: unknown, key: string): boolean {
   return (
-    typeof v === "string" &&
-    (isMarkdownText(v) || MD_KEY_RE.test(key))
+    LLM_KEY_RE.test(key) ||
+    (typeof v === "string" && isMarkdownText(v))
   );
 }
 
@@ -142,20 +144,27 @@ export function ResultCard({
         {entries.length > 0 && (
           <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 rounded-xl bg-muted/40 p-3">
             {entries.slice(0, MAX_OUTPUTS).map(([k, v]) => {
-              const isMd = isMarkdownValue(v, k);
+              const fullWidth = isFullWidthValue(v, k);
               return (
-                <div key={k} className={isMd ? "col-span-2 min-w-0" : "min-w-0"}>
+                <div
+                  key={k}
+                  className={fullWidth ? "col-span-2 min-w-0" : "min-w-0"}
+                >
                   <div className="truncate text-[10px] text-muted-foreground">
                     {k}
                   </div>
                   <div
                     className={
-                      isMd
+                      fullWidth
                         ? "mt-1"
                         : "mt-0.5 break-words text-xs leading-5"
                     }
                   >
-                    <ValueView value={v} label={k} />
+                    {LLM_KEY_RE.test(k) ? (
+                      <LlmResultView value={v} />
+                    ) : (
+                      <ValueView value={v} label={k} />
+                    )}
                   </div>
                 </div>
               );
