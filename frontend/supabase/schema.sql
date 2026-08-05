@@ -138,3 +138,43 @@ create policy "custom_workflows_update_own" on public.custom_workflows
   for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "custom_workflows_delete_own" on public.custom_workflows
   for delete using (auth.uid() = user_id);
+
+-- 9) 对话消息表（运行/追问产生的消息落库）
+create table if not exists public.messages (
+  id uuid primary key default gen_random_uuid(),
+  conversation_id uuid not null references public.conversations (id) on delete cascade,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  role text not null,                       -- user / assistant / system
+  content text not null default '',
+  action text,
+  created_at timestamptz not null default now()
+);
+create index if not exists messages_conversation_idx on public.messages (conversation_id, created_at);
+
+alter table public.messages enable row level security;
+create policy "messages_select_own" on public.messages
+  for select using (auth.uid() = user_id);
+create policy "messages_insert_own" on public.messages
+  for insert with check (auth.uid() = user_id);
+create policy "messages_delete_own" on public.messages
+  for delete using (auth.uid() = user_id);
+
+-- 10) 备忘录表：每次生成的备忘录落库（按版本覆盖最新）
+create table if not exists public.memos (
+  id uuid primary key default gen_random_uuid(),
+  conversation_id uuid not null references public.conversations (id) on delete cascade,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  session_id text,
+  version int not null default 1,
+  content text not null default '',
+  created_at timestamptz not null default now()
+);
+create index if not exists memos_conversation_idx on public.memos (conversation_id, version);
+
+alter table public.memos enable row level security;
+create policy "memos_select_own" on public.memos
+  for select using (auth.uid() = user_id);
+create policy "memos_insert_own" on public.memos
+  for insert with check (auth.uid() = user_id);
+create policy "memos_delete_own" on public.memos
+  for delete using (auth.uid() = user_id);

@@ -30,6 +30,29 @@ export default async function ConversationDetailPage({
   }
   if (!conversation) notFound();
 
+  // 从 Supabase 读消息与备忘录（优先；后端不可用时仍可展示历史）
+  let initialMessages: { role: string; content: string; created_at: string }[] = [];
+  let supabaseMemo: string | null = null;
+  try {
+    const supabase = await createClient();
+    const { data: msgs } = await supabase
+      .from("messages")
+      .select("role, content, created_at")
+      .eq("conversation_id", id)
+      .order("created_at", { ascending: true });
+    initialMessages = (msgs ?? []) as typeof initialMessages;
+    const { data: memo } = await supabase
+      .from("memos")
+      .select("content")
+      .eq("conversation_id", id)
+      .order("version", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    supabaseMemo = memo?.content ?? null;
+  } catch {
+    // 表未创建时忽略
+  }
+
   // 服务端预取后端会话与备忘录（后端不可用时由客户端重试）
   let initialSession: SessionView | null = null;
   let initialMemo: string | null = null;
@@ -64,7 +87,8 @@ export default async function ConversationDetailPage({
     <ConversationDetailView
       conversation={conversation}
       initialSession={initialSession}
-      initialMemo={initialMemo}
+      initialMemo={supabaseMemo ?? initialMemo}
+      initialMessages={initialMessages}
     />
   );
 }

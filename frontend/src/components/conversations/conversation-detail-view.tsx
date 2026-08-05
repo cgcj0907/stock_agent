@@ -34,10 +34,12 @@ export function ConversationDetailView({
   conversation,
   initialSession,
   initialMemo,
+  initialMessages = [],
 }: {
   conversation: Conversation;
   initialSession: SessionView | null;
   initialMemo: string | null;
+  initialMessages?: { role: string; content: string; created_at: string }[];
 }) {
   const router = useRouter();
   const workflow = getWorkflow(conversation.workflow_id);
@@ -295,6 +297,43 @@ export function ConversationDetailView({
             />
           </div>
         </Card>
+      )}
+
+      {initialMessages.length > 0 && (
+        <section className="flex flex-col gap-3">
+          <h2 className="text-base font-semibold">对话</h2>
+          <Card className="rounded-2xl">
+            <CardContent className="flex flex-col gap-3 p-4">
+              {initialMessages.map((m, i) => (
+                <div
+                  key={i}
+                  className={`flex gap-2.5 ${
+                    m.role === "user" ? "flex-row-reverse" : ""
+                  }`}
+                >
+                  <div
+                    className={`flex size-7 shrink-0 items-center justify-center rounded-full text-xs text-white ${
+                      m.role === "user"
+                        ? "bg-emerald-600"
+                        : "bg-muted-foreground/60"
+                    }`}
+                  >
+                    {m.role === "user" ? "我" : "🤖"}
+                  </div>
+                  <div
+                    className={`max-w-[80%] rounded-2xl px-3.5 py-2 text-sm leading-6 ${
+                      m.role === "user"
+                        ? "rounded-tr-sm bg-emerald-600 text-white"
+                        : "rounded-tl-sm bg-muted/60"
+                    }`}
+                  >
+                    {m.content}
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        </section>
       )}
 
       {orderedResults.length > 0 && (

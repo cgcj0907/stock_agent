@@ -83,21 +83,35 @@ export function useWorkflowRun(
       const session = (await res.json()) as SessionView;
       setSessionId(session.id);
 
-      // 落库 conversations（M5 对话记录数据源；表未创建时忽略）
+      // 落库 conversations + 用户消息（M5 对话记录数据源；表未创建时忽略）
+      let conversationId: string | null = null;
       try {
         const supabase = createClient();
         const {
           data: { user },
         } = await supabase.auth.getUser();
         if (user) {
-          await supabase.from("conversations").insert({
-            user_id: user.id,
-            session_id: session.id,
-            company_code: code,
-            company_name: companyName.trim(),
-            workflow_id: workflowId,
-            status: "in_progress",
-          });
+          const conv = await supabase
+            .from("conversations")
+            .insert({
+              user_id: user.id,
+              session_id: session.id,
+              company_code: code,
+              company_name: companyName.trim(),
+              workflow_id: workflowId,
+              status: "in_progress",
+            })
+            .select("id")
+            .single();
+          conversationId = conv.data?.id ?? null;
+          if (conversationId) {
+            await supabase.from("messages").insert({
+              conversation_id: conversationId,
+              user_id: user.id,
+              role: "user",
+              content: `发起分析：${companyName.trim() || code}（${code}）· 工作流 ${workflowId}`,
+            });
+          }
         }
       } catch {
         // ignore
@@ -128,8 +142,56 @@ export function useWorkflowRun(
           `/api/sessions/${session.id}/memo`
         );
         if (memoRes.memo) setMemo(memoRes.memo);
+        // 同步消息/memo 到 Supabase（memos 按 conversation 覆盖最新版本）
+        if (memoRes.memo && conversationId) {
+          const supabase = createClient();
+          const {
+            data: { user },
+          } = await supabase.auth.getUser();
+          if (user) {
+            const doneCount = Object.values(final.module_results ?? {}).filter(
+              (r) => r.status === "done"
+            ).length;
+            await supabase.from("messages").insert({
+              conversation_id: conversationId,
+              user_id: user.id,
+              role: "assistant",
+              content: `分析完成：${doneCount} 个模块执行完毕，已生成投资备忘录。`,
+            });
+            const { data: existing } = await supabase
+              .from("memos")
+              .select("id, version")
+              .eq("conversation_id", conversationId)
+              .order("version", { ascending: false })
+              .limit(1)
+              .maybeSingle();
+            if (existing) {
+              await supabase
+                .from("memos")
+                .update({ content: memoRes.memo, session_id: session.id })
+                .eq("id", existing.id);
+            } else {
+              await supabase
+                .from("memos")
+                .insert({
+                  conversation_id: conversationId,
+                  user_id: user.id,
+                  session_id: session.id,
+                  version: 1,
+                  content: memoRes.memo,
+                });
+            }
+            await supabase
+              .from("conversations")
+              .update({
+                status: status === "failed" ? "failed" : "completed",
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", conversationId);
+          }
+        }
       } catch {
-        // 备忘录生成失败不影响结果展示
+        // 同步失败不影响结果展示
       }
     } catch (e) {
       setError((e as Error).message);
