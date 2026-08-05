@@ -112,3 +112,26 @@ class SqliteStore(SessionStore):
         session.messages.append(message)
         session.updated_at = message.created_at
         self.save(session)
+
+
+
+def create_session_store() -> SessionStore:
+    """按环境变量 SESSION_STORE 创建会话存储。
+
+    - memory：进程内（开发/测试）
+    - supabase：Supabase/PostgreSQL（生产，需 DATABASE_URL）
+    - sqlite（默认）：本地持久化 data/sessions.db
+    """
+    import os
+
+    backend = os.getenv("SESSION_STORE", "sqlite").strip().lower()
+    if backend == "memory":
+        return InMemoryStore()
+    if backend in ("supabase", "postgres"):
+        dsn = os.getenv("DATABASE_URL", "")
+        if not dsn:
+            raise ValueError("SESSION_STORE=supabase 需要 DATABASE_URL")
+        from .supabase_store import SupabaseStore
+
+        return SupabaseStore(dsn)
+    return SqliteStore(os.getenv("SESSIONS_DB", "data/sessions.db"))

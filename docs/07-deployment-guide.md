@@ -249,8 +249,12 @@ DATABASE_URL=postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supaba
    - BaoStock/AkShare 从海外可达 → 数据可实时拉取；
    - 不可达 → **分析会自动读 Supabase 已入库数据**（存储优先，见 data/manager.py），不影响使用。
 
-> ⚠️ 免费层限制：web 服务 15 分钟无流量休眠、冷启动 30-60s；会话存于实例临时磁盘，
-> 重启/换实例会丢（生产建议把 SessionStore 也迁到 Supabase，待做）。
+> ⚠️ 免费层限制：web 服务 15 分钟无流量休眠、冷启动 30-60s。
+>
+> ✅ **会话持久化已迁移到 Supabase**（2026-08-05）：后端设置环境变量
+> `SESSION_STORE=supabase`（依赖 `DATABASE_URL`）后，会话/备忘录/对话消息存 Supabase
+> `public.sessions`（jsonb payload），重启/换实例不丢。本地开发默认 `SESSION_STORE=sqlite`
+> 或 `memory`。表结构由后端自动创建，也可手动执行 `deploy/supabase_sessions.sql`。
 > 每日数据刷新与监控由 GitHub Actions 完成（见 §1.7），不占 Render 常驻时间。
 >
 > 🔧 若未来绑卡后仍想用 Blueprint：Docker 运行时用 **`dockerCommand`** 而非 `startCommand`；

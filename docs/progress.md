@@ -19,6 +19,8 @@
 
 > ✅ 2026-08-05 修复测试：新增 tests/conftest.py StubData 夹具（数据桩）注入引擎；修正 test_decision/test_sessions/test_financials 过期断言；**76 个测试全绿**。
 
+> ✅ 2026-08-05 **会话持久化迁移到 Supabase**：新增 `SupabaseStore`（`sessions` jsonb 表）+ `SESSION_STORE` 环境切换；真实 Supabase 验证重启后会话恢复；本地默认 sqlite。
+
 ## S0 数据层（🔶 进行中）
 - [x] 免费数据源适配器（mock + baostock + akshare 统一接口，字段已归一化）2026-08-04
 - [x] 表结构（schema.sql：company/financials/daily_price/valuation_history/dividends/watchlist）

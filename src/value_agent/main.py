@@ -18,6 +18,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from value_agent.agents import AgentRegistry
+from value_agent.core.config import _load_dotenv
 from value_agent.core.llm import get_llm
 from value_agent.data.manager import DataManager
 from value_agent.agents.builtin import register_builtin_agents
@@ -27,7 +28,7 @@ from value_agent.sessions import (
     Session,
     SessionManager,
     SessionStatus,
-    SqliteStore,
+    create_session_store,
 )
 from value_agent.workflow import (
     Workflow,
@@ -40,8 +41,9 @@ from value_agent.workflow import (
 
 logger = logging.getLogger(__name__)
 
-# ---- 全局单例（进程内；生产可换 SqliteStore / SupabaseStore） ----
-_store = SqliteStore(os.getenv("SESSIONS_DB", "data/sessions.db"))
+# ---- 全局单例（SESSION_STORE=sqlite|supabase|memory，见 store.create_session_store） ----
+_load_dotenv()  # 确保 DATABASE_URL / SESSION_STORE 等环境变量已从 .env 加载
+_store = create_session_store()
 _manager = SessionManager(_store)
 _registry = register_builtin_agents(AgentRegistry())
 _engine = WorkflowEngine(_registry, _manager, data=DataManager(), llm=get_llm())

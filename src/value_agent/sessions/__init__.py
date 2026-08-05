@@ -11,7 +11,8 @@ from .models import (
     SessionStatus,
 )
 from .state_machine import InvalidTransitionError, transition
-from .store import InMemoryStore, SessionStore, SqliteStore
+from .store import InMemoryStore, SessionStore, SqliteStore, create_session_store
+from .supabase_store import SupabaseStore
 from .manager import MODULE_DEPENDENCIES, PIPELINE_ORDER, SessionManager
 
 __all__ = [
@@ -25,7 +26,9 @@ __all__ = [
     "transition",
     "InMemoryStore",
     "SqliteStore",
+    "SupabaseStore",
     "SessionStore",
+    "create_session_store",
     "MODULE_DEPENDENCIES",
     "PIPELINE_ORDER",
     "SessionManager",
