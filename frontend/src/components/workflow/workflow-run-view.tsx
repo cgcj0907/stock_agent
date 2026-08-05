@@ -39,7 +39,11 @@ export function WorkflowRunView({ workflow }: { workflow: WorkflowInfo }) {
     results,
     memo,
     start,
-  } = useWorkflowRun(workflow.id, stepIds);
+  } = useWorkflowRun(
+    workflow.id,
+    stepIds,
+    workflow.id === "custom" ? workflow.steps : undefined
+  );
 
   const doneCount = stepIds.filter(
     (id) => statuses[id] === "done" || statuses[id] === "skipped"

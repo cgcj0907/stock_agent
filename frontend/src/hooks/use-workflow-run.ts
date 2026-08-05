@@ -28,7 +28,17 @@ export interface SessionView {
 
 export type RunStatus = "idle" | "running" | "completed" | "failed";
 
-export function useWorkflowRun(workflowId: string, stepIds: string[]) {
+export interface WorkflowStepLike {
+  id: string;
+  agent: string;
+  deps: string[];
+}
+
+export function useWorkflowRun(
+  workflowId: string,
+  stepIds: string[],
+  workflowSteps?: WorkflowStepLike[]
+) {
   const [companyCode, setCompanyCode] = React.useState("");
   const [companyName, setCompanyName] = React.useState("");
   const [running, setRunning] = React.useState(false);
@@ -61,6 +71,7 @@ export function useWorkflowRun(workflowId: string, stepIds: string[]) {
           company_code: code,
           company_name: companyName.trim(),
           workflow_id: workflowId,
+          workflow_steps: workflowSteps,
         }),
       });
       setSessionId(session.id);
@@ -119,7 +130,7 @@ export function useWorkflowRun(workflowId: string, stepIds: string[]) {
     } finally {
       setRunning(false);
     }
-  }, [companyCode, companyName, running, stepIds, workflowId]);
+  }, [companyCode, companyName, running, stepIds, workflowId, workflowSteps]);
 
   return {
     companyCode,

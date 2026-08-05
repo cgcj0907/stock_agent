@@ -145,6 +145,7 @@ class Session:
     assumptions: dict = field(default_factory=dict)  # 用户覆盖的假设（增速/折现率/折扣率…）
     data_snapshot_id: str | None = None  # point-in-time 数据快照绑定
     workflow_id: str = "default"  # 使用的工作流定义 id（见 workflow/）
+    workflow_steps: list[dict] | None = None  # 内联自定义工作流步骤（[{id, agent, deps}]），优先于 workflow_id
     model_version: str = "0.1.0"
     memo_versions: list[str] = field(default_factory=list)
     messages: list[Message] = field(default_factory=list)
@@ -163,6 +164,7 @@ class Session:
             "assumptions": self.assumptions,
             "data_snapshot_id": self.data_snapshot_id,
             "workflow_id": self.workflow_id,
+            "workflow_steps": self.workflow_steps,
             "model_version": self.model_version,
             "memo_versions": self.memo_versions,
             "messages": [m.to_dict() for m in self.messages],
@@ -182,6 +184,7 @@ class Session:
             assumptions=d.get("assumptions", {}),
             data_snapshot_id=d.get("data_snapshot_id"),
             workflow_id=d.get("workflow_id", "default"),
+            workflow_steps=d.get("workflow_steps"),
             model_version=d.get("model_version", "0.1.0"),
             memo_versions=list(d.get("memo_versions", [])),
             created_at=_parse_dt(d.get("created_at")) or _now(),

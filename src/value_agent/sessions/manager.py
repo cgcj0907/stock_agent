@@ -99,6 +99,7 @@ class SessionManager:
         assumptions: dict | None = None,
         data_snapshot_id: str | None = None,
         workflow_id: str = "default",
+        workflow_steps: list[dict] | None = None,
         model_version: str = "0.1.0",
     ) -> Session:
         session = Session(
@@ -107,6 +108,7 @@ class SessionManager:
             assumptions=assumptions or {},
             data_snapshot_id=data_snapshot_id,
             workflow_id=workflow_id,
+            workflow_steps=workflow_steps,
             model_version=model_version,
         )
         for module in PIPELINE_ORDER:

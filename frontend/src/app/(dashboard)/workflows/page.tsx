@@ -10,9 +10,28 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { CustomWorkflowSection } from "@/components/workflow/custom-workflow-section";
+import { createClient } from "@/lib/supabase/server";
+import { getCurrentUser } from "@/lib/supabase/auth";
 import { WORKFLOWS } from "@/lib/workflows/catalog";
+import type { CustomWorkflow } from "@/types/custom-workflow";
 
-export default function WorkflowsPage() {
+export default async function WorkflowsPage() {
+  let custom: CustomWorkflow[] = [];
+  try {
+    const user = await getCurrentUser();
+    if (user) {
+      const supabase = await createClient();
+      const { data } = await supabase
+        .from("custom_workflows")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("updated_at", { ascending: false });
+      custom = (data ?? []) as CustomWorkflow[];
+    }
+  } catch {
+    // 表未创建时忽略
+  }
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-6">
       <div>
@@ -66,6 +85,8 @@ export default function WorkflowsPage() {
           </CardContent>
         </Card>
       </div>
+
+      <CustomWorkflowSection initial={custom} />
     </div>
   );
 }

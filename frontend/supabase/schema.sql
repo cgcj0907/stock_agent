@@ -116,3 +116,25 @@ create policy "conversations_update_own" on public.conversations
   for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "conversations_delete_own" on public.conversations
   for delete using (auth.uid() = user_id);
+
+-- 8) 自定义工作流表（M4.5）
+create table if not exists public.custom_workflows (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  name text not null,
+  description text not null default '',
+  steps jsonb not null default '[]'::jsonb,  -- [{id, agent, deps}]
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.custom_workflows enable row level security;
+
+create policy "custom_workflows_select_own" on public.custom_workflows
+  for select using (auth.uid() = user_id);
+create policy "custom_workflows_insert_own" on public.custom_workflows
+  for insert with check (auth.uid() = user_id);
+create policy "custom_workflows_update_own" on public.custom_workflows
+  for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy "custom_workflows_delete_own" on public.custom_workflows
+  for delete using (auth.uid() = user_id);

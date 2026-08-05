@@ -22,9 +22,17 @@ from value_agent.core.llm import get_llm
 from value_agent.data.manager import DataManager
 from value_agent.agents.builtin import register_builtin_agents
 from value_agent.report.memo import build_memo
-from value_agent.sessions import ModuleName, SessionManager, SessionStatus, SqliteStore
+from value_agent.sessions import (
+    ModuleName,
+    Session,
+    SessionManager,
+    SessionStatus,
+    SqliteStore,
+)
 from value_agent.workflow import (
+    Workflow,
     WorkflowEngine,
+    WorkflowStep,
     WorkflowValidationError,
     default_workflow,
     load_workflow_from_yaml,
@@ -54,6 +62,9 @@ class CreateSessionRequest(BaseModel):
     company_code: str
     company_name: str = ""
     workflow_id: str = "default"
+    workflow_steps: list[dict] | None = Field(
+        default=None, description="内联自定义工作流步骤（[{id, agent, deps}]），优先于 workflow_id"
+    )
 
 
 class MessageRequest(BaseModel):
@@ -97,13 +108,29 @@ def _load_session(session_id: str):
         raise HTTPException(status_code=404, detail="会话不存在") from None
 
 
-def _load_workflow(workflow_id: str):
-    if workflow_id == "default":
+def _load_workflow(session: Session) -> Workflow:
+    """按会话加载工作流：优先内联 workflow_steps（自定义工作流），其次按 workflow_id。"""
+    if session.workflow_steps:
+        steps = [
+            WorkflowStep(
+                id=str(st["id"]),
+                agent_id=str(st["agent"]),
+                deps=[str(d) for d in st.get("deps", [])],
+            )
+            for st in session.workflow_steps
+        ]
+        return Workflow(
+            id=session.workflow_id or "custom",
+            name="自定义工作流",
+            description="用户拖拽编排的自定义分析流",
+            steps=steps,
+        )
+    if session.workflow_id == "default":
         return default_workflow()
     try:
-        return load_workflow_from_yaml(f"config/workflows/{workflow_id}.yaml")
+        return load_workflow_from_yaml(f"config/workflows/{session.workflow_id}.yaml")
     except (FileNotFoundError, ImportError):
-        raise HTTPException(status_code=400, detail=f"工作流不存在: {workflow_id}") from None
+        raise HTTPException(status_code=400, detail=f"工作流不存在: {session.workflow_id}") from None
 
 
 @app.post("/api/sessions")
@@ -112,6 +139,7 @@ def create_session(req: CreateSessionRequest) -> dict:
         req.company_code,
         company_name=req.company_name,
         workflow_id=req.workflow_id,
+        workflow_steps=req.workflow_steps,
     )
     return session.to_dict()
 
@@ -130,7 +158,7 @@ def get_session(session_id: str) -> dict:
 @app.post("/api/sessions/{session_id}/run")
 def run_session(session_id: str) -> dict:
     session = _load_session(session_id)
-    flow = _load_workflow(session.workflow_id)
+    flow = _load_workflow(session)
     _engine.run(session, flow)
     return session.to_dict()
 
@@ -204,7 +232,7 @@ def archive_session(session_id: str) -> dict:
 def stream_events(session_id: str):
     """SSE：运行工作流并推送每个模块的完成事件（浏览器直连）。"""
     session = _load_session(session_id)
-    flow = _load_workflow(session.workflow_id)
+    flow = _load_workflow(session)
     q: "queue.Queue[dict | None]" = queue.Queue()
 
     def on_step(sess, step, result) -> None:  # type: ignore[no-untyped-def]
