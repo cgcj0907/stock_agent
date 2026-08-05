@@ -4,12 +4,12 @@ import pytest
 from value_agent.agents import Agent, AgentContext, AgentRegistry, AgentSpec
 from value_agent.agents.builtin import register_builtin_agents
 from value_agent.sessions import (
+    PIPELINE_ORDER,
+    InMemoryStore,
     ModuleResult,
     ModuleStatus,
-    PIPELINE_ORDER,
     SessionManager,
     SessionStatus,
-    InMemoryStore,
 )
 from value_agent.workflow import (
     Workflow,
@@ -183,12 +183,14 @@ def test_engine_resolves_per_session_llm(engine):
     manager = SessionManager(InMemoryStore())
     session = manager.create_session(
         "600519", "贵州茅台",
-        llm_config={"model": "custom-model", "api_key": "sk-test", "base_url": "https://x/v1"},
+        # 真实用法：BFF 构造的 llm_config 含 provider（见 frontend/app/api/sessions/route.ts）
+        llm_config={"provider": "openai", "model": "custom-model",
+                    "api_key": "sk-test", "base_url": "https://x/v1"},
     )
     client = engine._resolve_llm(session)
     assert isinstance(client, LlmClient)
     assert client.api_key == "sk-test"
-    assert client.model == "custom-model"
+    assert client.model == "openai/custom-model"  # provider 前缀（litellm 路由）
     assert client.base_url == "https://x/v1"
 
     # 无 llm_config（engine 全局 llm=None）→ 回退 None

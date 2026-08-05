@@ -32,6 +32,12 @@ class M8SafetyMarginAgent(Agent):
                     "status": "数据不足（依赖 M4 估值结果缺失）",
                     "mos_state": "unavailable",
                     "reason_codes": [ReasonCode.INPUT_MISSING.value],
+                    "handoff": {
+                        "mos_state": "unavailable",
+                        "buy_zone": None,
+                        "sell_zone": None,
+                        "reason_codes": [ReasonCode.INPUT_MISSING.value],
+                    },
                 },
                 evidence=["依赖 M4_valuation 未产出内在价值区间，安全边际按数据不足处理"],
                 meta=build_meta(0.0, "low", degraded=True,
@@ -62,6 +68,13 @@ class M8SafetyMarginAgent(Agent):
                 "sell_price": result.sell_price,
                 "status": result.status,
                 "mos_state": result.mos_state,
+                # 下游契约（§4 M8）：mos_state 供 M10/M11，买卖区间供监控
+                "handoff": {
+                    "mos_state": result.mos_state,
+                    "buy_zone": result.buy_price,
+                    "sell_zone": result.sell_price,
+                    "reason_codes": [],
+                },
             },
             evidence=evidence,
         )

@@ -188,6 +188,7 @@ def test_default_run_emits_handoff_contracts(stub_data):
         "M5_moat": {"moat_width", "moat_durability", "erosion_risks"},
         "M6_governance": {"governance_score", "capital_allocation_flag", "governance_risk_codes"},
         "M7_market": {"valuation_percentile", "market_state", "margin_adjustment"},
+        "M8_safety_margin": {"mos_state", "buy_zone", "sell_zone", "reason_codes"},
     }
     for agent_id, keys in expected.items():
         handoff = session.module_results[agent_id].outputs.get("handoff") or {}

@@ -79,6 +79,28 @@ class LlmClient:
         return resp.choices[0].message.content
 
 
+def _provider_default() -> str:
+    """provider：环境变量 > 配置 > deepseek（用于模型名前缀）。"""
+    try:
+        settings = load_settings()
+        provider = os.getenv("LLM_PROVIDER") or settings.get("llm", {}).get("provider", "deepseek")
+    except Exception:  # noqa: BLE001
+        provider = "deepseek"
+    return str(provider).strip().lower()
+
+
+def _prefixed_model(model: str, provider: str) -> str:
+    """裸模型名加 provider 前缀（deepseek-chat → deepseek/deepseek-chat）。
+
+    litellm 对「裸模型名 + 自定义 base_url」会打印 Provider List 噪音警告；
+    加前缀后按 provider 路由，行为一致且无警告。
+    """
+    model = (model or "").strip()
+    if not model or "/" in model:
+        return model or "deepseek-chat"
+    return f"{provider}/{model}"
+
+
 def llm_from_config(config: dict | None) -> LlmClient | None:
     """按配置字典构造 LLM 客户端（供按会话注入）；无 api_key 返回 None。"""
     if not config:
@@ -86,9 +108,10 @@ def llm_from_config(config: dict | None) -> LlmClient | None:
     api_key = config.get("api_key")
     if not api_key:
         return None
+    provider = str(config.get("provider") or _provider_default()).strip().lower()
     try:
         return LlmClient(
-            model=config.get("model") or "deepseek-chat",
+            model=_prefixed_model(config.get("model") or "deepseek-chat", provider),
             api_key=api_key,
             base_url=config.get("base_url") or "https://api.deepseek.com/v1",
             temperature=float(config.get("temperature", 0.2)),
@@ -99,11 +122,14 @@ def llm_from_config(config: dict | None) -> LlmClient | None:
 
 
 def get_llm() -> LlmClient | None:
-    """按环境变量构造 LLM 客户端；无 key 或不可用时返回 None（不阻塞分析）。"""
+    """按环境变量构造 LLM 客户端；无 key 或不可用时返回 None（不阻塞分析）。
+
+    先 load_settings()（内部会加载 .env），避免调用方未预加载 .env 时拿不到 key。
+    """
+    settings = load_settings()
     api_key = os.getenv("LLM_API_KEY")
     if not api_key:
         return None
-    settings = load_settings()
     llm_cfg = settings.get("llm", {})
     return llm_from_config(
         {

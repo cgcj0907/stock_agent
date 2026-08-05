@@ -17,6 +17,8 @@
 
 ---
 
+> ✅ 2026-08-05 **真实数据验证 + 收尾修复（600519）**：AkShare+LLM 全链路跑通，M1~M11 契约字段（handoff/meta/signals/Risk Registry/source_module-action）真实数据核验通过；M8 补 handoff（mos_state/buy_zone/sell_zone/reason_codes）；修复 get_llm 先加载 .env 再读 key；_load_dotenv 支持行内注释；LLM 模型名按 provider 加前缀（deepseek/deepseek-chat）消除 litellm Provider List 噪音；配套测试。99 测试全绿 + 前端 tsc 通过。
+
 > ✅ 2026-08-05 **方案 1 批次 D（收尾对齐，docs/09-module-contracts.md §1.1/§8）**：全面核对 AgentSpec.inputs 与引擎实际读取——M3 只读数据置空 inputs（M2 顺序依赖留 MODULE_DEPENDENCIES）；M10 补全 9 模块消费声明（维度评分用 M1/M2/M3/M5/M6 score）；M11 补全 M2/M3/M7/M8/M9/M10 消费声明；MODULE_DEPENDENCIES 与 YAML deps 同步；强约束规范写入 05-coding-conventions §3.1 与 templates/module-spec；新增 inputs 消费集合锁定测试。97 测试全绿。
 
 > ✅ 2026-08-05 **方案 1 批次 C（外围与风险契约，docs/09-module-contracts.md §4/§8）**：M1 handoff（valuation_route / understandability_level）；M3 handoff（recommended_growth_rate / growth_confidence / cyclicality_flag / prosperity_code）；M5 handoff（moat_width / moat_durability / erosion_risks）；M6 handoff（governance_score / capital_allocation_flag / governance_risk_codes）；M7 handoff（valuation_percentile / market_state / margin_adjustment）；M9 升级 Risk Registry（risk_items 对象化 id/category/severity/source_module/trigger/impact/mitigation/veto_candidate + vetoes[] + monitor_candidates，保留 veto 兼容列表）；M11 rules 补 source_module / action(watch|alert|action) 分层并消费 M9 对象；前端 labels 补契约字段标签；测试同步 + handoff 集成测试。96 测试全绿 + 前端 tsc 通过。
