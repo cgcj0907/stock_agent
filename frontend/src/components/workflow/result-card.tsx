@@ -15,6 +15,10 @@ import {
   CardContent,
   CardHeader,
 } from "@/components/ui/card";
+import {
+  isMarkdownText,
+  MarkdownValue,
+} from "@/components/workflow/markdown-value";
 import { SourceLinks } from "@/components/workflow/source-links";
 import { ValueView } from "@/components/workflow/value-view";
 import { LinkedText } from "@/lib/linkify";
@@ -58,6 +62,16 @@ const STATUS_BADGE: Record<
 
 const MAX_OUTPUTS = 8;
 const MAX_EVIDENCE = 4;
+
+/** 输出字段名含这些关键词时，即使未检测到 Markdown 语法也按 Markdown 折叠渲染。 */
+const MD_KEY_RE = /llm|qualitative|red_team|explanation|conclusion|summary|note/i;
+
+function isMarkdownValue(v: unknown, key: string): boolean {
+  return (
+    typeof v === "string" &&
+    (isMarkdownText(v) || MD_KEY_RE.test(key))
+  );
+}
 
 export function ResultCard({
   agent,
@@ -127,16 +141,25 @@ export function ResultCard({
 
         {entries.length > 0 && (
           <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 rounded-xl bg-muted/40 p-3">
-            {entries.slice(0, MAX_OUTPUTS).map(([k, v]) => (
-              <div key={k} className="min-w-0">
-                <div className="truncate text-[10px] text-muted-foreground">
-                  {k}
+            {entries.slice(0, MAX_OUTPUTS).map(([k, v]) => {
+              const isMd = isMarkdownValue(v, k);
+              return (
+                <div key={k} className={isMd ? "col-span-2 min-w-0" : "min-w-0"}>
+                  <div className="truncate text-[10px] text-muted-foreground">
+                    {k}
+                  </div>
+                  <div
+                    className={
+                      isMd
+                        ? "mt-1"
+                        : "mt-0.5 break-words text-xs leading-5"
+                    }
+                  >
+                    <ValueView value={v} label={k} />
+                  </div>
                 </div>
-                <div className="mt-0.5 break-words text-xs leading-5">
-                  <ValueView value={v} />
-                </div>
-              </div>
-            ))}
+              );
+            })}
             {showMoreOutputs && (
               <div className="col-span-2 text-[10px] text-muted-foreground">
                 另有 {entries.length - MAX_OUTPUTS} 个字段未展示
@@ -171,11 +194,17 @@ export function ResultCard({
           </div>
         )}
 
-        {result.llm_explanation && (
-          <p className="text-xs italic leading-5 text-muted-foreground">
-            {result.llm_explanation}
-          </p>
-        )}
+        {result.llm_explanation &&
+          (isMarkdownText(result.llm_explanation) ? (
+            <MarkdownValue
+              text={result.llm_explanation}
+              label="LLM 解释"
+            />
+          ) : (
+            <p className="text-xs italic leading-5 text-muted-foreground">
+              {result.llm_explanation}
+            </p>
+          ))}
 
         {companyCode && (
           <div className="mt-auto border-t pt-2.5">

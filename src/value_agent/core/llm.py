@@ -4,12 +4,38 @@
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
+import re
 
 from value_agent.core.config import load_settings
 
 logger = logging.getLogger(__name__)
+
+# 各模块 LLM 定性的统一输出规范：固定 JSON 结构（字段由各模块提示词定义），
+# 前端拿到后可直接转成 TS 数据渲染，避免 Markdown/JSON 混排。
+LLM_JSON_RULE = (
+    "输出规范（务必遵守）：只输出一个合法的 JSON 对象，不要 Markdown、"
+    "不要代码块、不要多余文字或解释。"
+)
+
+
+def parse_llm_json(text: str) -> dict | None:
+    """从 LLM 回复中解析 JSON 对象；容忍 ```json 代码块与首尾杂文，失败返回 None。"""
+    if not text:
+        return None
+    t = text.strip()
+    t = re.sub(r"^```(?:json)?\s*", "", t, flags=re.IGNORECASE)
+    t = re.sub(r"\s*```$", "", t)
+    start, end = t.find("{"), t.rfind("}")
+    if start != -1 and end > start:
+        t = t[start : end + 1]
+    try:
+        data = json.loads(t)
+        return data if isinstance(data, dict) else None
+    except (ValueError, TypeError):
+        return None
 
 
 class LlmClient:

@@ -12,6 +12,7 @@ from value_agent.core.config import load_settings
 
 from .sources.base import DataSource
 from .sources.mock_source import MockDataSource
+from .sources.urls import source_url
 
 logger = logging.getLogger(__name__)
 
@@ -83,36 +84,69 @@ class DataManager:
             self._cache[key] = fetcher()
         return self._cache[key]
 
+    def _with_url(self, data: dict, dataset: str, code: str) -> dict:
+        """确保返回数据带文章级数据来源 URL（存储命中时也无缺失）。"""
+        data = dict(data)
+        data.setdefault("url", source_url(dataset, code))
+        return data
+
     def company_info(self, code: str) -> dict:
         recs = self._stored("company", code)
         if recs:
             r = recs[0]
             return {k: r.get(k) for k in ("code", "ts_code", "name", "industry", "list_date")}
-        return self._cached(f"info:{code}", lambda: self._source.company_info(code))
+        return self._with_url(
+            self._cached(f"info:{code}", lambda: self._source.company_info(code)),
+            "company", code,
+        )
 
     def financials(self, code: str, years: int = 10) -> dict:
         recs = self._stored("financials", code)
         if recs is not None:
-            return {"records": recs, "source": f"storage({self._storage.name})"}
-        return self._cached(f"fin:{code}:{years}", lambda: self._source.financials(code, years))
+            return self._with_url(
+                {"records": recs, "source": f"storage({self._storage.name})"},
+                "financials", code,
+            )
+        return self._with_url(
+            self._cached(f"fin:{code}:{years}", lambda: self._source.financials(code, years)),
+            "financials", code,
+        )
 
     def daily_prices(self, code: str, start: str | None = None, end: str | None = None) -> dict:
         recs = self._stored("daily_price", code)
         if recs is not None:
-            return {"records": recs, "source": f"storage({self._storage.name})"}
-        return self._cached(
-            f"price:{code}:{start}:{end}",
-            lambda: self._source.daily_prices(code, start, end),
+            return self._with_url(
+                {"records": recs, "source": f"storage({self._storage.name})"},
+                "daily_price", code,
+            )
+        return self._with_url(
+            self._cached(
+                f"price:{code}:{start}:{end}",
+                lambda: self._source.daily_prices(code, start, end),
+            ),
+            "daily_price", code,
         )
 
     def valuation_history(self, code: str) -> dict:
         recs = self._stored("valuation_history", code)
         if recs is not None:
-            return {"records": recs, "source": f"storage({self._storage.name})"}
-        return self._cached(f"val:{code}", lambda: self._source.valuation_history(code))
+            return self._with_url(
+                {"records": recs, "source": f"storage({self._storage.name})"},
+                "valuation_history", code,
+            )
+        return self._with_url(
+            self._cached(f"val:{code}", lambda: self._source.valuation_history(code)),
+            "valuation_history", code,
+        )
 
     def dividends(self, code: str) -> dict:
         recs = self._stored("dividends", code)
         if recs is not None:
-            return {"records": recs, "source": f"storage({self._storage.name})"}
-        return self._cached(f"div:{code}", lambda: self._source.dividends(code))
+            return self._with_url(
+                {"records": recs, "source": f"storage({self._storage.name})"},
+                "dividends", code,
+            )
+        return self._with_url(
+            self._cached(f"div:{code}", lambda: self._source.dividends(code)),
+            "dividends", code,
+        )

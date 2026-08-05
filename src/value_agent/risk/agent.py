@@ -2,11 +2,15 @@
 from __future__ import annotations
 
 from value_agent.agents.base import Agent, AgentContext, AgentSpec
+from value_agent.core.llm import LLM_JSON_RULE, parse_llm_json
 from value_agent.sessions.models import ModuleResult, ModuleStatus
 
 from .engine import assess_risk
 
-_LLM_SYSTEM = "你是投资红队：找出这笔投资最可能出错的三个假设与永久损失路径。"
+_LLM_SYSTEM = (
+    "你是投资红队：找出这笔投资最可能出错的三个假设与永久损失路径。"
+    + LLM_JSON_RULE
+)
 
 
 class M9RiskAgent(Agent):
@@ -27,10 +31,20 @@ class M9RiskAgent(Agent):
             try:
                 text = ctx.llm.chat(
                     _LLM_SYSTEM,
-                    f"公司：{ctx.session.company_name or ctx.session.company_code}；规则风险清单：{result.risk_items}。请给出反方论证。",
+                    f"公司：{ctx.session.company_name or ctx.session.company_code}；"
+                    f"规则风险清单：{result.risk_items}。\n"
+                    "请按以下结构输出 JSON：\n"
+                    '{"key_assumptions": ["假设1", "假设2", "假设3"], '
+                    '"permanent_loss_paths": ["路径1", "路径2"], '
+                    '"verdict": "一句话反方结论"}',
                 )
-                outputs["llm_red_team"] = text
-                evidence.append("LLM 红队：已接入")
+                parsed = parse_llm_json(text)
+                if parsed is not None:
+                    outputs["llm_red_team"] = parsed
+                    evidence.append("LLM 红队：已接入（结构化 JSON）")
+                else:
+                    outputs["llm_red_team"] = text
+                    evidence.append("LLM 红队：已接入（输出解析失败，按原文展示）")
             except Exception as exc:  # noqa: BLE001
                 evidence.append(f"LLM 调用失败，使用规则结果：{type(exc).__name__}")
         else:

@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { LinkedText } from "@/lib/linkify";
+import { isMarkdownText, MarkdownValue } from "@/components/workflow/markdown-value";
 
 function isPrimitive(v: unknown): boolean {
   return (
@@ -32,12 +33,16 @@ function fmtPrimitive(v: unknown): string {
  * - 纯原始值对象 → 用「 · 」拼接（如 {"low":1,"high":2} → low 1 · high 2）
  * - 嵌套结构 → 逐行 key: value 缩进列表，字符串自动识别链接
  */
-export function ValueView({ value }: { value: unknown }) {
+export function ValueView({ value, label }: { value: unknown; label?: string }) {
   // 原始值
   if (isPrimitive(value)) {
     const text = fmtPrimitive(value);
     if (typeof value === "string") {
-      return text ? <LinkedText text={text} /> : <Dash />;
+      if (!text) return <Dash />;
+      if (isMarkdownText(text)) {
+        return <MarkdownValue text={text} label={label} />;
+      }
+      return <LinkedText text={text} />;
     }
     return <span className="tabular-nums">{text}</span>;
   }

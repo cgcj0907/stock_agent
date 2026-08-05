@@ -21,11 +21,14 @@ class M3GrowthAgent(Agent):
             raise RuntimeError("M3 需要数据访问（ctx.data）")
         fin = ctx.data.financials(ctx.session.company_code)
         result = assess_growth(fin, default_growth=ctx.assumptions.get("growth_rate", 0.10))
+        evidence = list(result.evidence)
+        if fin.get("url"):
+            evidence.append(f"数据来源：新浪财经财务指标 {fin['url']}")
         return ModuleResult(
             module=self.spec.id, status=ModuleStatus.DONE, score=result.score,
             outputs={
                 "growth_estimate": result.growth_estimate,
                 "prosperity": result.prosperity,
             },
-            evidence=result.evidence,
+            evidence=evidence,
         )

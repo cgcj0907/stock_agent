@@ -2,11 +2,16 @@
 from __future__ import annotations
 
 from value_agent.agents.base import Agent, AgentContext, AgentSpec
+from value_agent.core.llm import LLM_JSON_RULE, parse_llm_json
 from value_agent.sessions.models import ModuleResult, ModuleStatus
 
 from .engine import assess_moat
 
-_LLM_SYSTEM = "你是价值投资分析师。基于财务特征判断公司护城河来源（无形资产/转换成本/网络效应/成本优势/规模）并评级。"
+_LLM_SYSTEM = (
+    "你是价值投资分析师。基于财务特征判断公司护城河来源"
+    "（无形资产/转换成本/网络效应/成本优势/规模）并评级。"
+    + LLM_JSON_RULE
+)
 
 
 class M5MoatAgent(Agent):
@@ -26,16 +31,26 @@ class M5MoatAgent(Agent):
 
         outputs = {"width": result.width, "signals": result.signals}
         evidence = list(result.evidence)
+        if fin.get("url"):
+            evidence.append(f"数据来源：新浪财经财务指标 {fin['url']}")
 
         if ctx.llm is not None:
             try:
                 text = ctx.llm.chat(
                     _LLM_SYSTEM,
-                    f"公司：{ctx.session.company_name or code}，财务信号：{result.signals}。"
-                    f"请判断护城河来源与宽度（宽/中/窄/无）。",
+                    f"公司：{ctx.session.company_name or code}，财务信号：{result.signals}。\n"
+                    "请按以下结构输出 JSON：\n"
+                    '{"moat_sources": ["无形资产", "转换成本"], '
+                    '"width": "宽|中|窄|无", '
+                    '"evidence": ["关键证据1", "关键证据2"]}',
                 )
-                outputs["llm_qualitative"] = text
-                evidence.append("LLM 定性：已接入")
+                parsed = parse_llm_json(text)
+                if parsed is not None:
+                    outputs["llm_qualitative"] = parsed
+                    evidence.append("LLM 定性：已接入（结构化 JSON）")
+                else:
+                    outputs["llm_qualitative"] = text
+                    evidence.append("LLM 定性：已接入（输出解析失败，按原文展示）")
             except Exception as exc:  # noqa: BLE001
                 evidence.append(f"LLM 调用失败，使用规则结果：{type(exc).__name__}")
         else:

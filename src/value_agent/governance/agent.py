@@ -2,11 +2,15 @@
 from __future__ import annotations
 
 from value_agent.agents.base import Agent, AgentContext, AgentSpec
+from value_agent.core.llm import LLM_JSON_RULE, parse_llm_json
 from value_agent.sessions.models import ModuleResult, ModuleStatus
 
 from .engine import assess_governance
 
-_LLM_SYSTEM = "你是公司治理分析师。基于公开信息评估管理层诚信、资本配置与治理风险。"
+_LLM_SYSTEM = (
+    "你是公司治理分析师。基于公开信息评估管理层诚信、资本配置与治理风险。"
+    + LLM_JSON_RULE
+)
 
 
 class M6GovernanceAgent(Agent):
@@ -30,16 +34,27 @@ class M6GovernanceAgent(Agent):
             "note": result.note,
         }
         evidence = list(result.evidence)
+        if div.get("url"):
+            evidence.append(f"数据来源：巨潮资讯分红/公告 {div['url']}")
 
         if ctx.llm is not None:
             try:
                 text = ctx.llm.chat(
                     _LLM_SYSTEM,
-                    f"公司：{ctx.session.company_name or code}，分红信号：{result.note}。"
-                    f"请评估治理与资本配置，指出风险点。",
+                    f"公司：{ctx.session.company_name or code}，分红信号：{result.note}。\n"
+                    "请按以下结构输出 JSON：\n"
+                    '{"governance_assessment": "治理评估", '
+                    '"capital_allocation": "资本配置评估", '
+                    '"risks": ["风险1", "风险2"], '
+                    '"conclusion": "一句话结论"}',
                 )
-                outputs["llm_qualitative"] = text
-                evidence.append("LLM 定性：已接入")
+                parsed = parse_llm_json(text)
+                if parsed is not None:
+                    outputs["llm_qualitative"] = parsed
+                    evidence.append("LLM 定性：已接入（结构化 JSON）")
+                else:
+                    outputs["llm_qualitative"] = text
+                    evidence.append("LLM 定性：已接入（输出解析失败，按原文展示）")
             except Exception as exc:  # noqa: BLE001
                 evidence.append(f"LLM 调用失败，使用规则结果：{type(exc).__name__}")
         else:

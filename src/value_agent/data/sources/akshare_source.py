@@ -11,6 +11,7 @@ import datetime
 import logging
 
 from .base import DataSource, to_float
+from .urls import source_url
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,7 @@ class AkShareDataSource(DataSource):
             "industry": str(kv.get("行业", "")),
             "list_date": str(kv.get("上市时间", "") or ""),
             "source": self.name,
+            "url": source_url("company", code),
         }
 
     def financials(self, code: str, years: int = 10) -> dict:
@@ -82,7 +84,7 @@ class AkShareDataSource(DataSource):
                     "ocf_to_np": None,
                 }
             )
-        return {"records": records, "source": self.name}
+        return {"records": records, "source": self.name, "url": source_url("financials", code)}
 
     def daily_prices(self, code: str, start: str | None = None, end: str | None = None) -> dict:
         return self._retry("daily_prices", lambda: self._daily_prices(code, start, end))
@@ -107,7 +109,7 @@ class AkShareDataSource(DataSource):
             }
             for _, r in df.iterrows()
         ]
-        return {"records": records, "source": self.name}
+        return {"records": records, "source": self.name, "url": source_url("daily_price", code)}
 
     def valuation_history(self, code: str) -> dict:
         return self._retry("valuation_history", lambda: self._valuation_history(code))
@@ -144,7 +146,7 @@ class AkShareDataSource(DataSource):
             }
             for d, v in sorted(merged.items())
         ]
-        return {"records": records, "source": self.name}
+        return {"records": records, "source": self.name, "url": source_url("valuation_history", code)}
 
     def dividends(self, code: str) -> dict:
         return self._retry("dividends", lambda: self._dividends(code))
@@ -161,4 +163,4 @@ class AkShareDataSource(DataSource):
             for _, r in df.iterrows()
             if str(r.get("报告期", "") or "").replace("-", "")
         ]
-        return {"records": records, "source": self.name}
+        return {"records": records, "source": self.name, "url": source_url("dividends", code)}
