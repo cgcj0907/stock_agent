@@ -15,6 +15,9 @@ import {
   CardContent,
   CardHeader,
 } from "@/components/ui/card";
+import { SourceLinks } from "@/components/workflow/source-links";
+import { ValueView } from "@/components/workflow/value-view";
+import { LinkedText } from "@/lib/linkify";
 import type { AgentInfo } from "@/lib/agents/catalog";
 import type { ModuleResultView } from "@/hooks/use-workflow-run";
 
@@ -53,24 +56,24 @@ const STATUS_BADGE: Record<
   },
 };
 
-function formatValue(v: unknown): string {
-  if (v === null || v === undefined) return "—";
-  if (typeof v === "object") return JSON.stringify(v);
-  return String(v);
-}
+const MAX_OUTPUTS = 8;
+const MAX_EVIDENCE = 4;
 
 export function ResultCard({
   agent,
   result,
+  companyCode,
 }: {
   agent?: AgentInfo;
   result: ModuleResultView;
+  companyCode?: string;
 }) {
-  const badge =
-    STATUS_BADGE[result.status] ?? STATUS_BADGE.pending;
+  const badge = STATUS_BADGE[result.status] ?? STATUS_BADGE.pending;
   const StatusIcon = badge.icon;
   const entries = Object.entries(result.outputs ?? {});
   const score = result.score;
+  const showMoreOutputs = entries.length > MAX_OUTPUTS;
+  const showMoreEvidence = result.evidence.length > MAX_EVIDENCE;
 
   return (
     <Card className="rounded-2xl transition-shadow hover:shadow-sm">
@@ -105,6 +108,7 @@ export function ResultCard({
           {badge.label}
         </Badge>
       </CardHeader>
+
       <CardContent className="flex flex-col gap-3">
         {score != null && (
           <div className="flex items-center gap-2.5">
@@ -123,37 +127,60 @@ export function ResultCard({
 
         {entries.length > 0 && (
           <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 rounded-xl bg-muted/40 p-3">
-            {entries.slice(0, 8).map(([k, v]) => (
+            {entries.slice(0, MAX_OUTPUTS).map(([k, v]) => (
               <div key={k} className="min-w-0">
                 <div className="truncate text-[10px] text-muted-foreground">
                   {k}
                 </div>
-                <div className="truncate font-mono text-xs">
-                  {formatValue(v)}
+                <div className="mt-0.5 break-words text-xs leading-5">
+                  <ValueView value={v} />
                 </div>
               </div>
             ))}
+            {showMoreOutputs && (
+              <div className="col-span-2 text-[10px] text-muted-foreground">
+                另有 {entries.length - MAX_OUTPUTS} 个字段未展示
+              </div>
+            )}
           </div>
         )}
 
         {result.evidence.length > 0 && (
-          <ul className="flex flex-col gap-1">
-            {result.evidence.slice(0, 4).map((ev, i) => (
-              <li
-                key={i}
-                className="flex items-start gap-1.5 text-xs text-muted-foreground"
-              >
-                <Paperclip className="mt-0.5 size-3 shrink-0" />
-                <span className="line-clamp-1">{ev}</span>
-              </li>
-            ))}
-          </ul>
+          <div className="flex flex-col gap-1.5">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              证据 / 数据来源
+            </div>
+            <ul className="flex flex-col gap-1">
+              {result.evidence.slice(0, MAX_EVIDENCE).map((ev, i) => (
+                <li
+                  key={i}
+                  className="flex items-start gap-1.5 text-xs leading-5 text-muted-foreground"
+                >
+                  <Paperclip className="mt-1 size-3 shrink-0" />
+                  <span className="min-w-0 break-words">
+                    <LinkedText text={ev} />
+                  </span>
+                </li>
+              ))}
+              {showMoreEvidence && (
+                <li className="text-[10px] text-muted-foreground">
+                  另有 {result.evidence.length - MAX_EVIDENCE} 条证据未展示
+                </li>
+              )}
+            </ul>
+          </div>
         )}
 
         {result.llm_explanation && (
           <p className="text-xs italic leading-5 text-muted-foreground">
             {result.llm_explanation}
           </p>
+        )}
+
+        {companyCode && (
+          <div className="mt-auto border-t pt-2.5">
+            <SourceLinks code={companyCode} />
+          </div>
         )}
       </CardContent>
     </Card>

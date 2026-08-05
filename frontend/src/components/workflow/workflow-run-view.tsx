@@ -8,6 +8,7 @@ import remarkGfm from "remark-gfm";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { AnalysisProgress } from "@/components/workflow/analysis-progress";
 import { WorkflowDag } from "@/components/workflow/workflow-dag";
 import { ResultCard } from "@/components/workflow/result-card";
 import { MemoCard } from "@/components/workflow/memo-card";
@@ -146,6 +147,15 @@ export function WorkflowRunView({ workflow }: { workflow: WorkflowInfo }) {
         </p>
       </div>
 
+      {running && (
+        <AnalysisProgress
+          steps={workflow.steps}
+          statuses={statuses}
+          running={running}
+          className="animate-in fade-in slide-in-from-top-2"
+        />
+      )}
+
       {error && (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/50 dark:text-red-300">
           {error}
@@ -162,6 +172,7 @@ export function WorkflowRunView({ workflow }: { workflow: WorkflowInfo }) {
                 key={step}
                 agent={agent ? findAgent(agent) : undefined}
                 result={result}
+                companyCode={companyCode}
               />
             ))}
           </div>

@@ -26,6 +26,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { AnalysisProgress } from "@/components/workflow/analysis-progress";
 import { WorkflowDag } from "@/components/workflow/workflow-dag";
 import { ResultCard } from "@/components/workflow/result-card";
 import { MemoCard } from "@/components/workflow/memo-card";
@@ -373,6 +374,15 @@ export function ConversationDetailView({
         </Card>
       )}
 
+      {running && workflow && (
+        <AnalysisProgress
+          steps={workflow.steps}
+          statuses={statuses}
+          running={running}
+          className="animate-in fade-in slide-in-from-top-2"
+        />
+      )}
+
       <section className="flex flex-col gap-3">
         <h2 className="text-base font-semibold">对话</h2>
         <Card className="rounded-2xl">
@@ -473,6 +483,7 @@ export function ConversationDetailView({
                 key={step}
                 agent={agent ? findAgent(agent) : undefined}
                 result={result}
+                companyCode={conversation.company_code}
               />
             ))}
           </div>

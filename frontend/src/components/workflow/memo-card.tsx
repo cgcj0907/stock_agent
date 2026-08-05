@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { SourceLinks } from "@/components/workflow/source-links";
 import type { ModuleResultView } from "@/hooks/use-workflow-run";
 
 const DIM_LABELS: Record<string, string> = {
@@ -400,8 +401,11 @@ export function MemoCard({
       )}
 
       {/* footer */}
-      <div className="px-6 py-4 text-[11px] text-muted-foreground">
-        数据快照与模块证据见各模块输出 · 本备忘录不构成投资建议
+      <div className="flex flex-col gap-2 px-6 py-4 text-[11px] text-muted-foreground">
+        <SourceLinks code={companyCode} />
+        <div>
+          数据快照与模块证据见各模块输出 · 本备忘录不构成投资建议
+        </div>
       </div>
     </Card>
   );
