@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import math
 import statistics
 from dataclasses import dataclass, field
 
@@ -54,7 +55,11 @@ def analyze_financial_quality(records: list[dict]) -> FinancialQualityResult:
     annual = annual_records(recs)
 
     def col(name: str, pool=None) -> list[float]:
-        return [r[name] for r in (pool or recs) if r.get(name) is not None]
+        return [
+            r[name]
+            for r in (pool or recs)
+            if r.get(name) is not None and math.isfinite(r[name])
+        ]
 
     roe = col("roe", annual)          # 年度 ROE（避免季度口径失真）
     gp = col("grossprofit_margin", annual)

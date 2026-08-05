@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import datetime
 import logging
 
 from .base import DataSource, to_float
@@ -40,9 +41,11 @@ class AkShareDataSource(DataSource):
 
     def financials(self, code: str, years: int = 10) -> dict:
         df = self._ak.stock_financial_analysis_indicator(symbol=code)
+        # 接口按日期升序返回 → 取最新 years*4 期（避免取到最旧数据）
+        df = df.tail(years * 4)
         # 列名（新浪）：日期, 净资产收益率(%), 毛利率(%), 净利率(%), 资产负债率(%), 每股收益, 每股经营现金流
         records: list[dict] = []
-        for _, r in df.head(years * 4).iterrows():
+        for _, r in df.iterrows():
             period = str(r.get("日期", "") or "")
             if not period or period in ("nan", "-"):
                 continue
@@ -53,14 +56,19 @@ class AkShareDataSource(DataSource):
                     "grossprofit_margin": to_float(r.get("毛利率(%)")),
                     "netprofit_margin": to_float(r.get("净利率(%)")),
                     "debt_to_assets": to_float(r.get("资产负债率(%)"), 100.0),  # % → 小数
-                    "ocfps": to_float(r.get("每股经营现金流")),
-                    "eps": to_float(r.get("每股收益")),
+                    "ocfps": to_float(r.get("每股经营性现金流(元)") or r.get("每股经营现金流")),
+                    "eps": to_float(r.get("摊薄每股收益(元)") or r.get("加权每股收益(元)") or r.get("每股收益")),
                     "ocf_to_np": None,
                 }
             )
         return {"records": records, "source": self.name}
 
     def daily_prices(self, code: str, start: str | None = None, end: str | None = None) -> dict:
+        # 接口需显式日期范围（None 会返回空）
+        if start is None:
+            start = (datetime.date.today() - datetime.timedelta(days=365 * 10)).strftime("%Y%m%d")
+        if end is None:
+            end = datetime.date.today().strftime("%Y%m%d")
         df = self._ak.stock_zh_a_hist(
             symbol=code, period="daily", start_date=start, end_date=end, adjust="qfq"
         )
@@ -78,19 +86,36 @@ class AkShareDataSource(DataSource):
         return {"records": records, "source": self.name}
 
     def valuation_history(self, code: str) -> dict:
-        # 乐咕乐股：10 年 pe/pb/ps/股息率（正是 M7 估值分位所需）
-        df = self._ak.stock_a_indicator_lg(symbol=code)
+        # 百度股市通估值历史：按指标分别拉取后按日期合并（akshare>=1.18 已移除乐咕接口）
+        indicators = {
+            "pe_ttm": "市盈率(TTM)",
+            "pb": "市净率",
+            "ps": "市销率",
+        }
+        merged: dict[str, dict] = {}
+        for key, ind in indicators.items():
+            try:
+                df = self._ak.stock_zh_valuation_baidu(
+                    symbol=code, indicator=ind, period="近十年"
+                )
+                for _, r in df.iterrows():
+                    d = str(r.get("date") or "").replace("-", "")
+                    if not d or d in ("nan", "NaT"):
+                        continue
+                    merged.setdefault(d, {})[key] = to_float(r.get("value"))
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("估值指标 %s 获取失败：%s", ind, exc)
         records = [
             {
-                "trade_date": str(r["trade_date"]).replace("-", ""),
-                "pe": to_float(r.get("pe")),
-                "pe_ttm": to_float(r.get("pe_ttm")),
-                "pb": to_float(r.get("pb")),
-                "ps": to_float(r.get("ps")),
-                "dv_ttm": to_float(r.get("dv_ttm")),
-                "total_mv": to_float(r.get("total_mv")),
+                "trade_date": d,
+                "pe": v.get("pe_ttm"),
+                "pe_ttm": v.get("pe_ttm"),
+                "pb": v.get("pb"),
+                "ps": v.get("ps"),
+                "dv_ttm": None,
+                "total_mv": None,
             }
-            for _, r in df.iterrows()
+            for d, v in sorted(merged.items())
         ]
         return {"records": records, "source": self.name}
 

@@ -66,3 +66,11 @@ def test_implausible_debt_treated_as_missing():
     notes = [s for v in r.details.values() for s in (v if isinstance(v, list) else [v])]
     assert any("数据异常" in s for s in notes)
     assert r.metrics.get("debt_to_assets_latest") is None
+
+
+def test_non_finite_values_do_not_crash():
+    """col() 过滤 inf/nan，stdev 等统计不崩溃（数据源防御）。"""
+    recs = _records([18] * 10, [1.2] * 10, [0.4] * 10)
+    recs[0]["roe"] = float("inf")
+    r = analyze_financial_quality(recs)
+    assert r.score > 0
