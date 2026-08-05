@@ -92,3 +92,27 @@ create policy "agent_favorites_insert_own" on public.agent_favorites
   for insert with check (auth.uid() = user_id);
 create policy "agent_favorites_delete_own" on public.agent_favorites
   for delete using (auth.uid() = user_id);
+
+-- 7) 会话记录表（M4 落库，M5 对话记录）
+create table if not exists public.conversations (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  session_id text not null unique,           -- 后端会话 id
+  company_code text not null,
+  company_name text not null default '',
+  workflow_id text not null default 'default',
+  status text not null default 'created',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.conversations enable row level security;
+
+create policy "conversations_select_own" on public.conversations
+  for select using (auth.uid() = user_id);
+create policy "conversations_insert_own" on public.conversations
+  for insert with check (auth.uid() = user_id);
+create policy "conversations_update_own" on public.conversations
+  for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy "conversations_delete_own" on public.conversations
+  for delete using (auth.uid() = user_id);
