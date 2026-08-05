@@ -115,11 +115,12 @@ class AkShareDataSource(DataSource):
         return self._retry("valuation_history", lambda: self._valuation_history(code))
 
     def _valuation_history(self, code: str) -> dict:
-        # 百度股市通估值历史：按指标分别拉取后按日期合并（akshare>=1.18 已移除乐咕接口）
+        # 百度股市通估值历史：按指标分别拉取后按日期合并（akshare>=1.18 已移除乐咕接口）。
+        # 注意：stock_zh_valuation_baidu 不支持「市销率」（可选值见 akshare docstring），
+        # 传入会返回空结构报 NoneType 错；PS 无下游消费，records.ps 保持 None。
         indicators = {
             "pe_ttm": "市盈率(TTM)",
             "pb": "市净率",
-            "ps": "市销率",
         }
         merged: dict[str, dict] = {}
         for key, ind in indicators.items():

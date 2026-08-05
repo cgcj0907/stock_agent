@@ -17,6 +17,8 @@
 
 ---
 
+> ✅ 2026-08-05 **市销率警告修复**：akshare 1.18.81 的 `stock_zh_valuation_baidu` 不支持「市销率」指标（可选值见 docstring），传入返回空结构报 NoneType 错；PS 无下游消费，从估值指标列表移除，records.ps 保持 None。真实验证 731 条估值记录正常、无警告。
+
 > ✅ 2026-08-05 **分红数据修复**：AkShare 1.18.81 巨潮分红接口列名变更（报告期→报告时间、每股派息(税前)→派息比例），旧解析导致记录被全滤掉、分红为空。改用东财 `stock_fhps_detail_em`（标准报告期 + 现金分红比例 + 方案进度），仅保留已实施分红、滤掉 NaN/预披露、每10股→每股换算、按 period 倒序；来源 URL 同步东财 F10 分红页；解析逻辑抽纯函数 + 3 个离线单测。真实验证：M6 治理 50→85 分、M4 ddm 由「无分红数据」变为正确的 r≤g 判断。102 测试全绿。
 
 > ✅ 2026-08-05 **真实数据验证 + 收尾修复（600519）**：AkShare+LLM 全链路跑通，M1~M11 契约字段（handoff/meta/signals/Risk Registry/source_module-action）真实数据核验通过；M8 补 handoff（mos_state/buy_zone/sell_zone/reason_codes）；修复 get_llm 先加载 .env 再读 key；_load_dotenv 支持行内注释；LLM 模型名按 provider 加前缀（deepseek/deepseek-chat）消除 litellm Provider List 噪音；配套测试。99 测试全绿 + 前端 tsc 通过。
