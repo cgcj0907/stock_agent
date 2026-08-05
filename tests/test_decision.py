@@ -2,7 +2,13 @@
 import pytest
 
 from value_agent.decision.engine import run_decision
+from value_agent.sessions import ModuleName
 from value_agent.sessions.models import ModuleResult, ModuleStatus
+
+
+def _all_modules(score: float) -> dict[str, float]:
+    """全部 11 个模块同分（用真实 agent id）。"""
+    return {ModuleName[f"M{i}"].value: score for i in range(1, 12)}
 
 
 def _results(scores: dict[str, float], veto: list[str] | None = None) -> dict[str, ModuleResult]:
@@ -18,20 +24,20 @@ def _results(scores: dict[str, float], veto: list[str] | None = None) -> dict[st
 
 def test_all_stub_neutral_around_50():
     # 全部模块 50 分 → 加权总分约 50，落入"中性/观察"
-    r = run_decision(_results({f"M{i}": 50.0 for i in range(1, 12)}))
+    r = run_decision(_results(_all_modules(50.0)))
     assert r.total == pytest.approx(50.0, abs=0.1)
     assert "中性" in r.conclusion
 
 
 def test_excellent_scores_hit_strong_band():
-    r = run_decision(_results({f"M{i}": 90.0 for i in range(1, 12)}))
+    r = run_decision(_results(_all_modules(90.0)))
     assert r.total >= 80
     assert "强烈关注" in r.conclusion
     assert r.position == 0.10
 
 
 def test_poor_scores_avoid():
-    r = run_decision(_results({f"M{i}": 20.0 for i in range(1, 12)}))
+    r = run_decision(_results(_all_modules(20.0)))
     assert r.total < 50
     assert r.conclusion == "回避"
     assert r.position == 0.0
@@ -50,7 +56,7 @@ def test_dimension_weights_applied():
     scores["M2_financial_quality"] = 100.0
     scores["M4_valuation"] = 100.0
     scores["M8_safety_margin"] = 100.0
-    r = run_decision(scores)
+    r = run_decision(_results(scores))
     assert r.dimensions["financial_quality"] == 100.0
     assert r.dimensions["valuation_margin"] == pytest.approx(100.0)
     assert r.total == pytest.approx(45.0, abs=0.1)  # 20% + 25%

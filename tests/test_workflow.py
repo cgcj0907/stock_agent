@@ -27,8 +27,8 @@ def registry() -> AgentRegistry:
 
 
 @pytest.fixture
-def engine(registry: AgentRegistry) -> WorkflowEngine:
-    return WorkflowEngine(registry, SessionManager(InMemoryStore()))
+def engine(registry: AgentRegistry, stub_data) -> WorkflowEngine:
+    return WorkflowEngine(registry, SessionManager(InMemoryStore()), data=stub_data)
 
 
 def test_default_workflow_runs_all_modules(engine, registry):

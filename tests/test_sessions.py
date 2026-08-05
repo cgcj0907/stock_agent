@@ -62,7 +62,8 @@ def test_illegal_transition_raises(session):
 def test_rerun_affected_closure():
     affected = _affected_modules([ModuleName.M3])
     assert affected == {ModuleName.M3, ModuleName.M4,
-                        ModuleName.M8, ModuleName.M10, ModuleName.M11}
+                        ModuleName.M8, ModuleName.M9,
+                        ModuleName.M10, ModuleName.M11}
     assert ModuleName.M2 not in affected       # 上游（M2）结果仍有效，只作输入
     assert ModuleName.M1 not in affected       # 与 M3 无关
 
@@ -71,7 +72,8 @@ def test_rerun_returns_pipeline_order(manager, session):
     _engine(manager).run(session, default_workflow())
     ordered = manager.rerun(session, [ModuleName.M3], assumptions={"growth": 0.18})
     assert ordered == [ModuleName.M3, ModuleName.M4,
-                       ModuleName.M8, ModuleName.M10, ModuleName.M11]
+                       ModuleName.M8, ModuleName.M9,
+                       ModuleName.M10, ModuleName.M11]
     assert session.assumptions["growth"] == 0.18
     assert session.module_results[ModuleName.M3.value].status == ModuleStatus.PENDING
     assert session.module_results[ModuleName.M1.value].status == ModuleStatus.DONE  # 未受影响

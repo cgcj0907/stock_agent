@@ -40,7 +40,11 @@ def test_loss_and_cashflow_problems_trigger_signals():
 def test_high_leverage_scores_low():
     recs = _records([18] * 10, [1.2] * 10, [0.85] * 10)
     r = analyze_financial_quality(recs)
-    assert r.signals and r.score < 90
+    notes = [
+        s for v in r.details.values() for s in (v if isinstance(v, list) else [v])
+    ]
+    assert any("杠杆" in s for s in notes)
+    assert r.score < 90
 
 
 def test_missing_cashflow_is_neutral_not_fatal():
