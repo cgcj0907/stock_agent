@@ -29,4 +29,24 @@ npm run start   # 生产预览
 - [x] M3 智能体广场（/agents：卡片/搜索/分类/详情/收藏 + 本地目录兜底）
 - [x] M4 工作流分析（/workflows：React Flow DAG + 会话创建 + SSE 实时进度 + 结果卡片 + 备忘录）
 - [x] M5 对话记录（/conversations：列表/筛选/搜索/删除 + 详情恢复/重新分析 + 仪表盘最近会话）
-- [ ] M6 打磨与部署
+- [x] M6 打磨与部署（品牌图标/SEO/404/加载态/交互打磨 + 部署文档）
+
+## 部署（Vercel）
+
+1. 将仓库推送到 GitHub，在 Vercel 导入项目并选择 `frontend` 目录（框架自动识别 Next.js）。
+2. 配置环境变量（Production）：
+   ```text
+   NEXT_PUBLIC_API_BASE=https://<backend>.onrender.com   # 后端 FastAPI 地址
+   API_BASE_SERVER=https://<backend>.onrender.com
+   NEXT_PUBLIC_SUPABASE_URL=...
+   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=...
+   SUPABASE_SECRET_KEY=...
+   LLM_SETTINGS_ENCRYPTION_KEY=<与本地一致>              # 否则无法解密已存 LLM Key
+   NEXT_PUBLIC_SITE_URL=https://<your-app>.vercel.app
+   ```
+3. **后端 CORS**：在 Render 后端环境变量设置 `CORS_ORIGINS=https://<your-app>.vercel.app`（本地开发为 `*`）。
+4. 无需 `vercel.json` rewrites：`/api/*` 是前端自身的 Route Handler（LLM 配置/收藏），
+   分析 API 与 SSE 由浏览器直连后端（`NEXT_PUBLIC_API_BASE`）。
+5. 访问 `https://<your-app>.vercel.app/health` 无需配置；后端健康检查在 `/health`。
+
+> ⚠️ Supabase 免费层 7 天不活跃会暂停；复用仓库 `docs/07-deployment-guide.md` 的 GitHub Actions 每日保活。

@@ -16,12 +16,32 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: process.env.NEXT_PUBLIC_SITE_URL
+    ? new URL(process.env.NEXT_PUBLIC_SITE_URL)
+    : undefined,
   title: {
     default: "Value Agent · 价值投资智能体",
     template: "%s · Value Agent",
   },
   description:
     "面向 A 股市场的价值投资分析平台：多智能体工作流、财务质量分析、现金流估值、安全边际与风险清单。",
+  keywords: [
+    "价值投资",
+    "A股",
+    "智能体",
+    "工作流",
+    "估值",
+    "安全边际",
+    "投资备忘录",
+    "Value Agent",
+  ],
+  openGraph: {
+    title: "Value Agent · 价值投资智能体",
+    description:
+      "多智能体工作流驱动的 A 股价值投资分析平台",
+    type: "website",
+    siteName: "Value Agent",
+  },
 };
 
 export default function RootLayout({

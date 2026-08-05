@@ -153,3 +153,13 @@
     ),
     linear-gradient(to bottom, oklch(1 0 0 / 0.05) 1px, transparent 1px);
 }
+
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+  ::selection {
+    background: oklch(0.905 0.093 164.15 / 0.55);
+  }
+}
