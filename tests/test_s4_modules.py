@@ -91,3 +91,12 @@ def test_risk_assumption_veto():
     r = assess_risk({}, assumptions={"veto_reasons": ["pledge_ratio_gt_80"]})
     assert r.veto == ["pledge_ratio_gt_80"]
     assert r.score < 100
+
+
+def test_shipping_classified_cyclical():
+    """航运港口/水运/运输按周期分类（中远海控场景），避免误判资产/成长。"""
+    from value_agent.business_model.engine import classify_business_type
+
+    assert classify_business_type("航运港口", 13.0, 15.0, 0.4) == "cyclical"
+    assert classify_business_type("水运", 13.0, 15.0, 0.4) == "cyclical"
+    assert classify_business_type("高速公路", 15.0, 50.0, 0.4) == "asset_based"

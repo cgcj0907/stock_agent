@@ -6,8 +6,11 @@ from dataclasses import dataclass, field
 from value_agent.financials.quality import latest_annual
 
 FINANCIAL_KEYWORDS = ["银行", "保险", "证券", "金融", "信托"]
-CYCLICAL_KEYWORDS = ["有色", "钢铁", "煤炭", "化工", "石油", "航运", "房地产", "建材", "水泥", "机械", "汽车"]
-ASSET_KEYWORDS = ["房地产", "煤炭", "高速公路", "港口"]
+CYCLICAL_KEYWORDS = [
+    "有色", "钢铁", "煤炭", "化工", "石油", "航运", "水运", "海运", "运输",
+    "房地产", "港口", "建材", "水泥", "机械", "汽车",
+]
+ASSET_KEYWORDS = ["高速公路"]
 
 TYPE_LABEL = {
     "consumer_monopoly": "消费垄断（高毛利/高ROE/低杠杆）",
@@ -44,10 +47,11 @@ def classify_business_type(
     """规则分类（M4 估值方法路由的依据）。"""
     if any(k in industry for k in FINANCIAL_KEYWORDS):
         return "financial"
-    if any(k in industry for k in ASSET_KEYWORDS):
-        return "asset_based"
+    # 周期类先于资产类匹配：航运港口/港口这类重资产但强周期行业按周期处理
     if any(k in industry for k in CYCLICAL_KEYWORDS):
         return "cyclical"
+    if any(k in industry for k in ASSET_KEYWORDS):
+        return "asset_based"
     if (
         roe is not None and roe >= 15
         and gross_margin is not None and gross_margin >= 40

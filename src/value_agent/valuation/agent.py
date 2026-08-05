@@ -58,7 +58,7 @@ class M4ValuationAgent(Agent):
         business_type = (
             (m1.outputs.get("business_type") if m1 and m1.outputs else None)
             or ctx.assumptions.get("business_type")
-            or "consumer_monopoly"
+            or "cyclical"  # 未知类型保守按周期（禁 DCF/唐朝，避免增长假设拉宽区间）
         )
         params = {k: ctx.assumptions[k] for k in
                   ("growth_rate", "discount_rate", "terminal_growth", "risk_free_rate")

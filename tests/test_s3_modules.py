@@ -9,7 +9,7 @@ from value_agent.moat.engine import assess_moat
 def test_classify_by_industry_keywords():
     assert classify_business_type("股份制银行", 10, 30, 0.9) == "financial"
     assert classify_business_type("有色金属", 20, 20, 0.5) == "cyclical"
-    assert classify_business_type("房地产", 10, 30, 0.7) == "asset_based"
+    assert classify_business_type("房地产", 10, 30, 0.7) == "cyclical"  # 周期先于资产匹配
 
 
 def test_classify_by_profitability():
