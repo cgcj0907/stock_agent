@@ -1,7 +1,7 @@
 # 部署指南：Render（后端）+ Supabase（数据库）+ Vercel（前端）
 
 > **选定方案**：全免费组合，去掉国内每日采集。
-> 数据层全部用**免费源（BaoStock / AkShare）**，零积分、零 token。
+> 数据层全部用**免费源（AkShare）**，零积分、零 token。
 > 选型理由见 [06-tech-stack.md](06-tech-stack.md)。
 
 ---
@@ -14,7 +14,7 @@ flowchart LR
     V -- "直连(CORS) 或 /api rewrite" --> R["Render Web Service<br/>FastAPI(免费 750h/月)"]
     R --> DB["Supabase<br/>PostgreSQL + pgvector(免费 500MB)"]
     G["GitHub Actions<br/>每日免费源更新/监控"] --> DB
-    R --> EXT["BaoStock/AkShare / LLM API"]
+    R --> EXT["AkShare / LLM API"]
     DB -. 7天不活跃会暂停 .-> G
 ```
 
@@ -41,13 +41,11 @@ flowchart LR
 
 | 数据源 | 部署环境用法 | 说明 |
 |---|---|---|
-| **BaoStock（主·免费）** | Render 上直接调用 | **完全免费、无积分/token**，自带估值历史（peTTM/pbMRQ/psTTM）+ 季度财报 + 前复权日线 |
-| **AkShare（分红专用）** | 组合数据源：分红走巨潮 `stock_dividend_cninfo` | 补 BaoStock 无分红缺口；本机（国内 IP）100% 可用，Render 海外连通性需 `data ping` 实测 |
-| **AkShare（新浪/东财）** | 可放 Render，需实测 | 全免费、覆盖最全（行业/财报/日线/**10 年估值分位**/分红）；海外 IP 有被限流风险，`data ping` 实测通就能用 |
+| **AkShare（主·免费）** | Render 上直接调用，需 `data ping` 实测 | 全免费、覆盖最全：新浪财报（含行业）、东财前复权日线、百度 **10 年估值分位（pe/pb/ps）**、巨潮分红；海外 IP 有被限流风险 |
+| LLM | DeepSeek / Qwen API | 无地域限制 |
 | LLM | DeepSeek / Qwen API | 无地域限制 |
 
-> 💰 **免费方案（推荐起步）**：`config/settings.yaml` 已设 `primary: baostock`，回退链 `baostock → akshare → mock`；
-> **分红由组合数据源自动走 AkShare 巨潮**（`combined(baostock+dividends:akshare)`），无需手动切换。
+> 💰 **免费方案**：`config/settings.yaml` 已设 `primary: akshare`，回退链 `akshare → mock`；财报/日线/估值/分红全部由 AkShare 提供。
 > **部署后先跑 `python -m value_agent data ping`**，实测各源连通性。
 
 **按需 + 缓存**：用户分析某公司时才拉取（未缓存则实时取数），命中缓存直接分析；
@@ -104,8 +102,8 @@ COPY pyproject.toml ./
 COPY src ./src
 RUN pip install --no-cache-dir .
 
-# 免费数据源（BaoStock / AkShare）
-RUN pip install --no-cache-dir baostock akshare
+# 免费数据源（AkShare）
+RUN pip install --no-cache-dir akshare
 
 EXPOSE 8000
 CMD ["sh", "-c", "uvicorn value_agent.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
@@ -183,7 +181,7 @@ render open --service value-agent-api   # 打开 https://xxx.onrender.com
 | 直连(5432)失败 | Supabase 直连需 **IPv6**，部分网络不通 | 改用 **Transaction Pooler** 连接串（端口 **6543**）：Supabase 控制台 → Project Settings → Database → Connection string → Transaction pooler |
 | 沙箱/CI 内 TLS 全断 | 沙箱 NAT 代理不转发 TLS（198.18.x.x） | 在用户本机执行验证，不要依赖沙箱 |
 
-> 备注：本开发沙箱 TLS 被拦截（BaoStock 非 TLS 可通、Supabase TLS 全断），
+> 备注：本开发沙箱 TLS 曾被拦截（AkShare 可通、Supabase TLS 曾全断），
 > 故 Supabase 连通性需你在本机终端验证。
 
 ### 2.2 连接（必须用 Pooler）
@@ -246,7 +244,7 @@ DATABASE_URL=postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supaba
    ```bash
    python -m value_agent data ping
    ```
-   - BaoStock/AkShare 从海外可达 → 数据可实时拉取；
+   - AkShare 从海外可达 → 数据可实时拉取；
    - 不可达 → **分析会自动读 Supabase 已入库数据**（存储优先，见 data/manager.py），不影响使用。
 
 > ⚠️ 免费层限制：web 服务 15 分钟无流量休眠、冷启动 30-60s。
@@ -314,7 +312,7 @@ vercel --prod
 ## 4. 端到端验收清单
 
 - [ ] Render `/health` 返回 200，服务不反复重启
-- [ ] 首次分析触发按需取数（BaoStock/AkShare）→ 入库 Supabase → 工作流跑完 → 备忘录生成
+- [ ] 首次分析触发按需取数（AkShare）→ 入库 Supabase → 工作流跑完 → 备忘录生成
 - [ ] 第二次分析命中缓存，不再重复取数
 - [ ] GitHub Actions 每日更新自选股并推送飞书/企微（Actions 页面有绿色对勾）
 - [ ] Supabase 7 天不暂停（每天有写入）
@@ -328,7 +326,7 @@ vercel --prod
 | 场景 | 免费方案 |
 |---|---|
 | 数据量超 500MB | 控制自选股（≤100）、清理 10 年外历史；必要时本地 DuckDB 分析 |
-| 免费源海外不通 | 本地运行 `data update --daily` 写入 Supabase（BaoStock/AkShare 本地可用） |
+| 免费源海外不通 | 本地运行 `data update --daily` 写入 Supabase（AkShare 本地可用） |
 | 需要国内访问 | 免费边界为个人自用/演示；前端静态导出 + 国内 CDN（域名备案）可改善 |
 
 ---
@@ -340,6 +338,6 @@ vercel --prod
 └── daily.yml          # 每日采集+监控（替代 Render Cron，免费）
 deploy/
 ├── render.yaml        # Render 蓝图：仅 web 服务（参考；主推手动创建免绑卡）
-├── Dockerfile         # FastAPI 镜像（含免费数据源 baostock/akshare）
+├── Dockerfile         # FastAPI 镜像（含免费数据源 akshare）
 └── vercel.json        # 前端 rewrites 模板
 ```

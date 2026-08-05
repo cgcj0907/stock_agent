@@ -28,7 +28,7 @@ def assess_governance(dividends: dict) -> GovernanceResult:
     if not recs:
         return GovernanceResult(
             score=50.0, dividend_years=0, payout_latest=None,
-            note="无分红数据（BaoStock 暂无分红接口），治理按中性计",
+            note="无分红数据，治理按中性计",
             evidence=["无分红数据，无法评估回报股东倾向"],
         )
 

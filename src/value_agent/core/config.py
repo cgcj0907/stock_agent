@@ -5,7 +5,7 @@ import os
 from typing import Any
 
 _DEFAULTS: dict[str, Any] = {
-    "data_sources": {"primary": "mock"},  # mock | baostock | akshare
+    "data_sources": {"primary": "mock"},  # mock | akshare
     "storage": {"backend": "sqlite", "path": "data/market.db"},
     "llm": {"provider": "deepseek", "model": "deepseek-chat", "temperature": 0.2},
     "monitor": {"schedule": "0 18 * * *", "channels": ["feishu", "wechat"]},

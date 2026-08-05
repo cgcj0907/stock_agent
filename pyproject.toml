@@ -6,7 +6,6 @@ requires-python = ">=3.11"
 dependencies = [
     "akshare>=1.14",            # A股数据（免费）
     "psycopg2-binary>=2.9",     # PostgreSQL（Supabase）
-    "baostock>=0.8",            # A股历史数据（免费备用）
     "pandas>=2.2",
     "numpy>=1.26",
     "scipy>=1.13",

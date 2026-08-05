@@ -59,7 +59,7 @@ flowchart LR
 
 | 任务 | 产物 | 验收 |
 |---|---|---|
-| 免费源适配器（BaoStock/AkShare） | `data/sources/` | 统一接口，切换数据源不改业务代码 |
+| 免费源适配器（AkShare） | `data/sources/` | 统一接口，切换数据源不改业务代码 |
 | 表结构 | `data/models/` | 见 01-design §8 |
 | ETL + 增量更新 | `data/pipelines/` | 财报季触发、日频行情 |
 | 勾稽校验 | `data/pipelines/validate.py` | 净利润勾稽、现金流勾稽、异常标记 quality_flag |

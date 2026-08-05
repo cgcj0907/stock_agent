@@ -1,7 +1,7 @@
 # 技术选型与部署
 
 > 一句话结论：**后端 Python(FastAPI) + PostgreSQL(Supabase) + Next.js 前端，部署选 Render + Supabase + Vercel 免费组合**。
-> 数据源全部用**免费源（BaoStock / AkShare）**，零积分零 token；该组合适合个人自用/演示/海外用户。
+> 数据源全部用**免费源（AkShare）**，零积分零 token；该组合适合个人自用/演示/海外用户。
 
 ---
 
@@ -83,7 +83,7 @@ flowchart LR
 ## 5. 部署：选定 Render + Supabase + Vercel（免费组合）
 
 > **最终选择**：Render（后端）+ Supabase（数据库）+ Vercel（前端），全免费、无国内采集。
-> 数据源全部免费：**BaoStock（主）+ AkShare（新浪/东财）**，零积分零 token。
+> 数据源全部免费：**AkShare（新浪/东财/百度）**，零积分零 token。
 > 📖 操作手册见 **[07-deployment-guide.md](07-deployment-guide.md)**。
 
 ### 5.1 为什么这么选
@@ -111,7 +111,7 @@ flowchart LR
 | 场景 | 免费方案 |
 |---|---|
 | 数据量超 500MB | 控制自选股数量（≤100）、清理 10 年外历史数据；仍不够用 DuckDB 本地分析 |
-| 需要国内访问 | 免费边界为个人自用/演示；必要时本地运行分析（BaoStock/AkShare 本地 100% 可用） |
+| 需要国内访问 | 免费边界为个人自用/演示；必要时本地运行分析（AkShare 本地 100% 可用） |
 
 ## 6. 部署文件（已建模板）
 
@@ -119,7 +119,7 @@ flowchart LR
 deploy/
 ├── render.yaml        # Render 蓝图：web + cron（本方案主用）
 ├── vercel.json        # 前端 rewrites
-└── Dockerfile         # FastAPI 镜像（含免费数据源 baostock/akshare）
+└── Dockerfile         # FastAPI 镜像（含免费数据源 akshare）
 ```
 
 ---

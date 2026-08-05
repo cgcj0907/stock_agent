@@ -139,7 +139,7 @@ export function WorkflowRunView({ workflow }: { workflow: WorkflowInfo }) {
           </Button>
         </div>
         <p className="px-3 pb-1 pt-1.5 text-xs text-muted-foreground">
-          免费数据源（BaoStock / AkShare）+ 规则引擎；完整分析约 1–2 分钟，DAG
+          免费数据源（AkShare）+ 规则引擎；完整分析约 1–2 分钟，DAG
           中实时查看进度
         </p>
       </div>

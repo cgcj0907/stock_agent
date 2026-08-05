@@ -8,8 +8,8 @@ COPY pyproject.toml ./
 COPY src ./src
 RUN pip install --no-cache-dir .
 
-# 免费数据源（BaoStock / AkShare 需要较多二进制库，按需精简）
-RUN pip install --no-cache-dir baostock akshare
+# 免费数据源（AkShare：新浪/东财/百度）
+RUN pip install --no-cache-dir akshare
 
 EXPOSE 8000
 CMD ["sh", "-c", "uvicorn value_agent.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

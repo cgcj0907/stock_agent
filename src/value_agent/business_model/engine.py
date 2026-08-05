@@ -62,7 +62,7 @@ def classify_business_type(
 def analyze_business_model(company_info: dict, financials: dict) -> BusinessModelResult:
     recs = [r for r in financials.get("records", []) if r.get("period")]
     industry = company_info.get("industry", "")
-    roe = latest_annual(recs, "roe")               # 年度口径（BaoStock 无行业时靠它分类）
+    roe = latest_annual(recs, "roe")               # 年度口径（无行业信息时靠它分类）
     gm = latest_annual(recs, "grossprofit_margin")
     debt = latest_annual(recs, "debt_to_assets")
 

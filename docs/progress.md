@@ -29,6 +29,8 @@
 
 > ✅ 2026-08-05 AkShare 数据源修复：估值历史改用 `stock_zh_valuation_baidu`（新版 akshare 已移除乐咕接口）；财务取最新 N 期 + 修正「摊薄每股收益(元)/每股经营性现金流(元)」列名；日线补默认日期范围。601919 AkShare 实测：负债率 41%、EPS 2.27、内在价值 17.3~28.0，数据正常。
 
+> ✅ 2026-08-05 **数据源全面切 AkShare**：删除 BaoStock（baostock_source.py / combined.py / 依赖 / Dockerfile 引用），`primary: akshare`，回退 mock；AkShare 源已修复（估值接口、最新财报、列名、日线日期范围）。
+
 ## S0 数据层（🔶 进行中）
 - [x] 免费数据源适配器（mock + baostock + akshare 统一接口，字段已归一化）2026-08-04
 - [x] 表结构（schema.sql：company/financials/daily_price/valuation_history/dividends/watchlist）

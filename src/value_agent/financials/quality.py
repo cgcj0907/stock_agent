@@ -185,7 +185,7 @@ def _cashflow(ocf_to_np: list[float], ocfps: list[float], eps: list[float]):
         score = W_CASH if ratio >= 1.0 else (14 if ratio >= 0.8 else 6)
         notes.append(f"每股经营现金流/每股收益 最低 {ratio:.2f}（无直接 ocf_to_np，用 ocfps/eps）")
         return score, notes, {"ocfps_eps_min": round(ratio, 2)}
-    return W_CASH / 2, ["⚠️ 缺少现金流数据（BaoStock 无 ocfps），按中性计"], {"ocf_to_np_min": None}
+    return W_CASH / 2, ["⚠️ 缺少现金流数据，按中性计"], {"ocf_to_np_min": None}
 
 
 def _health(debt: list[float]):
@@ -194,7 +194,7 @@ def _health(debt: list[float]):
         return W_HEALTH / 2, ["⚠️ 缺少资产负债率数据，按中性计"], {"debt_to_assets": None}
     latest = debt[0]
     # 数据防御：负债率不可能 <1% 或 >150%（疑似数据源坏值），按中性计并警告，
-    # 避免把坏数据当成「低杠杆优秀」抬高分（如 BaoStock 个别周期异常值）
+    # 避免把坏数据当成「低杠杆优秀」抬高分（如个别周期异常值）
     if not (0.01 <= latest <= 1.5):
         return (
             W_HEALTH / 2,

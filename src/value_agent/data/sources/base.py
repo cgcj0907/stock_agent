@@ -17,7 +17,7 @@ def to_float(value, divisor: float = 1.0) -> float | None:
 class DataSource(ABC):
     """统一数据接口。返回普通 dict（含 records 列表 + source 标记）。
 
-    生产用 BaoStockDataSource / AkShareDataSource（全免费）；本地开发用 MockDataSource。
+    生产用 AkShareDataSource（全免费）；本地开发/离线用 MockDataSource。
     """
 
     name: str = "base"

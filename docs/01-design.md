@@ -288,8 +288,8 @@ flowchart LR
 
 | 数据 | 来源 | 频率 |
 |---|---|---|
-| 三大报表/财务指标（10 年） | BaoStock / AkShare | 季度 |
-| 行情 + 估值历史分位 | BaoStock（peTTM/pbMRQ/psTTM）/ AkShare（乐咕乐股） | 日 |
+| 三大报表/财务指标（10 年） | AkShare（新浪） | 季度 |
+| 行情 + 估值历史分位 | AkShare（百度 pe/pb/ps） | 日 |
 | 分红送转 | AkShare（巨潮） | 事件 |
 | 公告/问询函/减持/质押 | 巨潮 CNINFO、AkShare | 事件 |
 | 行业与宏观（PMI/PPI/社融/M2/10Y 国债） | AkShare 宏观接口、统计局 | 月 |
@@ -303,7 +303,7 @@ flowchart LR
 
 ## 9. 技术栈与项目结构
 
-**技术栈**：Python 3.11+ · uv · pandas/numpy/scipy · BaoStock/AkShare（免费源）· PostgreSQL(Supabase)/DuckDB · FastAPI · APScheduler · LiteLLM · pytest/pandera · ruff/mypy · Streamlit（MVP UI）。
+**技术栈**：Python 3.11+ · uv · pandas/numpy/scipy · AkShare（免费源）· PostgreSQL(Supabase)/DuckDB · FastAPI · APScheduler · LiteLLM · pytest/pandera · ruff/mypy · Streamlit（MVP UI）。
 
 ```text
 value-agent/
@@ -350,7 +350,7 @@ python -m value_agent monitor --daily       # 每日监控
 
 | 阶段 | 内容 | 交付物 | 依赖 |
 |---|---|---|---|
-| S0 数据层 | 免费源（BaoStock/AkShare）适配、ETL、勾稽校验、快照 | 10 只样本股 10 年数据入库 | — |
+| S0 数据层 | 免费源（AkShare）适配、ETL、勾稽校验、快照 | 10 只样本股 10 年数据入库 | — |
 | S1 硬核三模块 | M2 财务质量 + M4 估值 + M8 安全边际（纯规则，无 LLM） | 可复现的指标表与估值区间 | S0 |
 | S2 认知与质量模块 | M1 商业模式 + M5 护城河 + M6 治理（LLM 定性 + 规则） | 三模块评分与证据链 | S1 |
 | S3 成长与市场 | M3 成长景气 + M7 价格情绪 | 增速假设 + 价格位置评级 | S2 |

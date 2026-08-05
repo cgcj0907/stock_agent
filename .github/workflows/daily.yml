@@ -25,7 +25,7 @@ jobs:
       - name: Install value-agent
         run: pip install --no-cache-dir .
 
-      - name: Daily data update (BaoStock/AkShare -> Supabase)
+      - name: Daily data update (AkShare -> Supabase)
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: python -m value_agent data update --daily || true

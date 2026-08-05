@@ -109,21 +109,16 @@ def _ping_sources() -> None:
     """逐个实测数据源连通性（部署到 Render 后跑：python -m value_agent data ping）。"""
     import time
 
-    for name in ("baostock", "akshare"):
-        t0 = time.time()
-        try:
-            if name == "baostock":
-                from value_agent.data.sources.baostock_source import BaoStockDataSource
+    name = "akshare"
+    t0 = time.time()
+    try:
+        from value_agent.data.sources.akshare_source import AkShareDataSource
 
-                src = BaoStockDataSource()
-            else:
-                from value_agent.data.sources.akshare_source import AkShareDataSource
-
-                src = AkShareDataSource()
-            info = src.company_info("600519")
-            print(f"[ping] {name:<8} OK ({time.time() - t0:.2f}s) {info.get('name')}")
-        except Exception as exc:  # noqa: BLE001
-            print(f"[ping] {name:<8} FAIL ({time.time() - t0:.2f}s) {type(exc).__name__}: {str(exc)[:60]}")
+        src = AkShareDataSource()
+        info = src.company_info("600519")
+        print(f"[ping] {name:<8} OK ({time.time() - t0:.2f}s) {info.get('name')}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[ping] {name:<8} FAIL ({time.time() - t0:.2f}s) {type(exc).__name__}: {str(exc)[:60]}")
 
 
 def _engine(store_kind: str = "memory") -> tuple[SessionManager, WorkflowEngine]:

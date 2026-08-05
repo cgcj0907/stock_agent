@@ -1,7 +1,7 @@
 """共享测试夹具。
 
 StubData：为依赖数据源的智能体提供可复现的测试数据，
-避免测试依赖真实数据源（BaoStock/AkShare）或真实数据库。
+避免测试依赖真实数据源（AkShare）或真实数据库。
 """
 from __future__ import annotations
 

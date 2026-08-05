@@ -49,6 +49,6 @@ scripts/            # 数据初始化、每日更新、监控调度
 - 会话管理（状态机 / 依赖链重算 / 断点续跑 / Sqlite 持久化）
 - CLI（`analyze / agents / workflows / data / monitor / serve`）+ FastAPI（`/health` + 会话 API + SSE 进度）
 
-> ✅ **M1–M11 全部真实实现 + 真实数据验证 + 回测完成**（2026-08-04）：BaoStock 免费源连通、茅台分析跑通、PIT 回测超额 +2.6%/年；剩 Supabase 连接验证
-> 免费数据源（mock/BaoStock/AkShare）→ 存储（SQLite/PG）→ ETL 已验证；M2 已接入真实规则引擎
+> ✅ **M1–M11 全部真实实现 + 真实数据验证 + 回测完成**（2026-08-04）：AkShare 免费源连通、茅台分析跑通、PIT 回测超额 +2.6%/年；剩 Supabase 连接验证
+> 免费数据源（mock/AkShare）→ 存储（SQLite/PG）→ ETL 已验证；M2 已接入真实规则引擎
 > （ROE 杜邦/稳定性/现金流/杠杆/风险信号，5 项测试通过）。待：M4 估值、M8 安全边际、真实数据源拉取验证。

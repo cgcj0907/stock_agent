@@ -1,7 +1,7 @@
 """数据管理器：存储优先（Supabase/SQLite），缺失时回退实时数据源。
 
 - 本地/部署：优先读已入库数据（快、稳定、海外可用）
-- 未入库或库为空：回退实时源（BaoStock/AkShare/mock）
+- 未入库或库为空：回退实时源（AkShare/mock）
 - 组合源：分红走 AkShare 巨潮（见 sources/combined.py）
 """
 from __future__ import annotations
@@ -19,10 +19,10 @@ _TABLES = ("company", "financials", "daily_price", "valuation_history", "dividen
 
 
 def _default_source() -> DataSource:
-    """按 settings 依次尝试数据源：primary → fallback → mock，并叠加组合分红。"""
+    """按 settings 依次尝试数据源：primary → fallback → mock。"""
     settings = load_settings()
     order: list[str] = [settings.get("data_sources", {}).get("primary", "mock")]
-    order += list(settings.get("data_sources", {}).get("fallback", ["akshare", "mock"]))
+    order += list(settings.get("data_sources", {}).get("fallback", ["mock"]))
     seen: set[str] = set()
     base: DataSource | None = None
     for name in order:
@@ -30,11 +30,7 @@ def _default_source() -> DataSource:
             continue
         seen.add(name)
         try:
-            if name == "baostock":
-                from .sources.baostock_source import BaoStockDataSource
-
-                base = BaoStockDataSource()
-            elif name == "akshare":
+            if name == "akshare":
                 from .sources.akshare_source import AkShareDataSource
 
                 base = AkShareDataSource()
@@ -46,14 +42,7 @@ def _default_source() -> DataSource:
             logger.warning("数据源 %s 不可用：%s", name, exc)
     if base is None:
         raise RuntimeError("没有可用数据源")
-    try:
-        from .sources.akshare_source import AkShareDataSource
-        from .sources.combined import CombinedDataSource
-
-        return CombinedDataSource(base, overrides={"dividends": AkShareDataSource()})
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("AkShare 分红不可用，仅用 %s：%s", base.name, exc)
-        return base
+    return base
 
 
 class DataManager:

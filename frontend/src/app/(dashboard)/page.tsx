@@ -287,7 +287,7 @@ export default async function DashboardPage() {
       {/* Footer note */}
       <p className="flex items-center justify-center gap-1.5 pb-4 text-xs text-muted-foreground">
         <CircleDollarSign className="size-3.5" />
-        Value Agent · 数据源 BaoStock / AkShare · 免费额度内运行
+        Value Agent · 数据源 AkShare（新浪/东财） · 免费额度内运行
       </p>
     </div>
   );
