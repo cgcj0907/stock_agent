@@ -25,16 +25,32 @@ class M4ValuationAgent(Agent):
         price = ctx.data.daily_prices(code)
         div = ctx.data.dividends(code)
 
-        # 输入抽取
+        # 输入抽取：优先最新年报 EPS（季度记录按 period 倒序，避免取到最旧/亏损期）
         fin_recs = [r for r in fin["records"] if r.get("eps")]
-        eps = fin_recs[0]["eps"] if fin_recs else None
+        fin_recs_sorted = sorted(
+            fin_recs, key=lambda r: str(r.get("period") or ""), reverse=True
+        )
+        annual_eps = next(
+            (
+                r["eps"]
+                for r in fin_recs_sorted
+                if str(r.get("period", "")).endswith("1231")
+            ),
+            None,
+        )
+        eps = annual_eps if annual_eps is not None else (
+            fin_recs_sorted[0]["eps"] if fin_recs_sorted else None
+        )
         # 按 trade_date 降序取最新
         val_recs = sorted(val["records"], key=lambda r: r.get("trade_date") or "", reverse=True)
         price_recs = sorted(price["records"], key=lambda r: r.get("trade_date") or "", reverse=True)
         close = price_recs[0].get("close") if price_recs else None
         pb = next((r["pb"] for r in val_recs if r.get("pb")), None)
         bvps = close / pb if (close and pb) else None
-        pe_history = [r["pe_ttm"] for r in val_recs if r.get("pe_ttm")]
+        # 仅取正 PE：亏损期 PE 为负，会让中位数失真（相对估值无意义）
+        pe_history = [
+            r["pe_ttm"] for r in val_recs if r.get("pe_ttm") and r["pe_ttm"] > 0
+        ]
         dividend = next((r["cash_div_tax"] for r in div["records"] if r.get("cash_div_tax")), None)
 
         # 业务类型：优先 M1 输出，其次 assumptions

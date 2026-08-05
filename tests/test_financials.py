@@ -57,3 +57,12 @@ def test_roe_jump_signal():
     recs = _records([30, 12, 15, 16, 15, 14, 15, 16, 15, 16], [1.2] * 10, [0.35] * 10)
     r = analyze_financial_quality(recs)
     assert any("突变" in s for s in r.signals)
+
+
+def test_implausible_debt_treated_as_missing():
+    """负债率 <1% 或 >150% 视为数据异常，按中性计并警告（防坏数据抬高分）。"""
+    recs = _records([18] * 10, [1.2] * 10, [0.004] * 10)  # 0.4% 负债率（异常）
+    r = analyze_financial_quality(recs)
+    notes = [s for v in r.details.values() for s in (v if isinstance(v, list) else [v])]
+    assert any("数据异常" in s for s in notes)
+    assert r.metrics.get("debt_to_assets_latest") is None

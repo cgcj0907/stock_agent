@@ -25,6 +25,8 @@
 
 > ✅ 2026-08-05 安全修复：会话 API 响应统一经 `_public_session` 脱敏（`llm_config.api_key` → `sk-••••••1234`），数据库 payload 仍存完整 Key 供重算/续跑。
 
+> ✅ 2026-08-05 估值/财务数据修复：M4 改取**最新年报 EPS** + 过滤亏损期负 PE（修复 601919 负估值 -1.93 → 15.2~49.25）；M2 `years` 用年报数（41→10）；负债率超出合理区间按数据异常中性计（拦截 BaoStock 0.4% 坏值）。78 测试全绿。
+
 ## S0 数据层（🔶 进行中）
 - [x] 免费数据源适配器（mock + baostock + akshare 统一接口，字段已归一化）2026-08-04
 - [x] 表结构（schema.sql：company/financials/daily_price/valuation_history/dividends/watchlist）

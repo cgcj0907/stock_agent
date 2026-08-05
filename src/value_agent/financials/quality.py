@@ -76,7 +76,7 @@ def analyze_financial_quality(records: list[dict]) -> FinancialQualityResult:
     total = max(0.0, min(100.0, total))
 
     metrics = {
-        "years": n,
+        "years": len(annual) if annual else n,
         **p_metrics,
         **c_metrics,
         **h_metrics,
@@ -188,6 +188,14 @@ def _health(debt: list[float]):
     if not debt:
         return W_HEALTH / 2, ["⚠️ 缺少资产负债率数据，按中性计"], {"debt_to_assets": None}
     latest = debt[0]
+    # 数据防御：负债率不可能 <1% 或 >150%（疑似数据源坏值），按中性计并警告，
+    # 避免把坏数据当成「低杠杆优秀」抬高分（如 BaoStock 个别周期异常值）
+    if not (0.01 <= latest <= 1.5):
+        return (
+            W_HEALTH / 2,
+            [f"⚠️ 资产负债率 {latest:.4f} 超出合理区间（疑似数据异常），按中性计"],
+            {"debt_to_assets": None},
+        )
     if latest <= 0.4:
         score, note = W_HEALTH, f"资产负债率 {latest:.1%}，财务稳健"
     elif latest <= 0.6:
