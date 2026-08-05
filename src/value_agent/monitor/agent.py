@@ -19,12 +19,17 @@ class M11MonitorAgent(Agent):
     )
 
     def run(self, ctx: AgentContext) -> ModuleResult:
-        plan = build_monitor_plan(ctx.session.module_results)
+        prior_hits = list(getattr(ctx.session, "monitor_hits", []) or [])
+        plan = build_monitor_plan(ctx.session.module_results, prior_hits=prior_hits)
+        evidence = list(plan.evidence)
+        if prior_hits:
+            evidence.append(f"跨会话记忆：历史监控命中 {len(prior_hits)} 次（warn/critical 回放为回顾规则）")
         return ModuleResult(
             module=self.spec.id, status=ModuleStatus.DONE, score=plan.score,
             outputs={
                 "monitor_rules": [r.__dict__ for r in plan.rules],
                 "rule_count": len(plan.rules),
+                "prior_hits": prior_hits,
             },
-            evidence=plan.evidence,
+            evidence=evidence,
         )

@@ -62,6 +62,17 @@ def run_daily_monitor(sessions: list[Session], source: DataSource) -> list[Monit
                 session.company_code, name, "price_sell",
                 f"现价 {price} ≥ 卖出区间 {sell}，考虑兑现", "warn",
             ))
+    # I-2 记忆：把本次命中写入各会话 monitor_hits（跨会话输入供下次分析注入）
+    for ev in events:
+        for session in sessions:
+            if session.company_code == ev.company_code and session.status == SessionStatus.COMPLETED:
+                session.monitor_hits.append({
+                    "code": ev.company_code,
+                    "rule_type": ev.rule_type,
+                    "message": ev.message,
+                    "severity": ev.severity,
+                    "occurred_at": ev.occurred_at.isoformat(),
+                })
     return events
 
 

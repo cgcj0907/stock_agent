@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 
-from value_agent.sessions.models import Session
+from value_agent.sessions.models import ModuleStatus, Session
 
 
 def build_memo(session: Session) -> str:
@@ -95,9 +95,90 @@ def build_memo(session: Session) -> str:
             lines.append(f"- [{rule['severity']}] {rule['description']}（触发：{rule['trigger']}）")
 
     lines += ["", "## 假设（assumptions）", "", "```json", _json(session.assumptions), "```",
+              "", "## 备忘录质量自检（self_check）", "", "```json", _json(_self_check(session)), "```",
               "", "## 数据来源与免责声明", "", "- 数据快照与模块证据见各模块输出；本备忘录不构成投资建议。"]
     return "\n".join(lines)
 
 
 def _json(data) -> str:
     return json.dumps(data, ensure_ascii=False, indent=2)
+
+
+def build_decision_snapshot(session: Session) -> dict:
+    """M10 决策快照（O-3 输出快照审计）：决策结果 + 输入 handoff 摘要，供复盘/审计。
+
+    由工作流引擎在 M10 完成后写入 session.decision_snapshots。
+    """
+    m10 = session.module_results.get("M10_decision")
+    if m10 is None or not m10.outputs:
+        return {}
+
+    def _handoff(aid: str, keys: list[str]) -> dict:
+        r = session.module_results.get(aid)
+        if not r or not r.outputs:
+            return {}
+        h = r.outputs.get("handoff") or {}
+        return {k: h[k] for k in keys if k in h}
+
+    m4 = session.module_results.get("M4_valuation")
+    m9 = session.module_results.get("M9_risk")
+    return {
+        "session_id": session.id,
+        "company_code": session.company_code,
+        "company_name": session.company_name,
+        "created_at": (m10.finished_at or session.created_at).isoformat(),
+        "decision_code": m10.outputs.get("decision_code"),
+        "total": m10.outputs.get("total"),
+        "position": m10.outputs.get("position"),
+        "conclusion": m10.outputs.get("conclusion"),
+        "blocked_by_veto": m10.outputs.get("blocked_by_veto"),
+        "vetoed": m10.outputs.get("vetoed"),
+        "dimensions": m10.outputs.get("dimensions"),
+        "inputs": {
+            "M1_business_model": _handoff("M1_business_model", ["valuation_route", "understandability_level"]),
+            "M3_growth": _handoff("M3_growth", ["recommended_growth_rate", "growth_confidence", "cyclicality_flag", "prosperity_code"]),
+            "M4_valuation": {
+                "intrinsic_value": (m4.outputs.get("intrinsic_value") if m4 else None),
+                "current_price": (m4.outputs.get("current_price") if m4 else None),
+            },
+            "M7_market": _handoff("M7_market", ["market_state", "valuation_percentile", "margin_adjustment"]),
+            "M8_safety_margin": _handoff("M8_safety_margin", ["mos_state", "buy_zone", "sell_zone"]),
+            "M9_risk": {
+                "veto_count": len(m9.outputs.get("vetoes") or []) if m9 else 0,
+                "monitor_candidates": (m9.outputs.get("monitor_candidates") if m9 else []),
+            },
+        },
+        "meta": m10.meta,
+    }
+
+
+def _self_check(session: Session) -> dict:
+    """备忘录质量自评（O-4，FinRobot 报告三指标）：规则自评，不改变内容。
+
+    - accuracy：关键数值（估值区间/现价）齐全且无降级模块
+    - logicality：M10 有结论 + M9 风险清单存在
+    - storytelling：完成模块数越多可读性越好
+    """
+    notes: list[str] = []
+    degraded = [aid for aid, r in session.module_results.items() if (r.meta or {}).get("degraded")]
+    m4 = session.module_results.get("M4_valuation")
+    has_numbers = bool(
+        m4 and m4.outputs.get("intrinsic_value") and m4.outputs.get("current_price")
+    )
+    accuracy = "high" if (has_numbers and not degraded) else ("medium" if has_numbers else "low")
+    if degraded:
+        notes.append(f"降级模块：{', '.join(degraded)}")
+    if not has_numbers:
+        notes.append("缺估值区间/现价，数字完整性不足")
+
+    m10 = session.module_results.get("M10_decision")
+    m9 = session.module_results.get("M9_risk")
+    has_conclusion = bool(m10 and m10.outputs.get("conclusion"))
+    has_risks = bool(m9 and m9.outputs.get("risk_items") is not None)
+    logicality = "high" if (has_conclusion and has_risks) else "medium"
+    if not has_conclusion:
+        notes.append("M10 未产出结论，逻辑链不完整")
+
+    n_done = sum(1 for r in session.module_results.values() if r.status == ModuleStatus.DONE)
+    storytelling = "high" if n_done >= 9 else ("medium" if n_done >= 5 else "low")
+    return {"accuracy": accuracy, "logicality": logicality, "storytelling": storytelling, "notes": notes}

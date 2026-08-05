@@ -145,6 +145,62 @@ def test_yaml_default_deps_match_module_dependencies():
         }, f"{module.value} 的 YAML deps 与 MODULE_DEPENDENCIES 不一致（handoff 断点）"
 
 
+def test_decision_snapshot_recorded(stub_data):
+    """O-3 输出快照审计：M10 完成后写结构化决策快照（含输入 handoff 摘要）。"""
+    from value_agent.agents.builtin import register_builtin_agents
+    from value_agent.agents.registry import AgentRegistry
+    from value_agent.sessions import InMemoryStore, SessionManager
+    from value_agent.workflow import WorkflowEngine, default_workflow
+
+    reg = register_builtin_agents(AgentRegistry())
+    engine = WorkflowEngine(reg, SessionManager(InMemoryStore()), data=stub_data)
+    session = SessionManager(InMemoryStore()).create_session("600519", "贵州茅台")
+    engine.run(session, default_workflow())
+
+    snaps = session.decision_snapshots
+    assert len(snaps) == 1
+    snap = snaps[0]
+    assert snap["decision_code"] in ("buy", "watch", "avoid")
+    assert {"session_id", "company_code", "created_at", "total", "position",
+            "blocked_by_veto", "dimensions", "inputs", "meta"} <= set(snap)
+    assert "M4_valuation" in snap["inputs"]
+    assert "M8_safety_margin" in snap["inputs"]
+    assert "M9_risk" in snap["inputs"]
+
+
+def test_default_run_output_schema_stable(stub_data):
+    """O-5 输出稳定性：固定输入 3 次运行，outputs key 集合与关键契约枚举一致（数值允许波动）。"""
+    from value_agent.agents.builtin import register_builtin_agents
+    from value_agent.agents.registry import AgentRegistry
+    from value_agent.sessions import InMemoryStore, SessionManager
+    from value_agent.sessions.models import ModuleStatus
+    from value_agent.workflow import WorkflowEngine, default_workflow
+
+    def _run():
+        reg = register_builtin_agents(AgentRegistry())
+        engine = WorkflowEngine(reg, SessionManager(InMemoryStore()), data=stub_data)
+        session = SessionManager(InMemoryStore()).create_session("600519", "贵州茅台")
+        engine.run(session, default_workflow())
+        return session
+
+    key_sets = []
+    enums = []
+    for _ in range(3):
+        session = _run()
+        key_sets.append({
+            aid: frozenset(r.outputs.keys())
+            for aid, r in session.module_results.items() if r.status == ModuleStatus.DONE
+        })
+        enums.append({
+            "m7_state": session.module_results["M7_market"].outputs.get("handoff", {}).get("market_state"),
+            "m8_mos": session.module_results["M8_safety_margin"].outputs.get("mos_state"),
+            "m10_code": session.module_results["M10_decision"].outputs.get("decision_code"),
+        })
+    for aid in key_sets[0]:
+        assert all(ks[aid] == key_sets[0][aid] for ks in key_sets[1:]), f"{aid} outputs key 集合不稳定"
+    assert enums[0] == enums[1] == enums[2], f"契约枚举跨运行不稳定: {enums}"
+
+
 def test_agent_inputs_match_expected_consumption():
     """关键模块 inputs 与引擎实际消费集合一致（批次 D 核对结果，防回归）。
 

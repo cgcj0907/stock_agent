@@ -23,9 +23,29 @@ class MonitorPlan:
     evidence: list[str] = field(default_factory=list)
 
 
-def build_monitor_plan(module_results: dict[str, ModuleResult]) -> MonitorPlan:
-    """基于分析结果生成监控规则（卖出触发 + 验证点 + 风险项）。"""
+def build_monitor_plan(
+    module_results: dict[str, ModuleResult],
+    prior_hits: list[dict] | None = None,
+) -> MonitorPlan:
+    """基于分析结果生成监控规则（卖出触发 + 验证点 + 风险项）。
+
+    prior_hits（I-2 跨会话记忆）：历史监控命中作为 watch 回顾规则加入，
+    只增强不覆盖当前规则。
+    """
     rules: list[MonitorRule] = []
+
+    # I-2：历史命中回顾（warn/critical 才回放，避免信息噪音）
+    for hit in prior_hits or []:
+        if hit.get("severity") not in ("warn", "critical"):
+            continue
+        rules.append(MonitorRule(
+            "prior_hit_review",
+            f"{hit.get('rule_type', '')}: {hit.get('message', '')}",
+            "历史监控命中回顾（跨会话记忆）",
+            "info",
+            source_module="M11_monitor",
+            action="watch",
+        ))
 
     def get(aid: str) -> ModuleResult | None:
         return module_results.get(aid)

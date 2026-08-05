@@ -54,6 +54,33 @@ def _session_with_m8(buy: float, sell: float, code="600519") -> Session:
     return s
 
 
+def test_daily_runner_records_monitor_hits():
+    """I-2：触发事件写入 session.monitor_hits（跨会话记忆输入）。"""
+    session = _session_with_m8(buy=42.5, sell=179.69)
+    events = run_daily_monitor([session], _CheapSource())
+    assert len(events) == 1
+    assert session.monitor_hits
+    hit = session.monitor_hits[0]
+    assert hit["rule_type"] == "price_buy"
+    assert hit["severity"] == "info"
+    assert "occurred_at" in hit
+
+
+def test_monitor_plan_replays_prior_warn_hits():
+    """I-2：历史 warn/critical 命中回放为回顾规则；info 不回放。"""
+    results = {
+        "M8_safety_margin": _mod("M8_safety_margin", {"buy_price": 42.5, "sell_price": 179.69}),
+    }
+    plan = build_monitor_plan(results, prior_hits=[
+        {"rule_type": "valuation_sell", "message": "估值过热", "severity": "warn"},
+        {"rule_type": "price_buy", "message": "现价低", "severity": "info"},
+    ])
+    reviews = [r for r in plan.rules if r.rule_type == "prior_hit_review"]
+    assert len(reviews) == 1  # 只回放 warn
+    assert "估值过热" in reviews[0].trigger
+    assert reviews[0].action == "watch"
+
+
 def test_daily_runner_fires_buy_event_when_price_below_buy():
     session = _session_with_m8(buy=42.5, sell=179.69)
     events = run_daily_monitor([session], _CheapSource())

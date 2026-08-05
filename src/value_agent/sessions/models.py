@@ -155,6 +155,9 @@ class Session:
     llm_config: dict | None = None  # 按会话注入的 LLM 配置（{provider, base_url, model, api_key}），优先于全局
     model_version: str = "0.1.0"
     memo_versions: list[str] = field(default_factory=list)
+    # 批次 E 增强：M10 决策快照审计（O-3）+ 跨会话监控命中历史（I-2）
+    decision_snapshots: list[dict] = field(default_factory=list)
+    monitor_hits: list[dict] = field(default_factory=list)
     messages: list[Message] = field(default_factory=list)
     created_at: datetime = field(default_factory=_now)
     updated_at: datetime = field(default_factory=_now)
@@ -175,6 +178,8 @@ class Session:
             "llm_config": self.llm_config,
             "model_version": self.model_version,
             "memo_versions": self.memo_versions,
+            "decision_snapshots": self.decision_snapshots,
+            "monitor_hits": self.monitor_hits,
             "messages": [m.to_dict() for m in self.messages],
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
@@ -196,6 +201,8 @@ class Session:
             llm_config=d.get("llm_config"),
             model_version=d.get("model_version", "0.1.0"),
             memo_versions=list(d.get("memo_versions", [])),
+            decision_snapshots=list(d.get("decision_snapshots", [])),
+            monitor_hits=list(d.get("monitor_hits", [])),
             created_at=_parse_dt(d.get("created_at")) or _now(),
             updated_at=_parse_dt(d.get("updated_at")) or _now(),
             archived_at=_parse_dt(d.get("archived_at")),

@@ -197,6 +197,17 @@ class WorkflowEngine:
         result.finished_at = _now()
         session.module_results[agent_id] = result
 
+        # O-3 输出快照审计：M10 决策完成后写结构化快照（含输入 handoff 摘要）
+        if agent_id == "M10_decision" and result.status == ModuleStatus.DONE:
+            try:
+                from value_agent.report.memo import build_decision_snapshot  # 延迟导入避免环
+
+                snap = build_decision_snapshot(session)
+                if snap:
+                    session.decision_snapshots.append(snap)
+            except Exception:
+                logger.exception("决策快照写入失败（不影响结果）")
+
     def _mark_blocked(self, session: Session, workflow: Workflow, step_id: str) -> None:
         """依赖失败导致无法执行的步骤标记为 failed（除非 run_always）。"""
         step = workflow.step(step_id)
