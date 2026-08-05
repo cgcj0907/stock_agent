@@ -71,7 +71,7 @@ function AgentFlowNode({ data }: NodeProps) {
         <span className="text-base leading-none">{agent?.emoji ?? "🤖"}</span>
         <div className="min-w-0">
           <div className="truncate text-xs font-semibold leading-tight">
-            {data.code as string}
+            {(agent?.code as string) ?? (data.code as string)}
           </div>
           <div className="truncate text-[10px] leading-tight text-muted-foreground">
             {agent?.name ?? (data.agent as string)}

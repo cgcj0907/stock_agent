@@ -21,6 +21,8 @@
 
 > ✅ 2026-08-05 **会话持久化迁移到 Supabase**：新增 `SupabaseStore`（`sessions` jsonb 表）+ `SESSION_STORE` 环境切换；真实 Supabase 验证重启后会话恢复；本地默认 sqlite。
 
+> ✅ 2026-08-05 收尾：自定义工作流 DAG 节点显示短编号（agent.code）；**LLM 按会话注入**（前端 BFF /api/sessions 服务端解密默认 LLM 配置 → 后端 llm_config → 引擎 _resolve_llm），真实账号验证注入成功，77 测试全绿。
+
 ## S0 数据层（🔶 进行中）
 - [x] 免费数据源适配器（mock + baostock + akshare 统一接口，字段已归一化）2026-08-04
 - [x] 表结构（schema.sql：company/financials/daily_price/valuation_history/dividends/watchlist）

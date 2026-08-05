@@ -122,6 +122,20 @@ class WorkflowEngine:
             return False
         return True
 
+    def _resolve_llm(self, session: Session):
+        """按会话 llm_config 构造 LLM client（优先），否则回退全局 llm。"""
+        cfg = getattr(session, "llm_config", None)
+        if cfg and cfg.get("api_key"):
+            try:
+                from value_agent.core.llm import llm_from_config
+
+                client = llm_from_config(cfg)
+                if client is not None:
+                    return client
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("按会话 LLM 配置失败，回退全局：%s", exc)
+        return self._llm
+
     # ---- 单步执行 ----
     def _execute(
         self,
@@ -167,7 +181,7 @@ class WorkflowEngine:
             inputs=inputs,
             params=step.params,
             data=self._data,
-            llm=self._llm,
+            llm=self._resolve_llm(session),
         )
         agent = self._registry.get(agent_id)
         result = ModuleResult(module=agent_id, status=ModuleStatus.RUNNING, started_at=_now())

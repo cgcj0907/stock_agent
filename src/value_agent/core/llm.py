@@ -46,6 +46,25 @@ class LlmClient:
         return resp.choices[0].message.content
 
 
+def llm_from_config(config: dict | None) -> LlmClient | None:
+    """按配置字典构造 LLM 客户端（供按会话注入）；无 api_key 返回 None。"""
+    if not config:
+        return None
+    api_key = config.get("api_key")
+    if not api_key:
+        return None
+    try:
+        return LlmClient(
+            model=config.get("model") or "deepseek-chat",
+            api_key=api_key,
+            base_url=config.get("base_url") or "https://api.deepseek.com/v1",
+            temperature=float(config.get("temperature", 0.2)),
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("LLM 配置不可用：%s", exc)
+        return None
+
+
 def get_llm() -> LlmClient | None:
     """按环境变量构造 LLM 客户端；无 key 或不可用时返回 None（不阻塞分析）。"""
     api_key = os.getenv("LLM_API_KEY")
@@ -53,13 +72,11 @@ def get_llm() -> LlmClient | None:
         return None
     settings = load_settings()
     llm_cfg = settings.get("llm", {})
-    try:
-        return LlmClient(
-            model=os.getenv("LLM_MODEL") or llm_cfg.get("model", "deepseek-chat"),
-            api_key=api_key,
-            base_url=os.getenv("LLM_BASE_URL") or "https://api.deepseek.com/v1",
-            temperature=float(llm_cfg.get("temperature", 0.2)),
-        )
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("LLM 不可用：%s", exc)
-        return None
+    return llm_from_config(
+        {
+            "model": os.getenv("LLM_MODEL") or llm_cfg.get("model", "deepseek-chat"),
+            "api_key": api_key,
+            "base_url": os.getenv("LLM_BASE_URL") or "https://api.deepseek.com/v1",
+            "temperature": float(llm_cfg.get("temperature", 0.2)),
+        }
+    )

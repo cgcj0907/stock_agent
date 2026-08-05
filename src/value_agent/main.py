@@ -67,6 +67,9 @@ class CreateSessionRequest(BaseModel):
     workflow_steps: list[dict] | None = Field(
         default=None, description="内联自定义工作流步骤（[{id, agent, deps}]），优先于 workflow_id"
     )
+    llm_config: dict | None = Field(
+        default=None, description="按会话注入的 LLM 配置（{provider, base_url, model, api_key}）"
+    )
 
 
 class MessageRequest(BaseModel):
@@ -142,6 +145,7 @@ def create_session(req: CreateSessionRequest) -> dict:
         company_name=req.company_name,
         workflow_id=req.workflow_id,
         workflow_steps=req.workflow_steps,
+        llm_config=req.llm_config,
     )
     return session.to_dict()
 

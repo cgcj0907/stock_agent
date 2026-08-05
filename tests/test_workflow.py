@@ -173,3 +173,23 @@ class EsgAgent(Agent):
             outputs={"esg_level": "A"},
             evidence=["自定义智能体示例"],
         )
+
+
+def test_engine_resolves_per_session_llm(engine):
+    """按会话 llm_config 注入优先于全局 llm；无配置回退。"""
+    from value_agent.core.llm import LlmClient
+    from value_agent.sessions import InMemoryStore, SessionManager
+
+    manager = SessionManager(InMemoryStore())
+    session = manager.create_session(
+        "600519", "贵州茅台",
+        llm_config={"model": "custom-model", "api_key": "sk-test", "base_url": "https://x/v1"},
+    )
+    client = engine._resolve_llm(session)
+    assert isinstance(client, LlmClient)
+    assert client.api_key == "sk-test"
+    assert client.model == "custom-model"
+    assert client.base_url == "https://x/v1"
+
+    # 无 llm_config（engine 全局 llm=None）→ 回退 None
+    assert engine._resolve_llm(manager.create_session("600519")) is None

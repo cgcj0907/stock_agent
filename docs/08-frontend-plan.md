@@ -187,10 +187,10 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...    # 浏览器端（替�
 SUPABASE_SECRET_KEY=sb_secret_...                          # 仅服务端（替代 legacy service_role）
 ```
 
-### 6.3 后端需配合的小改动（记录在案）
-1. **LLM 按会话/用户注入**：`CreateSessionRequest` 增加可选 `llm_config {provider, base_url, model, api_key}`，`core/llm.py` 支持按 session 建 client（而非全局单例）。
-2. （可选）`GET /api/workflows` 支持加载用户自定义工作流（读 Supabase `custom_workflows`）。
-3. （可选）消息落库：后端 `POST /api/sessions/{id}/messages` 已返回 session；前端可同步写 `messages` 表。
+### 6.3 后端配合改动（已落地 ✅ 2026-08-05）
+1. **LLM 按会话/用户注入** ✅：`CreateSessionRequest` 支持 `llm_config`；`core/llm.py` 新增 `llm_from_config` 工厂；`WorkflowEngine._resolve_llm` 优先按会话配置建 client。前端 BFF `/api/sessions` 服务端解密用户默认 LLM 配置后转发，Key 不落地浏览器。
+2. **内联自定义工作流** ✅：`Session.workflow_steps` + 引擎按内联定义运行（M4.5）。
+3. （可选）消息落库：后端 `POST /api/sessions/{id}/messages` 已返回 session；前端可同步写 `messages` 表（未做）。
 
 ### 6.4 运行流程（工作流分析页）
 ```

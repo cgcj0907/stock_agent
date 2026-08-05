@@ -65,8 +65,10 @@ export function useWorkflowRun(
     setRunStatus("running");
 
     try {
-      const session = await api<SessionView>("/api/sessions", {
+      // 走前端 BFF：自动附加用户默认 LLM 配置（服务端解密，Key 不落地浏览器）
+      const res = await fetch("/api/sessions", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           company_code: code,
           company_name: companyName.trim(),
@@ -74,6 +76,11 @@ export function useWorkflowRun(
           workflow_steps: workflowSteps,
         }),
       });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(j.error || `创建会话失败（${res.status}）`);
+      }
+      const session = (await res.json()) as SessionView;
       setSessionId(session.id);
 
       // 落库 conversations（M5 对话记录数据源；表未创建时忽略）
