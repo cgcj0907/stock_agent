@@ -29,6 +29,8 @@ class DecisionResult:
     band: dict
     position: float
     conclusion: str
+    decision_code: str  # buy | watch | avoid（契约字段，§4 M10）
+    blocked_by_veto: bool
     vetoed: list[str]
     evidence: list[str] = field(default_factory=list)
 
@@ -55,8 +57,18 @@ def run_decision(module_results: dict[str, ModuleResult]) -> DecisionResult:
         vetoed = list(m9.outputs["veto"])
 
     band = next((b for b in BANDS if total >= b["min_score"]), BANDS[-1])
-    conclusion = "回避（触发一票否决）" if vetoed else band["label"]
-    position = 0.0 if vetoed else band["position"]
+    blocked = bool(vetoed)
+    conclusion = "回避（触发一票否决）" if blocked else band["label"]
+    position = 0.0 if blocked else band["position"]
+    # 决策码：否决→avoid；≥80 可建仓→buy；50~80 观察→watch；<50→avoid
+    if blocked:
+        decision_code = "avoid"
+    elif total >= 80:
+        decision_code = "buy"
+    elif total >= 50:
+        decision_code = "watch"
+    else:
+        decision_code = "avoid"
 
     evidence = [
         f"五维评分：{dims}",
@@ -67,6 +79,7 @@ def run_decision(module_results: dict[str, ModuleResult]) -> DecisionResult:
         evidence.append(f"⚠️ 触发否决项：{vetoed}")
     return DecisionResult(
         dimensions=dims, total=total, band=band,
-        position=position, conclusion=conclusion, vetoed=vetoed,
+        position=position, conclusion=conclusion,
+        decision_code=decision_code, blocked_by_veto=blocked, vetoed=vetoed,
         evidence=evidence,
     )

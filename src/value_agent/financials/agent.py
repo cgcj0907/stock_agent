@@ -27,7 +27,7 @@ class M2FinancialQualityAgent(Agent):
             score=result.score,
             outputs={
                 "metrics": result.metrics,
-                "signals": result.signals,
+                "signals": [sig.to_dict() for sig in result.signals],
                 "summary": result.details,
             },
             evidence=result.evidence,

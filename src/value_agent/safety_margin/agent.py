@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from value_agent.agents.base import Agent, AgentContext, AgentSpec
+from value_agent.core.contracts import ReasonCode, build_meta
 from value_agent.sessions.models import ModuleResult, ModuleStatus
 
 from .engine import run_safety_margin
@@ -29,9 +30,12 @@ class M8SafetyMarginAgent(Agent):
                     "buy_price": None,
                     "sell_price": None,
                     "status": "数据不足（依赖 M4 估值结果缺失）",
-                    "reason": "缺少 M4 估值结果",
+                    "mos_state": "unavailable",
+                    "reason_codes": [ReasonCode.INPUT_MISSING.value],
                 },
                 evidence=["依赖 M4_valuation 未产出内在价值区间，安全边际按数据不足处理"],
+                meta=build_meta(0.0, "low", degraded=True,
+                                reason_codes=[ReasonCode.INPUT_MISSING.value]),
             )
         intrinsic = m4.outputs["intrinsic_value"]
         price = m4.outputs.get("current_price")
@@ -57,6 +61,7 @@ class M8SafetyMarginAgent(Agent):
                 "buy_price": result.buy_price,
                 "sell_price": result.sell_price,
                 "status": result.status,
+                "mos_state": result.mos_state,
             },
             evidence=evidence,
         )

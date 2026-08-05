@@ -1,6 +1,4 @@
 """M2 财务质量引擎单元测试：优质/劣质/缺失数据。"""
-import pytest
-
 from value_agent.financials.quality import analyze_financial_quality
 
 
@@ -32,8 +30,8 @@ def test_excellent_company_scores_high():
 def test_loss_and_cashflow_problems_trigger_signals():
     recs = _records([-5, 12, 8, 15, 14, 13, 12, 15, 16, 17], [0.5, 0.9, 1.1, 1.2, 1.1, 1.0, 1.0, 1.1, 1.2, 1.3], [0.75] * 10)
     r = analyze_financial_quality(recs)
-    assert any("背离" in s for s in r.signals)
-    assert any("亏损" in s for s in r.signals)
+    assert any("背离" in s.message for s in r.signals)
+    assert any("亏损" in s.message for s in r.signals)
     assert r.score < 60
 
 
@@ -56,7 +54,7 @@ def test_missing_cashflow_is_neutral_not_fatal():
 def test_roe_jump_signal():
     recs = _records([30, 12, 15, 16, 15, 14, 15, 16, 15, 16], [1.2] * 10, [0.35] * 10)
     r = analyze_financial_quality(recs)
-    assert any("突变" in s for s in r.signals)
+    assert any("突变" in s.message for s in r.signals)
 
 
 def test_implausible_debt_treated_as_missing():
@@ -66,6 +64,21 @@ def test_implausible_debt_treated_as_missing():
     notes = [s for v in r.details.values() for s in (v if isinstance(v, list) else [v])]
     assert any("数据异常" in s for s in notes)
     assert r.metrics.get("debt_to_assets_latest") is None
+
+
+def test_signals_are_structured_contract():
+    """signals 为 RiskSignal 对象（code/severity/metric/message），供 M9/M11 直接消费。"""
+    recs = _records([-5, 12, 8, 15, 14, 13, 12, 15, 16, 17], [0.5] * 10, [0.75] * 10)
+    r = analyze_financial_quality(recs)
+    assert r.signals
+    for sig in r.signals:
+        assert sig.code
+        assert sig.severity in {"low", "medium", "high", "critical"}
+        assert sig.metric
+        assert sig.message
+    codes = {sig.code for sig in r.signals}
+    assert "OCF_NP_DIVERGENCE" in codes
+    assert "LOSS_YEAR" in codes
 
 
 def test_non_finite_values_do_not_crash():

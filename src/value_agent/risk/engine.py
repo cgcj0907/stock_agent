@@ -27,7 +27,8 @@ def assess_risk(inputs: dict[str, ModuleResult], assumptions: dict | None = None
     # M2 财务风险
     m2 = out("M2_financial_quality")
     for sig in m2.get("signals") or []:
-        risks.append(f"财务信号：{sig}")
+        message = sig.get("message") if isinstance(sig, dict) else sig
+        risks.append(f"财务信号：{message}")
     if m2.get("score") is not None:
         if m2["score"] < 30:
             veto.append("财务质量极差（M2<30）")

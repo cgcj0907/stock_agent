@@ -28,6 +28,8 @@ class M10DecisionAgent(Agent):
                 "conclusion": result.conclusion,
                 "position": result.position,
                 "vetoed": result.vetoed,
+                "decision_code": result.decision_code,
+                "blocked_by_veto": result.blocked_by_veto,
             },
             evidence=result.evidence,
         )

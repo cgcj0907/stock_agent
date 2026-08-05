@@ -17,6 +17,8 @@
 
 ---
 
+> ✅ 2026-08-05 **方案 1 批次 B（硬核链路契约，docs/09-module-contracts.md §4/§8）**：M2 `signals` 升级为结构化 RiskSignal 对象（code/severity/metric/message，M9/M11/memo 按 message 消费，兼容旧字符串）；M4 `methods` 统一为数组对象（method/applicable/value/low/high/reason/confidence）+ 降级态字段集合与正常态一致 + meta.degraded；M8 新增 `mos_state` 枚举（attractive/fair/expensive/unavailable）+ 降级 reason_codes/meta；M10 新增 `decision_code`（buy/watch/avoid）+ `blocked_by_veto`；前端 memo-card 同步 M2/M4 渲染；测试同步 + 契约断言。95 测试全绿 + 前端 tsc 通过。
+
 > ✅ 2026-08-05 **方案 1 批次 A（统一模块契约，docs/09-module-contracts.md）**：新增 `core/contracts.py`（五段式常量/枚举/RiskSignal/meta 校验）；`ModuleResult` 增加 `meta` 字段（含序列化往返）；修复 M9 YAML deps 漏 M7/M8 的 handoff 断点；M4 `spec.inputs` 对齐实际读取（M1+M3）；新增 `tests/test_contracts.py` 11 个用例（含工作流依赖声明对齐防回归）。94 测试全绿。
 
 > ✅ 2026-08-05 修复测试：新增 tests/conftest.py StubData 夹具（数据桩）注入引擎；修正 test_decision/test_sessions/test_financials 过期断言；**76 个测试全绿**。

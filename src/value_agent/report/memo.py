@@ -69,16 +69,18 @@ def build_memo(session: Session) -> str:
         ]
         signals = m2.outputs.get("signals") or []
         if signals:
-            lines.append(f"- ⚠️ 风险信号：{'；'.join(signals)}")
+            msgs = [s.get("message") if isinstance(s, dict) else s for s in signals]
+            lines.append(f"- ⚠️ 风险信号：{'；'.join(msgs)}")
 
     # M4 方法对照 + M8
     m4 = results.get("M4_valuation")
     m8 = results.get("M8_safety_margin")
     if m4 and m4.outputs.get("methods"):
         lines += ["", "## 估值与安全边际（M4/M8）", "", "| 方法 | 每股价值 |", "|---|---|"]
-        for name, m in m4.outputs["methods"].items():
+        for m in m4.outputs["methods"]:
             val = m.get("value")
-            lines.append(f"| {name} | {val if val is not None else '跳过（' + m.get('note', '') + '）'} |")
+            reason = m.get("reason") or m.get("note") or ""
+            lines.append(f"| {m.get('method')} | {val if val is not None else '跳过（' + reason + '）'} |")
         if m8 and m8.outputs.get("buy_price"):
             lines.append(
                 f"\n- 安全边际：现价 {m8.outputs.get('price')} 元，折扣率 {m8.outputs.get('discount')}，"

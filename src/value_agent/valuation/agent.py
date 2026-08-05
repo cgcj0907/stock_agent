@@ -2,9 +2,38 @@
 from __future__ import annotations
 
 from value_agent.agents.base import Agent, AgentContext, AgentSpec
+from value_agent.core.contracts import ReasonCode, build_meta
 from value_agent.sessions.models import ModuleResult, ModuleStatus
 
 from .engine import run_valuation
+
+# 方法名 → 一句话说明（methods[].reason 用；note 用于跳过原因）
+_METHOD_REASON = {
+    "dcf": "两阶段 DCF（含敏感性：增速±2pct / 折现率∓1pct）",
+    "tang": "唐朝估值法（三年后合理估值，买点 50% / 卖点 150%）",
+    "graham_number": "格雷厄姆数 √(22.5×EPS×每股净资产)",
+    "graham_formula": "格雷厄姆公式 EPS×(8.5+2g)×4.4/Y",
+    "ddm": "股利折现（D₁/(r−g)）",
+    "relative_median_pe": "历史中位 PE × EPS 相对估值",
+}
+
+
+def methods_to_list(methods: dict) -> list[dict]:
+    """methods dict → 统一方法数组（docs/09-module-contracts.md §4 M4）。"""
+    return [
+        {
+            "method": name,
+            "applicable": m.value is not None,
+            "value": m.value,
+            "low": m.low,
+            "high": m.high,
+            "reason": (m.note or _METHOD_REASON.get(name, "")),
+            "confidence": 0.8 if m.value is not None else 0.0,
+        }
+        for name, m in methods.items()
+    ]
+
+
 
 
 class M4ValuationAgent(Agent):
@@ -28,14 +57,17 @@ class M4ValuationAgent(Agent):
                 module=self.spec.id,
                 status=ModuleStatus.DONE,
                 score=0.0,
+                # 降级态字段集合与正常态一致（§3）：缺值置 None/空，meta 标记 degraded
                 outputs={
                     "business_type": "cyclical",
-                    "methods": {},
+                    "methods": [],
                     "intrinsic_value": None,
                     "current_price": None,
-                    "note": f"估值数据获取失败（{type(exc).__name__}），未产出内在价值",
+                    "params": {},
                 },
                 evidence=[f"数据源异常：{type(exc).__name__}（{str(exc)[:80]}），估值降级"],
+                meta=build_meta(0.0, "low", degraded=True,
+                                reason_codes=[ReasonCode.DATA_UNAVAILABLE.value]),
             )
 
     def _run_impl(self, ctx: AgentContext, code: str) -> ModuleResult:
@@ -97,8 +129,7 @@ class M4ValuationAgent(Agent):
             score=result.coverage_score,
             outputs={
                 "business_type": result.business_type,
-                "methods": {k: {"value": m.value, "low": m.low, "high": m.high, "note": m.note}
-                            for k, m in result.methods.items()},
+                "methods": methods_to_list(result.methods),
                 "intrinsic_value": result.intrinsic,
                 "current_price": close,
                 "params": result.params,

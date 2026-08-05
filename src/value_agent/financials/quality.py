@@ -10,6 +10,8 @@ import math
 import statistics
 from dataclasses import dataclass, field
 
+from value_agent.core.contracts import RiskSignal
+
 # 权重（合计 100）
 W_PROFIT = 30   # 盈利能力
 W_STABLE = 20   # 稳定性
@@ -22,7 +24,7 @@ W_RISK = 15     # 风险信号
 class FinancialQualityResult:
     score: float
     metrics: dict
-    signals: list[str]
+    signals: list[RiskSignal]  # 结构化风险信号（code/severity/metric/message/evidence）
     evidence: list[str]
     details: dict = field(default_factory=dict)
 
@@ -62,7 +64,6 @@ def analyze_financial_quality(records: list[dict]) -> FinancialQualityResult:
         ]
 
     roe = col("roe", annual)          # 年度 ROE（避免季度口径失真）
-    gp = col("grossprofit_margin", annual)
     np = col("netprofit_margin", annual)
     debt = col("debt_to_assets", annual)
     ocf_to_np = col("ocf_to_np")
@@ -91,11 +92,11 @@ def analyze_financial_quality(records: list[dict]) -> FinancialQualityResult:
         "稳定": s_notes,
         "现金流": c_notes,
         "杠杆": h_notes,
-        "信号": signals,
+        "信号": [sig.message for sig in signals],
     }
     evidence += p_notes + s_notes + c_notes + h_notes
     for sig in signals:
-        evidence.append(f"⚠️ 信号：{sig}")
+        evidence.append(f"⚠️ 信号：{sig.message}")
 
     return FinancialQualityResult(
         score=total, metrics=metrics, signals=signals, evidence=evidence, details=details
@@ -216,19 +217,41 @@ def _health(debt: list[float]):
 
 
 def _risks(recs, roe, debt, ocf_to_np, ocfps, eps):
-    """风险信号 15 分：命中信号扣分，并输出信号清单。"""
-    signals: list[str] = []
+    """风险信号 15 分：命中信号扣分，并输出结构化信号清单（RiskSignal）。
+
+    signals 供 M9 风险聚合 / M11 监控直接消费，见 docs/09-module-contracts.md §4.2。
+    """
+    signals: list[RiskSignal] = []
     if ocf_to_np and min(ocf_to_np) < 0.8:
-        signals.append("经营现金流与净利润背离（最低 <0.8）")
+        signals.append(RiskSignal(
+            code="OCF_NP_DIVERGENCE", severity="medium", metric="ocf_to_np_min",
+            message="经营现金流与净利润背离（最低 <0.8）",
+            evidence=f"ocf_to_np 最低 {min(ocf_to_np):.2f}",
+        ))
     if ocf_to_np is None and not (ocfps and eps):
-        signals.append("缺少现金流数据，无法验证盈利含金量")
+        signals.append(RiskSignal(
+            code="CASHFLOW_MISSING", severity="medium", metric="ocf_to_np",
+            message="缺少现金流数据，无法验证盈利含金量",
+        ))
     if len(roe) >= 2 and abs(roe[0] - roe[1]) > 10:
-        signals.append(f"ROE 单年突变（{roe[0]:.1f}% → {roe[1]:.1f}%），需核查")
+        signals.append(RiskSignal(
+            code="ROE_SPIKE", severity="medium", metric="roe",
+            message=f"ROE 单年突变（{roe[0]:.1f}% → {roe[1]:.1f}%），需核查",
+        ))
     if roe and roe[0] > 40:
-        signals.append(f"ROE 异常偏高（{roe[0]:.1f}%），需核查是否含一次性收益")
+        signals.append(RiskSignal(
+            code="ROE_HIGH", severity="medium", metric="roe",
+            message=f"ROE 异常偏高（{roe[0]:.1f}%），需核查是否含一次性收益",
+        ))
     if len(debt) >= 2 and debt[0] - debt[-1] > 0.1:
-        signals.append(f"资产负债率近一年上升超 10pct（{debt[-1]:.1%} → {debt[0]:.1%}）")
+        signals.append(RiskSignal(
+            code="DEBT_RISING", severity="medium", metric="debt_to_assets",
+            message=f"资产负债率近一年上升超 10pct（{debt[-1]:.1%} → {debt[0]:.1%}）",
+        ))
     if roe and any(r < 0 for r in roe):
-        signals.append("存在亏损年份（ROE<0）")
+        signals.append(RiskSignal(
+            code="LOSS_YEAR", severity="high", metric="roe",
+            message="存在亏损年份（ROE<0）",
+        ))
     score = max(0.0, W_RISK - 5.0 * len(signals))
     return score, signals

@@ -27,12 +27,15 @@ def test_all_stub_neutral_around_50():
     r = run_decision(_results(_all_modules(50.0)))
     assert r.total == pytest.approx(50.0, abs=0.1)
     assert "中性" in r.conclusion
+    assert r.decision_code == "watch"
+    assert r.blocked_by_veto is False
 
 
 def test_excellent_scores_hit_strong_band():
     r = run_decision(_results(_all_modules(90.0)))
     assert r.total >= 80
     assert "强烈关注" in r.conclusion
+    assert r.decision_code == "buy"
     assert r.position == 0.10
 
 
@@ -40,12 +43,15 @@ def test_poor_scores_avoid():
     r = run_decision(_results(_all_modules(20.0)))
     assert r.total < 50
     assert r.conclusion == "回避"
+    assert r.decision_code == "avoid"
     assert r.position == 0.0
 
 
 def test_veto_forces_avoid():
     r = run_decision(_results({f"M{i}": 90.0 for i in range(1, 12)}, veto=["fraud_signal_hit"]))
     assert r.conclusion == "回避（触发一票否决）"
+    assert r.decision_code == "avoid"
+    assert r.blocked_by_veto is True
     assert r.position == 0.0
     assert r.vetoed == ["fraud_signal_hit"]
 

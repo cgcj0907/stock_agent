@@ -83,14 +83,22 @@ export function MemoCard({
         business_type?: string;
         intrinsic_value?: { low?: number; high?: number; mid?: number };
         current_price?: number;
-        methods?: Record<string, { value?: number | null; low?: number | null; high?: number | null; note?: string }>;
+        methods?: {
+          method?: string;
+          applicable?: boolean;
+          value?: number | null;
+          low?: number | null;
+          high?: number | null;
+          reason?: string;
+          note?: string;
+        }[];
       }
     | undefined;
   const m8 = moduleResults.M8_safety_margin?.outputs as
     | { buy_price?: number; sell_price?: number; status?: string; discount?: number; required_discount?: number }
     | undefined;
   const m2 = moduleResults.M2_financial_quality?.outputs as
-    | { metrics?: Record<string, unknown>; signals?: string[]; summary?: Record<string, unknown> }
+    | { metrics?: Record<string, unknown>; signals?: (string | { message?: string })[]; summary?: Record<string, unknown> }
     | undefined;
   const m11 = moduleResults.M11_monitor?.outputs as
     | { monitor_rules?: { severity?: string; description?: string; trigger?: string }[] }
@@ -334,7 +342,7 @@ export function MemoCard({
           {m2?.signals && m2.signals.length > 0 && (
             <ul className="mt-3 flex flex-col gap-1.5 text-xs text-muted-foreground">
               {m2.signals.map((sig, i) => (
-                <li key={i}>⚠️ {sig}</li>
+                <li key={i}>⚠️ {typeof sig === "string" ? sig : sig.message}</li>
               ))}
             </ul>
           )}
@@ -346,15 +354,20 @@ export function MemoCard({
         <div className="border-b px-6 py-5">
           <SectionTitle icon="💹" title="估值方法（M4）" />
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            {Object.entries(m4.methods).map(([k, m]) => (
-              <div key={k} className="rounded-xl border bg-muted/30 px-3 py-2">
-                <div className="text-[11px] text-muted-foreground">{METHOD_LABELS[k] ?? k}</div>
-                <div className="mt-0.5 text-base font-bold tabular-nums">
-                  {m.value ?? "—"}
+            {m4.methods.map((m, i) => {
+              const name = m.method ?? "";
+              return (
+                <div key={name || i} className="rounded-xl border bg-muted/30 px-3 py-2">
+                  <div className="text-[11px] text-muted-foreground">{METHOD_LABELS[name] ?? name}</div>
+                  <div className="mt-0.5 text-base font-bold tabular-nums">
+                    {m.value ?? "—"}
+                  </div>
+                  {(m.note || m.reason) && (
+                    <div className="mt-0.5 text-[10px] text-muted-foreground">{m.note || m.reason}</div>
+                  )}
                 </div>
-                {m.note && <div className="mt-0.5 text-[10px] text-muted-foreground">{m.note}</div>}
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

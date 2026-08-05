@@ -65,7 +65,13 @@ def _mod(agent_id: str, outputs: dict, score: float | None = 50.0) -> ModuleResu
 
 def test_risk_aggregates_and_veto():
     inputs = {
-        "M2_financial_quality": _mod("M2_financial_quality", {"signals": ["ROE 单年突变"], "score": 100}, 100),
+        "M2_financial_quality": _mod(
+            "M2_financial_quality",
+            {"signals": [
+                {"code": "ROE_SPIKE", "severity": "medium", "metric": "roe", "message": "ROE 单年突变"},
+            ], "score": 100},
+            100,
+        ),
         "M3_growth": _mod("M3_growth", {"prosperity": "下行", "growth_estimate": 0.0}),
         "M5_moat": _mod("M5_moat", {"width": "无"}),
         "M6_governance": _mod("M6_governance", {"score": 60}, 60),
@@ -74,6 +80,7 @@ def test_risk_aggregates_and_veto():
     }
     r = assess_risk(inputs)
     assert any("财务信号" in x for x in r.risk_items)
+    assert any("ROE 单年突变" in x for x in r.risk_items)  # 结构化信号按 message 消费
     assert any("护城河" in x for x in r.risk_items)
     assert any("泡沫" in x for x in r.risk_items)
     assert r.veto == []

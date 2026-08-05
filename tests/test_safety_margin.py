@@ -9,6 +9,7 @@ INTRINSIC = {"low": 56.67, "mid": 111.21, "high": 149.74}
 def test_below_buy_price_is_buy_zone():
     r = run_safety_margin(40.0, INTRINSIC)
     assert "买入区间" in r.status
+    assert r.mos_state == "attractive"
     assert r.score == 95
     assert r.buy_price == pytest.approx(56.67 * 0.75, abs=0.01)
 
@@ -16,12 +17,14 @@ def test_below_buy_price_is_buy_zone():
 def test_between_mid_and_high_is_fair():
     r = run_safety_margin(130.0, INTRINSIC)
     assert "合理偏上" in r.status
+    assert r.mos_state == "expensive"
     assert r.score == 30
 
 
 def test_above_high_is_overvalued():
     r = run_safety_margin(200.0, INTRINSIC)
     assert "高估" in r.status
+    assert r.mos_state == "expensive"
     assert r.score == 10
 
 
@@ -41,6 +44,7 @@ def test_missing_data_neutral():
     r = run_safety_margin(None, {"low": None, "mid": None, "high": None})
     assert r.score == 50
     assert "数据不足" in r.status
+    assert r.mos_state == "unavailable"
 
 
 def test_sell_price_is_120pct_of_high():

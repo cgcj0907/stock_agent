@@ -23,7 +23,8 @@ class SafetyMarginResult:
     required_discount: float
     buy_price: float | None           # 买入区间 = 下沿 × (1 − 要求折扣)
     sell_price: float | None          # 卖出区间 = 上沿 × 1.2
-    status: str
+    status: str  # 中文状态（展示用）
+    mos_state: str  # 契约枚举：attractive | fair | expensive | unavailable（§4 M8）
     score: float
     evidence: list[str] = field(default_factory=list)
 
@@ -42,7 +43,7 @@ def run_safety_margin(
         return SafetyMarginResult(
             price=price, intrinsic=intrinsic, discount=None, required_discount=req,
             buy_price=None, sell_price=None,
-            status="数据不足", score=50.0,
+            status="数据不足", mos_state="unavailable", score=50.0,
             evidence=["缺少现价或内在价值下沿，无法计算安全边际"],
         )
 
@@ -51,15 +52,15 @@ def run_safety_margin(
     sell_price = high * 1.2 if high else None
 
     if price <= buy_price:
-        status, score = "买入区间（安全边际充足）", 95.0
+        status, score, mos_state = "买入区间（安全边际充足）", 95.0, "attractive"
     elif price <= low:
-        status, score = "低估（折扣未达要求，可观望）", 80.0
+        status, score, mos_state = "低估（折扣未达要求，可观望）", 80.0, "fair"
     elif price <= mid:
-        status, score = "合理偏下", 60.0
+        status, score, mos_state = "合理偏下", 60.0, "fair"
     elif price <= high:
-        status, score = "合理偏上（安全边际为负）", 30.0
+        status, score, mos_state = "合理偏上（安全边际为负）", 30.0, "expensive"
     else:
-        status, score = "高估（高于内在价值上沿）", 10.0
+        status, score, mos_state = "高估（高于内在价值上沿）", 10.0, "expensive"
 
     evidence = [
         f"现价 {price} 元 vs 内在价值下沿 {low} / 中值 {mid} / 上沿 {high}",
@@ -71,5 +72,5 @@ def run_safety_margin(
         price=price, intrinsic=intrinsic, discount=round(discount, 4),
         required_discount=req, buy_price=round(buy_price, 2),
         sell_price=round(sell_price, 2) if sell_price else None,
-        status=status, score=score, evidence=evidence,
+        status=status, mos_state=mos_state, score=score, evidence=evidence,
     )

@@ -57,7 +57,8 @@ def build_monitor_plan(module_results: dict[str, ModuleResult]) -> MonitorPlan:
     m2 = get("M2_financial_quality")
     if m2:
         for sig in m2.outputs.get("signals") or []:
-            rules.append(MonitorRule("fundamental_watch", sig, "财务信号监控", "warn"))
+            message = sig.get("message") if isinstance(sig, dict) else sig
+            rules.append(MonitorRule("fundamental_watch", message, "财务信号监控", "warn"))
 
     m9 = get("M9_risk")
     if m9:
