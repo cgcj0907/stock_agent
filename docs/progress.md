@@ -74,7 +74,7 @@
 - [x] F0 脚手架：Next.js 16 + TS + Tailwind v4 + shadcn/ui（Nova/Radix）+ 翡翠绿设计系统（亮/暗）+ App Shell（侧边栏/顶栏/仪表盘占位）2026-08-04
 - [x] F1 认证（Supabase Auth：登录/注册/忘记密码/更新密码/auth callback + proxy 路由保护 + NavUser 真实用户）2026-08-05
 - [x] F2 LLM 服务商配置（/settings/llm：DeepSeek/OpenAI/Qwen/Ollama/自定义 + CRUD + 默认 + 测试连通；Key AES-256-GCM 加密存 Supabase）2026-08-05
-- [ ] F3 智能体广场（/agents 卡片/搜索/详情/收藏/发起）
+- [x] F3 智能体广场（/agents：M1–M11 卡片 + 搜索/分类 + 详情页 + 收藏（agent_favorites）+ 发起分析入口 + 后端离线本地目录兜底）2026-08-05
 - [ ] F4 工作流分析（/workflows DAG 可视化 + SSE 进度 + 结果/备忘录）
 - [ ] F5 对话记录（/conversations 列表/详情/重算/删除）
 - [ ] F6 打磨与部署（响应式/SEO/Vercel）

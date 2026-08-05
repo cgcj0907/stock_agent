@@ -75,3 +75,20 @@ create policy "llm_settings_delete_own" on public.user_llm_settings
 -- 每用户最多一个默认服务商
 create unique index if not exists user_llm_settings_one_default
   on public.user_llm_settings (user_id) where is_default;
+
+-- 6) 智能体收藏表（M3）
+create table if not exists public.agent_favorites (
+  user_id uuid not null references auth.users (id) on delete cascade,
+  agent_id text not null,
+  created_at timestamptz not null default now(),
+  primary key (user_id, agent_id)
+);
+
+alter table public.agent_favorites enable row level security;
+
+create policy "agent_favorites_select_own" on public.agent_favorites
+  for select using (auth.uid() = user_id);
+create policy "agent_favorites_insert_own" on public.agent_favorites
+  for insert with check (auth.uid() = user_id);
+create policy "agent_favorites_delete_own" on public.agent_favorites
+  for delete using (auth.uid() = user_id);
