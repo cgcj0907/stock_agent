@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 
 from value_agent.agents import AgentRegistry
 from value_agent.core.config import _load_dotenv
-from value_agent.core.llm import get_llm
+from value_agent.core.llm import get_llm, llm_from_config
 from value_agent.data.manager import DataManager
 from value_agent.agents.builtin import register_builtin_agents
 from value_agent.report.memo import build_memo
@@ -80,6 +80,13 @@ class MessageRequest(BaseModel):
 class RerunRequest(BaseModel):
     modules: list[str] = Field(description="要重算的模块（如 M3_growth），自动级联下游")
     assumptions: dict | None = None
+
+
+class ChatRequest(BaseModel):
+    content: str
+    llm_config: dict | None = Field(
+        default=None, description="本次对话使用的 LLM 配置（{provider, base_url, model, api_key}）"
+    )
 
 
 # ---- 基础 ----
@@ -191,6 +198,52 @@ def run_session(session_id: str) -> dict:
 def post_message(session_id: str, req: MessageRequest) -> dict:
     session = _load_session(session_id)
     _manager.add_message(session, "user", req.content, action=req.action)
+    return _public_session(session)
+
+
+@app.post("/api/sessions/{session_id}/chat")
+def chat(session_id: str, req: ChatRequest) -> dict:
+    """追问对话：记录用户消息 → 用（请求级>会话级>全局）LLM 回复 → 记录 assistant 消息。"""
+    session = _load_session(session_id)
+    content = req.content.strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="消息不能为空")
+
+    _manager.add_message(session, "user", content)
+
+    # 解析 LLM：请求级 > 会话级 > 全局
+    llm = None
+    cfg = req.llm_config or getattr(session, "llm_config", None)
+    if cfg and cfg.get("api_key"):
+        llm = llm_from_config(cfg)
+    if llm is None:
+        llm = _engine._resolve_llm(session)
+
+    results = session.module_results
+    summary = "；".join(
+        f"{k} {v.status.value}" + (f"（{v.score}分）" if v.score is not None else "")
+        for k, v in sorted(results.items())
+        if v.status.value != "pending"
+    ) or "（无完成模块）"
+    company = session.company_name or session.company_code
+
+    if llm is not None:
+        try:
+            reply = llm.chat(
+                "你是 A 股价值投资分析助手：基于给定公司的分析结果，用简洁中文回答用户追问，"
+                "数据不确定时明确说明，不构成投资建议。",
+                f"公司：{company}（{session.company_code}）\n"
+                f"工作流：{session.workflow_id}\n"
+                f"分析摘要：{summary}\n\n"
+                f"用户提问：{content}",
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("对话 LLM 调用失败")
+            reply = f"（LLM 调用失败：{type(exc).__name__}，请检查 LLM 配置后重试）"
+    else:
+        reply = "未配置可用的 LLM，暂时无法回答追问。请先在「LLM 配置」中添加服务商并设为默认。"
+
+    _manager.add_message(session, "assistant", reply)
     return _public_session(session)
 
 

@@ -53,6 +53,26 @@ export default async function ConversationDetailPage({
     // 表未创建时忽略
   }
 
+  // 用户的 LLM 配置列表（对话时可选服务商）
+  let initialLlmSettings: {
+    id: string;
+    name: string;
+    provider: string;
+    model: string;
+    is_default: boolean;
+  }[] = [];
+  try {
+    const supabase = await createClient();
+    const { data } = await supabase
+      .from("user_llm_settings")
+      .select("id, name, provider, model, is_default")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: true });
+    initialLlmSettings = (data ?? []) as typeof initialLlmSettings;
+  } catch {
+    // 表未创建时忽略
+  }
+
   // 服务端预取后端会话与备忘录（后端不可用时由客户端重试）
   let initialSession: SessionView | null = null;
   let initialMemo: string | null = null;
@@ -89,6 +109,7 @@ export default async function ConversationDetailPage({
       initialSession={initialSession}
       initialMemo={supabaseMemo ?? initialMemo}
       initialMessages={initialMessages}
+      initialLlmSettings={initialLlmSettings}
     />
   );
 }

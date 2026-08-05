@@ -33,6 +33,8 @@
 
 > ✅ 2026-08-05 **消息/memo 落库 Supabase**：新增 `messages`/`memos` 表（RLS），前端运行后同步用户消息 + assistant 摘要 + 备忘录（版本覆盖），conversations 状态随运行更新；详情页展示对话气泡。
 
+> ✅ 2026-08-05 **对话追问（chat）实现**：后端 `POST /api/sessions/{id}/chat`（按请求>会话>全局 LLM 回复）+ 前端对话输入框/LLM 选择器 + BFF 同步消息到 Supabase；修复 `SessionManager.add_message` 不更新内存 session 的 bug；memo 标题去掉数字编号。77 测试全绿。
+
 ## S0 数据层（🔶 进行中）
 - [x] 免费数据源适配器（mock + baostock + akshare 统一接口，字段已归一化）2026-08-04
 - [x] 表结构（schema.sql：company/financials/daily_price/valuation_history/dividends/watchlist）

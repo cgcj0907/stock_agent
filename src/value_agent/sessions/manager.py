@@ -127,7 +127,10 @@ class SessionManager:
         action: str | None = None,
     ) -> Message:
         message = Message(role=role, content=content, action=action)
-        self._store.add_message(session.id, message)
+        # 同时更新内存中的 session（调用方返回时能看到最新消息）并持久化
+        session.messages.append(message)
+        session.updated_at = message.created_at
+        self._store.save(session)
         return message
 
     def rerun(

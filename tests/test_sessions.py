@@ -134,3 +134,14 @@ def test_workflow_id_default_and_custom(manager):
     assert s1.workflow_id == "default"
     s2 = manager.create_session("600519", workflow_id="quick")
     assert s2.workflow_id == "quick"
+
+
+def test_add_message_updates_session_object(manager, session):
+    """add_message 应同时更新传入的 session（供 API 返回最新消息）。"""
+    manager.add_message(session, "user", "追问")
+    manager.add_message(session, "assistant", "回复")
+    assert len(session.messages) == 2
+    assert session.messages[-1].role == "assistant"
+    # 重新加载也应一致（已持久化）
+    reloaded = manager.load(session.id)
+    assert len(reloaded.messages) == 2

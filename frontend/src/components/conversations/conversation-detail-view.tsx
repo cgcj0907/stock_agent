@@ -8,6 +8,7 @@ import {
   FileText,
   Loader2,
   RefreshCcw,
+  Send,
   Trash2,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
@@ -17,6 +18,14 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { WorkflowDag } from "@/components/workflow/workflow-dag";
 import { ResultCard } from "@/components/workflow/result-card";
 import { findAgent } from "@/lib/agents/catalog";
@@ -30,16 +39,32 @@ import {
 } from "@/types/conversation";
 import type { ModuleResultView, SessionView } from "@/hooks/use-workflow-run";
 
+export interface ChatMessage {
+  role: string;
+  content: string;
+  created_at?: string;
+}
+
+export interface LlmOption {
+  id: string;
+  name: string;
+  provider: string;
+  model: string;
+  is_default: boolean;
+}
+
 export function ConversationDetailView({
   conversation,
   initialSession,
   initialMemo,
   initialMessages = [],
+  initialLlmSettings = [],
 }: {
   conversation: Conversation;
   initialSession: SessionView | null;
   initialMemo: string | null;
-  initialMessages?: { role: string; content: string; created_at: string }[];
+  initialMessages?: ChatMessage[];
+  initialLlmSettings?: LlmOption[];
 }) {
   const router = useRouter();
   const workflow = getWorkflow(conversation.workflow_id);
@@ -54,6 +79,16 @@ export function ConversationDetailView({
   const [loading, setLoading] = React.useState(false);
   const [running, setRunning] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [messages, setMessages] = React.useState<ChatMessage[]>(
+    initialMessages
+  );
+  const [chatInput, setChatInput] = React.useState("");
+  const [chatBusy, setChatBusy] = React.useState(false);
+  const [selectedLlmId, setSelectedLlmId] = React.useState<string | null>(
+    initialLlmSettings.find((l) => l.is_default)?.id ??
+      initialLlmSettings[0]?.id ??
+      null
+  );
 
   // 从会话结果推导各步骤状态
   const derivedStatuses = React.useMemo(() => {
@@ -156,6 +191,44 @@ export function ConversationDetailView({
       setError((e as Error).message);
     } finally {
       setRunning(false);
+    }
+  }
+
+  async function handleSend() {
+    const content = chatInput.trim();
+    if (!content || chatBusy) return;
+    setChatBusy(true);
+    // 乐观追加用户消息
+    setMessages((prev) => [
+      ...prev,
+      { role: "user", content },
+    ]);
+    setChatInput("");
+    try {
+      const res = await fetch(`/api/sessions/${conversation.session_id}/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content,
+          conversation_id: conversation.id,
+          llm_settings_id: selectedLlmId ?? undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "对话失败");
+      // 服务端已把新消息写入 Supabase；这里把 assistant 回复追加到本地
+      const assistant = (data.messages ?? []).find(
+        (m: ChatMessage) => m.role === "assistant"
+      );
+      if (assistant) {
+        setMessages((prev) => [...prev, assistant]);
+      } else {
+        throw new Error("未收到回复");
+      }
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setChatBusy(false);
     }
   }
 
@@ -299,12 +372,16 @@ export function ConversationDetailView({
         </Card>
       )}
 
-      {initialMessages.length > 0 && (
-        <section className="flex flex-col gap-3">
-          <h2 className="text-base font-semibold">对话</h2>
-          <Card className="rounded-2xl">
-            <CardContent className="flex flex-col gap-3 p-4">
-              {initialMessages.map((m, i) => (
+      <section className="flex flex-col gap-3">
+        <h2 className="text-base font-semibold">对话</h2>
+        <Card className="rounded-2xl">
+          <CardContent className="flex flex-col gap-3 p-4">
+            {messages.length === 0 ? (
+              <p className="py-2 text-center text-xs text-muted-foreground">
+                基于本次分析结果，追问任意投资问题
+              </p>
+            ) : (
+              messages.map((m, i) => (
                 <div
                   key={i}
                   className={`flex gap-2.5 ${
@@ -321,7 +398,7 @@ export function ConversationDetailView({
                     {m.role === "user" ? "我" : "🤖"}
                   </div>
                   <div
-                    className={`max-w-[80%] rounded-2xl px-3.5 py-2 text-sm leading-6 ${
+                    className={`max-w-[80%] whitespace-pre-wrap rounded-2xl px-3.5 py-2 text-sm leading-6 ${
                       m.role === "user"
                         ? "rounded-tr-sm bg-emerald-600 text-white"
                         : "rounded-tl-sm bg-muted/60"
@@ -330,11 +407,61 @@ export function ConversationDetailView({
                     {m.content}
                   </div>
                 </div>
-              ))}
-            </CardContent>
-          </Card>
-        </section>
-      )}
+              ))
+            )}
+
+            {/* 追问输入 + LLM 选择 */}
+            <div className="mt-1 flex flex-col gap-2 border-t pt-3 sm:flex-row sm:items-center">
+              {initialLlmSettings.length > 0 && (
+                <Select
+                  value={selectedLlmId ?? undefined}
+                  onValueChange={setSelectedLlmId}
+                >
+                  <SelectTrigger className="h-9 w-full sm:w-52">
+                    <SelectValue placeholder="选择 LLM" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {initialLlmSettings.map((l) => (
+                      <SelectItem key={l.id} value={l.id}>
+                        {l.name || l.provider} · {l.model}
+                        {l.is_default ? "（默认）" : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              <div className="flex flex-1 items-center gap-2">
+                <Input
+                  placeholder="追问：这个估值合理吗？"
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSend();
+                    }
+                  }}
+                  disabled={chatBusy}
+                  className="h-9 rounded-xl"
+                />
+                <Button
+                  size="icon"
+                  className="size-9 shrink-0 rounded-xl"
+                  onClick={handleSend}
+                  disabled={chatBusy || !chatInput.trim()}
+                  aria-label="发送"
+                >
+                  {chatBusy ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Send className="size-4" />
+                  )}
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </section>
 
       {orderedResults.length > 0 && (
         <section className="flex flex-col gap-3">

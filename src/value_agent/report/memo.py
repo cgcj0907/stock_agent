@@ -20,7 +20,7 @@ def build_memo(session: Session) -> str:
         f"- 模型版本：`{session.model_version}`",
         f"- 状态：`{session.status.value}`",
         "",
-        "## 0 执行摘要",
+        "## 执行摘要",
     ]
 
     m10 = results.get("M10_decision")
@@ -47,7 +47,7 @@ def build_memo(session: Session) -> str:
     else:
         lines.append("- 结论：M10 未产出（评分卡未执行）")
 
-    lines += ["", "## 1 模块执行结果", "", "| 模块 | 状态 | 评分 | 证据数 |", "|---|---|---|---|"]
+    lines += ["", "## 模块执行结果", "", "| 模块 | 状态 | 评分 | 证据数 |", "|---|---|---|---|"]
     for agent_id in sorted(results):
         r = results[agent_id]
         lines.append(
@@ -61,7 +61,7 @@ def build_memo(session: Session) -> str:
         metrics = m2.outputs["metrics"]
         lines += [
             "",
-            "## 2 财务质量（M2）",
+            "## 财务质量（M2）",
             "",
             f"- ROE：最新 {metrics.get('roe_latest')}%，均值 {metrics.get('roe_mean')}%",
             f"- 杜邦：净利率 {metrics.get('net_margin')}% × 隐含周转 {metrics.get('implied_asset_turnover')} × 杠杆 {metrics.get('equity_multiplier')}",
@@ -75,7 +75,7 @@ def build_memo(session: Session) -> str:
     m4 = results.get("M4_valuation")
     m8 = results.get("M8_safety_margin")
     if m4 and m4.outputs.get("methods"):
-        lines += ["", "## 3 估值与安全边际（M4/M8）", "", "| 方法 | 每股价值 |", "|---|---|"]
+        lines += ["", "## 估值与安全边际（M4/M8）", "", "| 方法 | 每股价值 |", "|---|---|"]
         for name, m in m4.outputs["methods"].items():
             val = m.get("value")
             lines.append(f"| {name} | {val if val is not None else '跳过（' + m.get('note', '') + '）'} |")
@@ -88,12 +88,12 @@ def build_memo(session: Session) -> str:
 
     m11 = results.get("M11_monitor")
     if m11 and m11.outputs.get("monitor_rules"):
-        lines += ["", "## 4 监控规则（M11）", ""]
+        lines += ["", "## 监控规则（M11）", ""]
         for rule in m11.outputs["monitor_rules"]:
             lines.append(f"- [{rule['severity']}] {rule['description']}（触发：{rule['trigger']}）")
 
-    lines += ["", "## 5 假设（assumptions）", "", "```json", _json(session.assumptions), "```",
-              "", "## 6 数据来源与免责声明", "", "- 数据快照与模块证据见各模块输出；本备忘录不构成投资建议。"]
+    lines += ["", "## 假设（assumptions）", "", "```json", _json(session.assumptions), "```",
+              "", "## 数据来源与免责声明", "", "- 数据快照与模块证据见各模块输出；本备忘录不构成投资建议。"]
     return "\n".join(lines)
 
 
