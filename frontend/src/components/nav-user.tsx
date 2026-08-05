@@ -1,7 +1,9 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { ChevronsUpDown, LogOut, Settings } from "lucide-react";
+import { toast } from "sonner";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -19,11 +21,28 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { createClient } from "@/lib/supabase/client";
 
-export function NavUser() {
+export function NavUser({
+  user,
+}: {
+  user: { name: string; email: string };
+}) {
   const { isMobile } = useSidebar();
-  // M1 接入 Supabase Auth 后替换为真实用户
-  const user = { name: "访客用户", email: "未登录" };
+  const router = useRouter();
+  const initial = user.name?.charAt(0) || "用";
+
+  async function handleSignOut() {
+    const supabase = createClient();
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      toast.error(error.message || "退出失败");
+      return;
+    }
+    toast.success("已退出登录");
+    router.push("/login");
+    router.refresh();
+  }
 
   return (
     <SidebarMenu>
@@ -37,7 +56,7 @@ export function NavUser() {
               <Avatar className="h-8 w-8 rounded-lg">
                 <AvatarImage src="" alt={user.name} />
                 <AvatarFallback className="rounded-lg bg-emerald-600 text-white">
-                  访
+                  {initial}
                 </AvatarFallback>
               </Avatar>
               <div className="grid flex-1 text-left text-sm leading-tight">
@@ -59,7 +78,7 @@ export function NavUser() {
               <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
                 <Avatar className="h-8 w-8 rounded-lg">
                   <AvatarFallback className="rounded-lg bg-emerald-600 text-white">
-                    访
+                    {initial}
                   </AvatarFallback>
                 </Avatar>
                 <div className="grid flex-1 text-left text-sm leading-tight">
@@ -78,7 +97,7 @@ export function NavUser() {
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <DropdownMenuItem>
+            <DropdownMenuItem variant="destructive" onClick={handleSignOut}>
               <LogOut />
               退出登录
             </DropdownMenuItem>

@@ -62,7 +62,12 @@ function BrandMark() {
   );
 }
 
-export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+export function AppSidebar({
+  user,
+  ...props
+}: React.ComponentProps<typeof Sidebar> & {
+  user: { name: string; email: string };
+}) {
   const pathname = usePathname();
 
   return (
@@ -119,7 +124,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       </SidebarContent>
 
       <SidebarFooter>
-        <NavUser />
+        <NavUser user={user} />
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>

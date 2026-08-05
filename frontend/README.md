@@ -11,7 +11,7 @@
 ```bash
 npm install
 cp .env.example .env.local   # 填写后端地址与 Supabase 配置
-npm run dev                  # http://localhost:3000
+npm run dev                  # http://localhost:3000（用 127.0.0.1 访问避免跨源拦截）
 ```
 
 ## 常用命令
@@ -24,7 +24,7 @@ npm run start   # 生产预览
 
 ## 里程碑
 - [x] M0 脚手架：Next.js 16 + shadcn/ui + 设计系统 + App Shell（侧边栏/顶栏/仪表盘占位）
-- [ ] M1 认证（Supabase Auth）
+- [x] M1 认证（Supabase Auth：登录/注册/忘记密码/更新密码 + 路由保护）
 - [ ] M2 LLM 服务商配置（/settings/llm）
 - [ ] M3 智能体广场（/agents）
 - [ ] M4 工作流分析（/workflows，React Flow DAG + SSE）
