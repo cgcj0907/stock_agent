@@ -19,11 +19,19 @@ class M8SafetyMarginAgent(Agent):
     def run(self, ctx: AgentContext) -> ModuleResult:
         m4 = ctx.inputs.get("M4_valuation")
         if m4 is None or not m4.outputs.get("intrinsic_value"):
+            # 降级为 DONE（数据不足）而非 SKIPPED，避免阻断下游 M9/M10/M11
             return ModuleResult(
                 module=self.spec.id,
-                status=ModuleStatus.SKIPPED,
-                outputs={"reason": "缺少 M4 估值结果"},
-                evidence=["依赖 M4_valuation 未产出内在价值区间"],
+                status=ModuleStatus.DONE,
+                score=0.0,
+                outputs={
+                    "price": None,
+                    "buy_price": None,
+                    "sell_price": None,
+                    "status": "数据不足（依赖 M4 估值结果缺失）",
+                    "reason": "缺少 M4 估值结果",
+                },
+                evidence=["依赖 M4_valuation 未产出内在价值区间，安全边际按数据不足处理"],
             )
         intrinsic = m4.outputs["intrinsic_value"]
         price = m4.outputs.get("current_price")

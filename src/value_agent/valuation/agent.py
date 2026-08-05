@@ -20,6 +20,25 @@ class M4ValuationAgent(Agent):
         if ctx.data is None:
             raise RuntimeError("M4 需要数据访问（ctx.data），请注入 DataManager")
         code = ctx.session.company_code
+        try:
+            return self._run_impl(ctx, code)
+        except Exception as exc:  # noqa: BLE001
+            # 数据源瞬时故障：降级为 DONE（带说明），不阻塞下游 M8/M9/M10/M11
+            return ModuleResult(
+                module=self.spec.id,
+                status=ModuleStatus.DONE,
+                score=0.0,
+                outputs={
+                    "business_type": "cyclical",
+                    "methods": {},
+                    "intrinsic_value": None,
+                    "current_price": None,
+                    "note": f"估值数据获取失败（{type(exc).__name__}），未产出内在价值",
+                },
+                evidence=[f"数据源异常：{type(exc).__name__}（{str(exc)[:80]}），估值降级"],
+            )
+
+    def _run_impl(self, ctx: AgentContext, code: str) -> ModuleResult:
         fin = ctx.data.financials(code)
         val = ctx.data.valuation_history(code)
         price = ctx.data.daily_prices(code)

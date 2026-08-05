@@ -27,7 +27,25 @@ class AkShareDataSource(DataSource):
             ) from exc
         self._ak = ak
 
+    def _retry(self, name: str, fn, tries: int = 2):
+        """对瞬时网络错误做有限重试（东财/新浪接口偶发 RemoteDisconnected）。"""
+        last: Exception | None = None
+        for i in range(tries):
+            try:
+                return fn()
+            except Exception as exc:  # noqa: BLE001
+                last = exc
+                if i < tries - 1:
+                    import time
+
+                    time.sleep(0.6 * (i + 1))
+        logger.warning("[akshare] %s 重试 %d 次仍失败：%s", name, tries, last)
+        raise last
+
     def company_info(self, code: str) -> dict:
+        return self._retry("company_info", lambda: self._company_info(code))
+
+    def _company_info(self, code: str) -> dict:
         df = self._ak.stock_individual_info_em(symbol=code)
         kv = dict(zip(df["item"], df["value"]))
         return {
@@ -40,6 +58,9 @@ class AkShareDataSource(DataSource):
         }
 
     def financials(self, code: str, years: int = 10) -> dict:
+        return self._retry("financials", lambda: self._financials(code, years))
+
+    def _financials(self, code: str, years: int = 10) -> dict:
         df = self._ak.stock_financial_analysis_indicator(symbol=code)
         # 接口按日期升序返回 → 取最新 years*4 期（避免取到最旧数据）
         df = df.tail(years * 4)
@@ -64,6 +85,9 @@ class AkShareDataSource(DataSource):
         return {"records": records, "source": self.name}
 
     def daily_prices(self, code: str, start: str | None = None, end: str | None = None) -> dict:
+        return self._retry("daily_prices", lambda: self._daily_prices(code, start, end))
+
+    def _daily_prices(self, code: str, start: str | None = None, end: str | None = None) -> dict:
         # 接口需显式日期范围（None 会返回空）
         if start is None:
             start = (datetime.date.today() - datetime.timedelta(days=365 * 10)).strftime("%Y%m%d")
@@ -86,6 +110,9 @@ class AkShareDataSource(DataSource):
         return {"records": records, "source": self.name}
 
     def valuation_history(self, code: str) -> dict:
+        return self._retry("valuation_history", lambda: self._valuation_history(code))
+
+    def _valuation_history(self, code: str) -> dict:
         # 百度股市通估值历史：按指标分别拉取后按日期合并（akshare>=1.18 已移除乐咕接口）
         indicators = {
             "pe_ttm": "市盈率(TTM)",
@@ -120,6 +147,9 @@ class AkShareDataSource(DataSource):
         return {"records": records, "source": self.name}
 
     def dividends(self, code: str) -> dict:
+        return self._retry("dividends", lambda: self._dividends(code))
+
+    def _dividends(self, code: str) -> dict:
         # 巨潮分红：报告期, 每股派息(税前)[元], 进度
         df = self._ak.stock_dividend_cninfo(symbol=code)
         records = [

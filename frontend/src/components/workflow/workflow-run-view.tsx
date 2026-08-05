@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { WorkflowDag } from "@/components/workflow/workflow-dag";
 import { ResultCard } from "@/components/workflow/result-card";
+import { MemoCard } from "@/components/workflow/memo-card";
 import { findAgent } from "@/lib/agents/catalog";
 import { useWorkflowRun } from "@/hooks/use-workflow-run";
 import type { WorkflowInfo } from "@/lib/workflows/catalog";
@@ -38,6 +39,7 @@ export function WorkflowRunView({ workflow }: { workflow: WorkflowInfo }) {
     statuses,
     results,
     memo,
+    sessionId,
     start,
   } = useWorkflowRun(
     workflow.id,
@@ -167,19 +169,31 @@ export function WorkflowRunView({ workflow }: { workflow: WorkflowInfo }) {
       )}
 
       {/* 备忘录 */}
-      {memo && (
+      {(memo || Object.keys(results).length > 0) && (
         <section className="flex flex-col gap-3">
           <h2 className="flex items-center gap-2 text-base font-semibold">
             <FileText className="size-4 text-emerald-600 dark:text-emerald-400" />
             投资备忘录
           </h2>
-          <Card className="rounded-2xl">
-            <CardContent className="prose prose-sm max-w-none p-6 dark:prose-invert prose-headings:scroll-mt-6">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                {memo}
-              </ReactMarkdown>
-            </CardContent>
-          </Card>
+          {Object.keys(results).length > 0 ? (
+            <MemoCard
+              companyCode={companyCode}
+              companyName={companyName}
+              workflowId={workflow.id}
+              status={runStatus}
+              moduleResults={results}
+              sessionId={sessionId ?? undefined}
+              assumptions={undefined}
+            />
+          ) : memo ? (
+            <Card className="rounded-2xl">
+              <CardContent className="prose prose-sm max-w-none p-6 dark:prose-invert prose-headings:scroll-mt-6">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {memo}
+                </ReactMarkdown>
+              </CardContent>
+            </Card>
+          ) : null}
         </section>
       )}
     </div>

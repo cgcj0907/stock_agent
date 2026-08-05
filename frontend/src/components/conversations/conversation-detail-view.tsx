@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/select";
 import { WorkflowDag } from "@/components/workflow/workflow-dag";
 import { ResultCard } from "@/components/workflow/result-card";
+import { MemoCard } from "@/components/workflow/memo-card";
 import { findAgent } from "@/lib/agents/catalog";
 import { api, runSessionViaSse } from "@/lib/api";
 import { createClient } from "@/lib/supabase/client";
@@ -478,19 +479,32 @@ export function ConversationDetailView({
         </section>
       )}
 
-      {memo && (
+      {(memo || (session && Object.keys(session.module_results ?? {}).length > 0)) && (
         <section className="flex flex-col gap-3">
           <h2 className="flex items-center gap-2 text-base font-semibold">
             <FileText className="size-4 text-emerald-600 dark:text-emerald-400" />
             投资备忘录
           </h2>
-          <Card className="rounded-2xl">
-            <CardContent className="prose prose-sm max-w-none p-6 dark:prose-invert">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                {memo}
-              </ReactMarkdown>
-            </CardContent>
-          </Card>
+          {session && Object.keys(session.module_results ?? {}).length > 0 ? (
+            <MemoCard
+              companyCode={conversation.company_code}
+              companyName={conversation.company_name}
+              workflowId={conversation.workflow_id}
+              status={session.status}
+              moduleResults={session.module_results ?? {}}
+              sessionId={session.id}
+              createdAt={conversation.created_at}
+              assumptions={session.assumptions}
+            />
+          ) : memo ? (
+            <Card className="rounded-2xl">
+              <CardContent className="prose prose-sm max-w-none p-6 dark:prose-invert">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {memo}
+                </ReactMarkdown>
+              </CardContent>
+            </Card>
+          ) : null}
         </section>
       )}
     </div>

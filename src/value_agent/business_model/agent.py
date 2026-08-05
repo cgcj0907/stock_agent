@@ -21,9 +21,25 @@ class M1BusinessModelAgent(Agent):
         if ctx.data is None:
             raise RuntimeError("M1 需要数据访问（ctx.data）")
         code = ctx.session.company_code
-        info = ctx.data.company_info(code)
-        fin = ctx.data.financials(code)
-        result = analyze_business_model(info, fin)
+        try:
+            info = ctx.data.company_info(code)
+            fin = ctx.data.financials(code)
+            result = analyze_business_model(info, fin)
+        except Exception as exc:  # noqa: BLE001
+            # 数据源瞬时故障：降级为 DONE（保守按周期），不阻塞下游估值
+            return ModuleResult(
+                module=self.spec.id,
+                status=ModuleStatus.DONE,
+                score=50.0,
+                outputs={
+                    "business_type": "cyclical",
+                    "one_liner": f"数据获取失败（{type(exc).__name__}），保守按周期处理",
+                    "understandability": "边缘（需行业周期专识）",
+                    "industry": "",
+                    "note": str(exc)[:120],
+                },
+                evidence=[f"数据源异常：{type(exc).__name__}（{str(exc)[:80]}），已降级为周期分类"],
+            )
 
         outputs = {
             "business_type": result.business_type,

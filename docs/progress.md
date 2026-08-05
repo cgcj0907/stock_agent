@@ -35,6 +35,8 @@
 
 > ✅ 2026-08-05 **对话追问（chat）实现**：后端 `POST /api/sessions/{id}/chat`（按请求>会话>全局 LLM 回复）+ 前端对话输入框/LLM 选择器 + BFF 同步消息到 Supabase；修复 `SessionManager.add_message` 不更新内存 session 的 bug；memo 标题去掉数字编号。77 测试全绿。
 
+> ✅ 2026-08-05 **Memo 卡片美化落地**：新增 `MemoCard` 结构化组件（Hero 指标/五维评分条/内在价值区间带/买卖区间卡/模块表/监控严重度徽章/假设键值网格），替换 markdown 渲染；配套后端韧性：AkShare 网络重试 + M1/M4/M8 数据失败降级为 DONE（工作流不再因数据源瞬时故障全灭）。
+
 ## S0 数据层（🔶 进行中）
 - [x] 免费数据源适配器（mock + baostock + akshare 统一接口，字段已归一化）2026-08-04
 - [x] 表结构（schema.sql：company/financials/daily_price/valuation_history/dividends/watchlist）

@@ -23,6 +23,7 @@ export interface SessionView {
   current_module: string | null;
   module_results: Record<string, ModuleResultView>;
   workflow_id: string;
+  assumptions?: Record<string, unknown>;
   memo_versions: string[];
 }
 
