@@ -17,6 +17,8 @@
 
 ---
 
+> ✅ 2026-08-05 **方案 1 批次 A（统一模块契约，docs/09-module-contracts.md）**：新增 `core/contracts.py`（五段式常量/枚举/RiskSignal/meta 校验）；`ModuleResult` 增加 `meta` 字段（含序列化往返）；修复 M9 YAML deps 漏 M7/M8 的 handoff 断点；M4 `spec.inputs` 对齐实际读取（M1+M3）；新增 `tests/test_contracts.py` 11 个用例（含工作流依赖声明对齐防回归）。94 测试全绿。
+
 > ✅ 2026-08-05 修复测试：新增 tests/conftest.py StubData 夹具（数据桩）注入引擎；修正 test_decision/test_sessions/test_financials 过期断言；**76 个测试全绿**。
 
 > ✅ 2026-08-05 **会话持久化迁移到 Supabase**：新增 `SupabaseStore`（`sessions` jsonb 表）+ `SESSION_STORE` 环境切换；真实 Supabase 验证重启后会话恢复；本地默认 sqlite。

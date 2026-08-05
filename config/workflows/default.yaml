@@ -11,6 +11,6 @@ steps:
   - {id: M6, agent: M6_governance}
   - {id: M7, agent: M7_market}
   - {id: M8, agent: M8_safety_margin, deps: [M4, M7]}
-  - {id: M9, agent: M9_risk, deps: [M2, M3, M5, M6]}
+  - {id: M9, agent: M9_risk, deps: [M2, M3, M5, M6, M7, M8]}
   - {id: M10, agent: M10_decision, deps: [M4, M7, M8, M9]}
   - {id: M11, agent: M11_monitor, deps: [M10]}

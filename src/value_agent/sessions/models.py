@@ -77,6 +77,10 @@ class ModuleResult:
     outputs: dict = field(default_factory=dict)  # 结构化结果（指标表/估值区间/信号…）
     evidence: list[str] = field(default_factory=list)  # 数据来源/引用（强制溯源）
     llm_explanation: str | None = None
+    # 质量元数据（方案 1 强约束，见 docs/09-module-contracts.md §2/§3）：
+    # {"confidence": 0.0, "completeness": "high|medium|low", "degraded": false, "reason_codes": []}
+    # 构造/校验见 value_agent.core.contracts（build_meta / validate_meta）。
+    meta: dict = field(default_factory=dict)
     started_at: datetime | None = None
     finished_at: datetime | None = None
 
@@ -88,6 +92,7 @@ class ModuleResult:
             "outputs": self.outputs,
             "evidence": self.evidence,
             "llm_explanation": self.llm_explanation,
+            "meta": self.meta,
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "finished_at": self.finished_at.isoformat() if self.finished_at else None,
         }
@@ -101,6 +106,7 @@ class ModuleResult:
             outputs=d.get("outputs", {}),
             evidence=d.get("evidence", []),
             llm_explanation=d.get("llm_explanation"),
+            meta=d.get("meta", {}),
             started_at=_parse_dt(d.get("started_at")),
             finished_at=_parse_dt(d.get("finished_at")),
         )

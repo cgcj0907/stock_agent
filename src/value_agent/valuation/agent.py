@@ -12,7 +12,7 @@ class M4ValuationAgent(Agent):
         id="M4_valuation",
         name="估值引擎智能体",
         description="方法路由(按生意类型) + 多模型交叉估值",
-        inputs=["M1_business_model"],
+        inputs=["M1_business_model", "M3_growth"],  # 实际读取：M1 路由 + M3 增速
         requires_llm=False,
     )
 
