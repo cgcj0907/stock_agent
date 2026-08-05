@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { LinkedText } from "@/lib/linkify";
+import { fieldLabel } from "@/lib/labels";
 import { isMarkdownText, MarkdownValue } from "@/components/workflow/markdown-value";
 import { tryParseJson } from "@/lib/json";
 
@@ -95,7 +96,7 @@ export function ValueView({ value, label }: { value: unknown; label?: string }) 
               {i > 0 && (
                 <span className="mx-1 text-muted-foreground/60">·</span>
               )}
-              <span className="text-muted-foreground">{k}</span>{" "}
+              <span className="text-muted-foreground">{fieldLabel(k)}</span>{" "}
               {typeof v === "string" ? (
                 <LinkedText text={v} />
               ) : (
@@ -110,7 +111,9 @@ export function ValueView({ value, label }: { value: unknown; label?: string }) 
       <div className="flex flex-col gap-0.5">
         {entries.map(([k, v]) => (
           <div key={k} className="flex items-baseline gap-1.5">
-            <span className="shrink-0 text-muted-foreground">{k}</span>
+            <span className="shrink-0 text-muted-foreground">
+              {fieldLabel(k)}
+            </span>
             <span className="min-w-0 flex-1">
               <ValueView value={v} />
             </span>

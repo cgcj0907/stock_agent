@@ -1,7 +1,10 @@
 "use client";
 
+import * as React from "react";
 import {
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   Clock3,
   Loader2,
   Paperclip,
@@ -22,6 +25,7 @@ import {
 } from "@/components/workflow/markdown-value";
 import { ValueView } from "@/components/workflow/value-view";
 import { LinkedText } from "@/lib/linkify";
+import { fieldLabel } from "@/lib/labels";
 import type { AgentInfo } from "@/lib/agents/catalog";
 import type { ModuleResultView } from "@/hooks/use-workflow-run";
 
@@ -60,6 +64,7 @@ const STATUS_BADGE: Record<
   },
 };
 
+/** 默认折叠展示的字段/证据条数，超出后可展开。 */
 const MAX_OUTPUTS = 8;
 const MAX_EVIDENCE = 4;
 
@@ -74,6 +79,28 @@ function isFullWidthValue(v: unknown, key: string): boolean {
   );
 }
 
+function ExpandToggle({
+  expanded,
+  label,
+  onClick,
+}: {
+  expanded: boolean;
+  label: string;
+  onClick: () => void;
+}) {
+  const Icon = expanded ? ChevronUp : ChevronDown;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+    >
+      <Icon className="size-3" />
+      {expanded ? "收起" : label}
+    </button>
+  );
+}
+
 export function ResultCard({
   agent,
   result,
@@ -85,12 +112,22 @@ export function ResultCard({
   const StatusIcon = badge.icon;
   const entries = Object.entries(result.outputs ?? {});
   const score = result.score;
-  const showMoreOutputs = entries.length > MAX_OUTPUTS;
-  const showMoreEvidence = result.evidence.length > MAX_EVIDENCE;
+  const [showAllOutputs, setShowAllOutputs] = React.useState(false);
+  const [showAllEvidence, setShowAllEvidence] = React.useState(false);
+
+  const visibleOutputs = showAllOutputs
+    ? entries
+    : entries.slice(0, MAX_OUTPUTS);
+  const visibleEvidence = showAllEvidence
+    ? result.evidence
+    : result.evidence.slice(0, MAX_EVIDENCE);
 
   return (
-    <Card className="rounded-2xl transition-shadow hover:shadow-sm">
-      <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
+    <Card
+      size="sm"
+      className="flex h-full flex-col rounded-2xl transition-shadow hover:shadow-sm"
+    >
+      <CardHeader className="flex-row items-center justify-between space-y-0 pb-1">
         <div className="flex items-center gap-2.5">
           <span className="text-xl leading-none">
             {agent?.emoji ?? "🤖"}
@@ -122,7 +159,7 @@ export function ResultCard({
         </Badge>
       </CardHeader>
 
-      <CardContent className="flex flex-col gap-3">
+      <CardContent className="flex flex-1 flex-col gap-2.5">
         {score != null && (
           <div className="flex items-center gap-2.5">
             <div className="h-1.5 w-24 overflow-hidden rounded-full bg-muted">
@@ -140,7 +177,7 @@ export function ResultCard({
 
         {entries.length > 0 && (
           <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 rounded-xl bg-muted/40 p-3">
-            {entries.slice(0, MAX_OUTPUTS).map(([k, v]) => {
+            {visibleOutputs.map(([k, v]) => {
               const fullWidth = isFullWidthValue(v, k);
               return (
                 <div
@@ -148,7 +185,7 @@ export function ResultCard({
                   className={fullWidth ? "col-span-2 min-w-0" : "min-w-0"}
                 >
                   <div className="truncate text-[10px] text-muted-foreground">
-                    {k}
+                    {fieldLabel(k)}
                   </div>
                   <div
                     className={
@@ -160,15 +197,19 @@ export function ResultCard({
                     {LLM_KEY_RE.test(k) ? (
                       <LlmResultView value={v} />
                     ) : (
-                      <ValueView value={v} label={k} />
+                      <ValueView value={v} label={fieldLabel(k)} />
                     )}
                   </div>
                 </div>
               );
             })}
-            {showMoreOutputs && (
-              <div className="col-span-2 text-[10px] text-muted-foreground">
-                另有 {entries.length - MAX_OUTPUTS} 个字段未展示
+            {entries.length > MAX_OUTPUTS && (
+              <div className="col-span-2 flex justify-end pt-0.5">
+                <ExpandToggle
+                  expanded={showAllOutputs}
+                  label={`展开全部 ${entries.length} 个字段`}
+                  onClick={() => setShowAllOutputs((v) => !v)}
+                />
               </div>
             )}
           </div>
@@ -180,7 +221,7 @@ export function ResultCard({
               证据 / 数据来源
             </div>
             <ul className="flex flex-col gap-1">
-              {result.evidence.slice(0, MAX_EVIDENCE).map((ev, i) => (
+              {visibleEvidence.map((ev, i) => (
                 <li
                   key={i}
                   className="flex items-start gap-1.5 text-xs leading-5 text-muted-foreground"
@@ -191,27 +232,27 @@ export function ResultCard({
                   </span>
                 </li>
               ))}
-              {showMoreEvidence && (
-                <li className="text-[10px] text-muted-foreground">
-                  另有 {result.evidence.length - MAX_EVIDENCE} 条证据未展示
-                </li>
-              )}
             </ul>
+            {result.evidence.length > MAX_EVIDENCE && (
+              <div className="flex justify-end">
+                <ExpandToggle
+                  expanded={showAllEvidence}
+                  label={`展开全部 ${result.evidence.length} 条证据`}
+                  onClick={() => setShowAllEvidence((v) => !v)}
+                />
+              </div>
+            )}
           </div>
         )}
 
         {result.llm_explanation &&
           (isMarkdownText(result.llm_explanation) ? (
-            <MarkdownValue
-              text={result.llm_explanation}
-              label="LLM 解释"
-            />
+            <MarkdownValue text={result.llm_explanation} label="LLM 解释" />
           ) : (
             <p className="text-xs italic leading-5 text-muted-foreground">
               {result.llm_explanation}
             </p>
           ))}
-
       </CardContent>
     </Card>
   );
