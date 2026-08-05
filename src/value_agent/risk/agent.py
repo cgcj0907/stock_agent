@@ -36,7 +36,10 @@ class M9RiskAgent(Agent):
                     "请按以下结构输出 JSON：\n"
                     '{"key_assumptions": ["假设1", "假设2", "假设3"], '
                     '"permanent_loss_paths": ["路径1", "路径2"], '
-                    '"verdict": "一句话反方结论"}',
+                    '"verdict": "一句话反方结论", '
+                    '"references": [{"title": "参考文章标题", "url": "https://..."}]}\n'
+                    "references 给出 1-3 条你参考的来源文章链接"
+                    "（优先公司财报/公告/行业报告，无法确定则为空数组 []）。",
                 )
                 parsed = parse_llm_json(text)
                 if parsed is not None:

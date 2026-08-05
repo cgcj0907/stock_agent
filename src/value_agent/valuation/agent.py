@@ -91,16 +91,6 @@ class M4ValuationAgent(Agent):
             eps=eps, bvps=bvps, pe_history=pe_history, dividend=dividend,
             business_type=business_type, params=params,
         )
-        evidence = list(result.evidence)
-        for dataset, label in (
-            ("financials", "新浪财经财务指标"),
-            ("valuation_history", "百度股市通估值"),
-            ("daily_price", "东方财富行情"),
-            ("dividends", "巨潮资讯分红"),
-        ):
-            url = {"financials": fin, "valuation_history": val, "daily_price": price, "dividends": div}[dataset].get("url")
-            if url:
-                evidence.append(f"数据来源：{label} {url}")
         return ModuleResult(
             module=self.spec.id,
             status=ModuleStatus.DONE,
@@ -113,5 +103,5 @@ class M4ValuationAgent(Agent):
                 "current_price": close,
                 "params": result.params,
             },
-            evidence=evidence,
+            evidence=result.evidence,
         )

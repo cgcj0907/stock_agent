@@ -34,8 +34,6 @@ class M6GovernanceAgent(Agent):
             "note": result.note,
         }
         evidence = list(result.evidence)
-        if div.get("url"):
-            evidence.append(f"数据来源：巨潮资讯分红/公告 {div['url']}")
 
         if ctx.llm is not None:
             try:
@@ -46,7 +44,10 @@ class M6GovernanceAgent(Agent):
                     '{"governance_assessment": "治理评估", '
                     '"capital_allocation": "资本配置评估", '
                     '"risks": ["风险1", "风险2"], '
-                    '"conclusion": "一句话结论"}',
+                    '"conclusion": "一句话结论", '
+                    '"references": [{"title": "参考文章标题", "url": "https://..."}]}\n'
+                    "references 给出 1-3 条你参考的来源文章链接"
+                    "（优先公司财报/公告/行业报告，无法确定则为空数组 []）。",
                 )
                 parsed = parse_llm_json(text)
                 if parsed is not None:

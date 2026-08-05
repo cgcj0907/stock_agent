@@ -483,7 +483,6 @@ export function ConversationDetailView({
                 key={step}
                 agent={agent ? findAgent(agent) : undefined}
                 result={result}
-                companyCode={conversation.company_code}
               />
             ))}
           </div>

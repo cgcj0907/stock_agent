@@ -21,9 +21,6 @@ class M2FinancialQualityAgent(Agent):
         code = ctx.session.company_code
         fin = ctx.data.financials(code, years=10)
         result = analyze_financial_quality(fin["records"])
-        evidence = list(result.evidence)
-        if fin.get("url"):
-            evidence.append(f"数据来源：新浪财经财务指标 {fin['url']}")
         return ModuleResult(
             module=self.spec.id,
             status=ModuleStatus.DONE,
@@ -33,5 +30,5 @@ class M2FinancialQualityAgent(Agent):
                 "signals": result.signals,
                 "summary": result.details,
             },
-            evidence=evidence,
+            evidence=result.evidence,
         )

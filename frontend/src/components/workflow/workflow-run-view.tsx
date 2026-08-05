@@ -172,7 +172,6 @@ export function WorkflowRunView({ workflow }: { workflow: WorkflowInfo }) {
                 key={step}
                 agent={agent ? findAgent(agent) : undefined}
                 result={result}
-                companyCode={companyCode}
               />
             ))}
           </div>

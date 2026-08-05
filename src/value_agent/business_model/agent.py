@@ -52,10 +52,6 @@ class M1BusinessModelAgent(Agent):
             "industry": result.industry,
         }
         evidence = list(result.evidence)
-        if info.get("url"):
-            evidence.append(f"数据来源：东方财富公司概况 {info['url']}")
-        if fin.get("url"):
-            evidence.append(f"数据来源：新浪财经财务指标 {fin['url']}")
 
         if ctx.llm is not None:  # LLM 定性层（可选）
             try:
@@ -66,7 +62,10 @@ class M1BusinessModelAgent(Agent):
                     "请按以下结构输出 JSON：\n"
                     '{"business_model": "一句话描述其生意本质", '
                     '"understandability": "可理解|基本可理解|难以理解", '
-                    '"reasons": ["判断理由1", "判断理由2"]}',
+                    '"reasons": ["判断理由1", "判断理由2"], '
+                    '"references": [{"title": "参考文章标题", "url": "https://..."}]}\n'
+                    "references 给出 1-3 条你参考的来源文章链接"
+                    "（优先公司财报/公告/行业报告，无法确定则为空数组 []）。",
                 )
                 parsed = parse_llm_json(text)
                 if parsed is not None:

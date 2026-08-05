@@ -31,8 +31,6 @@ class M5MoatAgent(Agent):
 
         outputs = {"width": result.width, "signals": result.signals}
         evidence = list(result.evidence)
-        if fin.get("url"):
-            evidence.append(f"数据来源：新浪财经财务指标 {fin['url']}")
 
         if ctx.llm is not None:
             try:
@@ -42,7 +40,10 @@ class M5MoatAgent(Agent):
                     "请按以下结构输出 JSON：\n"
                     '{"moat_sources": ["无形资产", "转换成本"], '
                     '"width": "宽|中|窄|无", '
-                    '"evidence": ["关键证据1", "关键证据2"]}',
+                    '"evidence": ["关键证据1", "关键证据2"], '
+                    '"references": [{"title": "参考文章标题", "url": "https://..."}]}\n'
+                    "references 给出 1-3 条你参考的来源文章链接"
+                    "（优先公司财报/公告/行业报告，无法确定则为空数组 []）。",
                 )
                 parsed = parse_llm_json(text)
                 if parsed is not None:

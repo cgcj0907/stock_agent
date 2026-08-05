@@ -20,7 +20,6 @@ import {
   isMarkdownText,
   MarkdownValue,
 } from "@/components/workflow/markdown-value";
-import { SourceLinks } from "@/components/workflow/source-links";
 import { ValueView } from "@/components/workflow/value-view";
 import { LinkedText } from "@/lib/linkify";
 import type { AgentInfo } from "@/lib/agents/catalog";
@@ -78,11 +77,9 @@ function isFullWidthValue(v: unknown, key: string): boolean {
 export function ResultCard({
   agent,
   result,
-  companyCode,
 }: {
   agent?: AgentInfo;
   result: ModuleResultView;
-  companyCode?: string;
 }) {
   const badge = STATUS_BADGE[result.status] ?? STATUS_BADGE.pending;
   const StatusIcon = badge.icon;
@@ -215,11 +212,6 @@ export function ResultCard({
             </p>
           ))}
 
-        {companyCode && (
-          <div className="mt-auto border-t pt-2.5">
-            <SourceLinks code={companyCode} />
-          </div>
-        )}
       </CardContent>
     </Card>
   );
