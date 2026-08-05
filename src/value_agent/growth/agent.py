@@ -26,6 +26,13 @@ class M3GrowthAgent(Agent):
             outputs={
                 "growth_estimate": result.growth_estimate,
                 "prosperity": result.prosperity,
+                # 下游契约（§4 M3）：M4 用 recommended_growth_rate，M9/M11 用 prosperity_code
+                "handoff": {
+                    "recommended_growth_rate": result.growth_estimate,
+                    "growth_confidence": result.growth_confidence,
+                    "cyclicality_flag": result.cyclicality_flag,
+                    "prosperity_code": result.prosperity_code,
+                },
             },
             evidence=result.evidence,
         )

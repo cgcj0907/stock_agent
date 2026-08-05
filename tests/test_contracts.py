@@ -145,6 +145,37 @@ def test_yaml_default_deps_match_module_dependencies():
         }, f"{module.value} 的 YAML deps 与 MODULE_DEPENDENCIES 不一致（handoff 断点）"
 
 
+def test_default_run_emits_handoff_contracts(stub_data):
+    """默认工作流跑通后，各模块 outputs.handoff 必须含契约字段（批次 C）。"""
+    from value_agent.agents.builtin import register_builtin_agents
+    from value_agent.agents.registry import AgentRegistry
+    from value_agent.sessions import InMemoryStore, SessionManager
+    from value_agent.workflow import WorkflowEngine, default_workflow
+
+    reg = register_builtin_agents(AgentRegistry())
+    engine = WorkflowEngine(reg, SessionManager(InMemoryStore()), data=stub_data)
+    session = SessionManager(InMemoryStore()).create_session("600519", "贵州茅台")
+    engine.run(session, default_workflow())
+
+    expected = {
+        "M1_business_model": {"valuation_route", "understandability_level"},
+        "M3_growth": {"recommended_growth_rate", "growth_confidence", "cyclicality_flag", "prosperity_code"},
+        "M5_moat": {"moat_width", "moat_durability", "erosion_risks"},
+        "M6_governance": {"governance_score", "capital_allocation_flag", "governance_risk_codes"},
+        "M7_market": {"valuation_percentile", "market_state", "margin_adjustment"},
+    }
+    for agent_id, keys in expected.items():
+        handoff = session.module_results[agent_id].outputs.get("handoff") or {}
+        missing = keys - set(handoff)
+        assert not missing, f"{agent_id} handoff 缺少字段: {sorted(missing)}"
+    m9 = session.module_results["M9_risk"].outputs
+    assert "vetoes" in m9 and "monitor_candidates" in m9
+    m11 = session.module_results["M11_monitor"].outputs
+    if m11.get("monitor_rules"):
+        rule = m11["monitor_rules"][0]
+        assert "source_module" in rule and "action" in rule
+
+
 def test_agent_inputs_within_workflow_deps():
     """AgentSpec.inputs ⊆ 默认工作流 deps：声明消费的必须被工作流提供。"""
     registry = register_builtin_agents(AgentRegistry())

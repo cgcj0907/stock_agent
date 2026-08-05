@@ -24,7 +24,12 @@ class M9RiskAgent(Agent):
 
     def run(self, ctx: AgentContext) -> ModuleResult:
         result = assess_risk(ctx.inputs, ctx.assumptions)
-        outputs = {"risk_items": result.risk_items, "veto": result.veto}
+        outputs = {
+            "risk_items": result.risk_items,          # Risk Registry（对象数组）
+            "vetoes": result.vetoes,                   # 否决对象数组
+            "veto": result.veto,                       # 兼容：否决 reason 列表（M10 消费）
+            "monitor_candidates": result.monitor_candidates,  # 供 M11 直接转规则
+        }
         evidence = list(result.evidence)
 
         if ctx.llm is not None:

@@ -7,7 +7,7 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from value_agent.data.sources.base import DataSource
 from value_agent.sessions.models import Session, SessionStatus
@@ -22,7 +22,7 @@ class MonitorEvent:
     rule_type: str
     message: str
     severity: str
-    occurred_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    occurred_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 def _latest_close(source: DataSource, code: str) -> float | None:

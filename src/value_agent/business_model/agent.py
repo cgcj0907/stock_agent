@@ -7,6 +7,17 @@ from value_agent.sessions.models import ModuleResult, ModuleStatus
 
 from .engine import analyze_business_model
 
+
+def _understandability_level(label: str) -> str:
+    """可理解性 → 契约枚举（high/medium/low），供 M4 保守度使用。"""
+    if "能力圈内" in label:
+        return "high"
+    if "边缘" in label:
+        return "medium"
+    return "low"
+
+
+
 _LLM_SYSTEM = (
     "你是价值投资分析师。基于给定公司信息判断其商业模式与能力圈可理解性。"
     + LLM_JSON_RULE
@@ -40,7 +51,10 @@ class M1BusinessModelAgent(Agent):
                     "one_liner": f"数据获取失败（{type(exc).__name__}），保守按周期处理",
                     "understandability": "边缘（需行业周期专识）",
                     "industry": "",
-                    "note": str(exc)[:120],
+                    "handoff": {
+                        "valuation_route": "cyclical",
+                        "understandability_level": "medium",
+                    },
                 },
                 evidence=[f"数据源异常：{type(exc).__name__}（{str(exc)[:80]}），已降级为周期分类"],
             )
@@ -50,6 +64,11 @@ class M1BusinessModelAgent(Agent):
             "one_liner": result.one_liner,
             "understandability": result.understandability,
             "industry": result.industry,
+            # 下游契约（§4 M1）：M4 直接读 handoff.valuation_route，不再猜
+            "handoff": {
+                "valuation_route": result.business_type,
+                "understandability_level": _understandability_level(result.understandability),
+            },
         }
         evidence = list(result.evidence)
 

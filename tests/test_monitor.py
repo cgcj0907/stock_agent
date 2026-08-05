@@ -1,7 +1,6 @@
 """M11 监控测试：规则生成 + 每日运行器触发。"""
-import pytest
 
-from value_agent.monitor.engine import MonitorRule, build_monitor_plan
+from value_agent.monitor.engine import build_monitor_plan
 from value_agent.monitor.runner import run_daily_monitor
 from value_agent.sessions.models import ModuleResult, ModuleStatus, Session, SessionStatus
 
@@ -23,6 +22,15 @@ def test_monitor_plan_generates_rules():
     assert "price_buy" in types and "price_sell" in types
     assert "prosperity_watch" in types and "risk_watch" in types
     assert plan.score > 0
+    # 契约：每条规则带 source_module 与 action 分层（§4 M11）
+    for rule in plan.rules:
+        assert rule.source_module
+        assert rule.action in ("watch", "alert", "action")
+    buy = next(r for r in plan.rules if r.rule_type == "price_buy")
+    assert buy.source_module == "M8_safety_margin"
+    assert buy.action == "action"
+    risk = next(r for r in plan.rules if r.rule_type == "risk_watch")
+    assert risk.source_module == "M9_risk"
 
 
 def test_monitor_plan_high_valuation_adds_sell():

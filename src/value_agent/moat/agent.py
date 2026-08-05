@@ -7,6 +7,18 @@ from value_agent.sessions.models import ModuleResult, ModuleStatus
 
 from .engine import assess_moat
 
+
+def _moat_width_code(width: str) -> str:
+    """护城河宽度 → 契约枚举（wide/medium/narrow/none），供 M10 消费。"""
+    return {"宽": "wide", "中": "medium", "窄": "narrow", "无": "none"}.get(width, "none")
+
+
+def _moat_durability(width: str) -> str:
+    """持久性代理（规则层）：宽→high / 中→medium / 窄或无→low（LLM 定性后续补充）。"""
+    return {"宽": "high", "中": "medium", "窄": "low", "无": "low"}.get(width, "low")
+
+
+
 _LLM_SYSTEM = (
     "你是价值投资分析师。基于财务特征判断公司护城河来源"
     "（无形资产/转换成本/网络效应/成本优势/规模）并评级。"
@@ -29,7 +41,16 @@ class M5MoatAgent(Agent):
         fin = ctx.data.financials(code)
         result = assess_moat(fin)
 
-        outputs = {"width": result.width, "signals": result.signals}
+        outputs = {
+            "width": result.width,
+            "signals": result.signals,
+            # 下游契约（§4 M5）：M10 用 moat_width；M9 用 erosion_risks（LLM 定性后填充）
+            "handoff": {
+                "moat_width": _moat_width_code(result.width),
+                "moat_durability": _moat_durability(result.width),
+                "erosion_risks": [],
+            },
+        }
         evidence = list(result.evidence)
 
         if ctx.llm is not None:

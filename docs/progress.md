@@ -17,6 +17,8 @@
 
 ---
 
+> ✅ 2026-08-05 **方案 1 批次 C（外围与风险契约，docs/09-module-contracts.md §4/§8）**：M1 handoff（valuation_route / understandability_level）；M3 handoff（recommended_growth_rate / growth_confidence / cyclicality_flag / prosperity_code）；M5 handoff（moat_width / moat_durability / erosion_risks）；M6 handoff（governance_score / capital_allocation_flag / governance_risk_codes）；M7 handoff（valuation_percentile / market_state / margin_adjustment）；M9 升级 Risk Registry（risk_items 对象化 id/category/severity/source_module/trigger/impact/mitigation/veto_candidate + vetoes[] + monitor_candidates，保留 veto 兼容列表）；M11 rules 补 source_module / action(watch|alert|action) 分层并消费 M9 对象；前端 labels 补契约字段标签；测试同步 + handoff 集成测试。96 测试全绿 + 前端 tsc 通过。
+
 > ✅ 2026-08-05 **方案 1 批次 B（硬核链路契约，docs/09-module-contracts.md §4/§8）**：M2 `signals` 升级为结构化 RiskSignal 对象（code/severity/metric/message，M9/M11/memo 按 message 消费，兼容旧字符串）；M4 `methods` 统一为数组对象（method/applicable/value/low/high/reason/confidence）+ 降级态字段集合与正常态一致 + meta.degraded；M8 新增 `mos_state` 枚举（attractive/fair/expensive/unavailable）+ 降级 reason_codes/meta；M10 新增 `decision_code`（buy/watch/avoid）+ `blocked_by_veto`；前端 memo-card 同步 M2/M4 渲染；测试同步 + 契约断言。95 测试全绿 + 前端 tsc 通过。
 
 > ✅ 2026-08-05 **方案 1 批次 A（统一模块契约，docs/09-module-contracts.md）**：新增 `core/contracts.py`（五段式常量/枚举/RiskSignal/meta 校验）；`ModuleResult` 增加 `meta` 字段（含序列化往返）；修复 M9 YAML deps 漏 M7/M8 的 handoff 断点；M4 `spec.inputs` 对齐实际读取（M1+M3）；新增 `tests/test_contracts.py` 11 个用例（含工作流依赖声明对齐防回归）。94 测试全绿。

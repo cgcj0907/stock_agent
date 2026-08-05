@@ -12,6 +12,8 @@ class MonitorRule:
     trigger: str
     description: str
     severity: str        # info / warn / critical
+    source_module: str = ""   # 规则来源模块（§4 M11 契约）
+    action: str = "watch"     # watch / alert / action 分层
 
 
 @dataclass
@@ -33,11 +35,13 @@ def build_monitor_plan(module_results: dict[str, ModuleResult]) -> MonitorPlan:
         rules.append(MonitorRule(
             "price_buy", f"现价 ≤ {m8.outputs['buy_price']} 元",
             "跌破买入区间，可分批建仓", "info",
+            source_module="M8_safety_margin", action="action",
         ))
     if m8 and m8.outputs.get("sell_price"):
         rules.append(MonitorRule(
             "price_sell", f"现价 ≥ {m8.outputs['sell_price']} 元",
             "达到卖出区间，考虑兑现", "warn",
+            source_module="M8_safety_margin", action="action",
         ))
 
     m7 = get("M7_market")
@@ -45,6 +49,7 @@ def build_monitor_plan(module_results: dict[str, ModuleResult]) -> MonitorPlan:
         rules.append(MonitorRule(
             "valuation_sell", f"估值位置={m7.outputs['position']}",
             "估值过热，卖出参考", "warn",
+            source_module="M7_market", action="action",
         ))
 
     m3 = get("M3_growth")
@@ -52,18 +57,34 @@ def build_monitor_plan(module_results: dict[str, ModuleResult]) -> MonitorPlan:
         rules.append(MonitorRule(
             "prosperity_watch", "景气评级=下行",
             "行业景气下行，财报季重点复查", "warn",
+            source_module="M3_growth", action="watch",
         ))
 
     m2 = get("M2_financial_quality")
     if m2:
         for sig in m2.outputs.get("signals") or []:
             message = sig.get("message") if isinstance(sig, dict) else sig
-            rules.append(MonitorRule("fundamental_watch", message, "财务信号监控", "warn"))
+            rules.append(MonitorRule(
+                "fundamental_watch", message, "财务信号监控", "warn",
+                source_module="M2_financial_quality", action="alert",
+            ))
 
     m9 = get("M9_risk")
     if m9:
         for item in m9.outputs.get("risk_items") or []:
-            rules.append(MonitorRule("risk_watch", item, "风险项监控", "info"))
+            if isinstance(item, dict):
+                sev_map = {"low": "info", "medium": "warn", "high": "warn", "critical": "critical"}
+                rules.append(MonitorRule(
+                    "risk_watch",
+                    item.get("trigger") or item.get("impact") or "",
+                    item.get("impact") or "风险项监控",
+                    sev_map.get(item.get("severity", ""), "info"),
+                    source_module=item.get("source_module") or "M9_risk",
+                    action="watch",
+                ))
+            else:
+                rules.append(MonitorRule("risk_watch", item, "风险项监控", "info",
+                                         source_module="M9_risk", action="watch"))
 
     score = min(100.0, 40.0 + 10.0 * len(rules))
     evidence = [f"生成 {len(rules)} 条监控规则：{', '.join(r.rule_type for r in rules) or '无'}",]

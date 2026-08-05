@@ -1,7 +1,6 @@
 """M7 价格与情绪引擎：估值历史分位 + 股债性价比（格雷厄姆"市场先生"）。"""
 from __future__ import annotations
 
-import statistics
 from dataclasses import dataclass, field
 
 MIN_SAMPLES = 10  # 分位计算最小样本数（不足则判"样本不足"）

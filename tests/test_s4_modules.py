@@ -79,11 +79,14 @@ def test_risk_aggregates_and_veto():
         "M8_safety_margin": _mod("M8_safety_margin", {"discount": -0.3}, 10),
     }
     r = assess_risk(inputs)
-    assert any("财务信号" in x for x in r.risk_items)
-    assert any("ROE 单年突变" in x for x in r.risk_items)  # 结构化信号按 message 消费
-    assert any("护城河" in x for x in r.risk_items)
-    assert any("泡沫" in x for x in r.risk_items)
-    assert r.veto == []
+    # Risk Registry：对象化（id/category/severity/source_module/trigger/impact）
+    assert all({"id", "category", "severity", "source_module", "trigger", "impact"} <= set(x) for x in r.risk_items)
+    assert any("ROE 单年突变" in x["impact"] for x in r.risk_items)  # 结构化信号按 message 消费
+    assert any("护城河" in x["impact"] for x in r.risk_items)
+    assert any("泡沫" in x["impact"] for x in r.risk_items)
+    assert r.veto == []  # 兼容列表
+    assert r.vetoes == []
+    assert sorted(r.monitor_candidates) == ["R-004", "R-005"]  # 泡沫(high) + 安全边际(high) 进入监控候选
 
 
 def test_risk_veto_on_bad_financials():

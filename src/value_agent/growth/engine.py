@@ -13,6 +13,9 @@ WACC = 0.10  # 再投资质量参照
 class GrowthResult:
     growth_estimate: float  # 历史 EPS CAGR（有界 0~20%，供 M4 DCF 使用）
     prosperity: str         # 上行 / 平稳 / 下行
+    prosperity_code: str    # up | flat | down（契约 handoff，§4 M3）
+    growth_confidence: str  # high | medium | low（数据充分性）
+    cyclicality_flag: bool  # ROE 波动大（CV>0.3）视为周期特征 → M4 保守
     score: float
     evidence: list[str] = field(default_factory=list)
 
@@ -59,6 +62,22 @@ def assess_growth(financials: dict, default_growth: float = 0.10) -> GrowthResul
         prosperity = "平稳"
     else:
         prosperity = "下行"
+    prosperity_code = {"上行": "up", "平稳": "flat", "下行": "down"}[prosperity]
+
+    # 增速可信度：真实 CAGR 且样本充足 → high；数据不足/默认值 → low
+    if cagr is not None and len(eps_by_year) >= 3:
+        growth_confidence = "high"
+    elif cagr is not None and len(eps_by_year) >= 2:
+        growth_confidence = "medium"
+    else:
+        growth_confidence = "low"
+
+    # 周期特征代理：ROE 波动大（CV>0.3）→ 视为周期（供 M4 禁用 DCF/唐朝）
+    if len(roe) >= 3 and abs(statistics.mean(roe)) > 0:
+        cv = statistics.stdev(roe) / abs(statistics.mean(roe))
+        cyclicality_flag = cv > 0.3
+    else:
+        cyclicality_flag = False
 
     # 评分：增速 40 + 再投资质量 30 + 财务空间 15 + 稳定性 15
     score = 40.0 if growth >= 0.15 else 35.0 if growth >= 0.10 else 25.0 if growth >= 0.05 else 12.0
@@ -78,5 +97,7 @@ def assess_growth(financials: dict, default_growth: float = 0.10) -> GrowthResul
     ]
     return GrowthResult(
         growth_estimate=round(growth, 4), prosperity=prosperity,
+        prosperity_code=prosperity_code, growth_confidence=growth_confidence,
+        cyclicality_flag=cyclicality_flag,
         score=round(min(score, 100.0), 1), evidence=evidence,
     )

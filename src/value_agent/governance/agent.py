@@ -7,6 +7,17 @@ from value_agent.sessions.models import ModuleResult, ModuleStatus
 
 from .engine import assess_governance
 
+
+def _capital_allocation_flag(result) -> str:
+    """资本配置代理（规则层）：评分高分红持续 → good；一般 → neutral；弱 → poor。"""
+    if result.score >= 70:
+        return "good"
+    if result.score >= 55:
+        return "neutral"
+    return "poor"
+
+
+
 _LLM_SYSTEM = (
     "你是公司治理分析师。基于公开信息评估管理层诚信、资本配置与治理风险。"
     + LLM_JSON_RULE
@@ -32,6 +43,12 @@ class M6GovernanceAgent(Agent):
             "dividend_years": result.dividend_years,
             "payout_latest": result.payout_latest,
             "note": result.note,
+            # 下游契约（§4 M6）：M9/M10 消费 governance_score / capital_allocation_flag
+            "handoff": {
+                "governance_score": result.score,
+                "capital_allocation_flag": _capital_allocation_flag(result),
+                "governance_risk_codes": [],
+            },
         }
         evidence = list(result.evidence)
 
