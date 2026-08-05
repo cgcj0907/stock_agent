@@ -34,6 +34,8 @@
 2. **`AgentSpec.inputs` ≠ 实际读取 ≠ workflow deps**：M4 的 `spec.inputs=["M1_business_model"]`，
    实际代码同时读 M3（`growth_estimate`）；M8 的 `spec.inputs` 声明 `[M4, M7]` 但只在 M4 缺失时兜底。
    → 约定：**`AgentSpec.inputs` = 引擎实际读取的 agent 集合**，并用测试强制与 workflow deps 对齐。
+   → 状态：两条断点均已修复（批次 A 修 M9 YAML deps 漏 M7/M8；批次 D 补 M10/M11 消费声明、
+     M3 inputs 置空），`tests/test_contracts.py` 防回归。
 
 ## 2. 统一模板骨架（所有模块的 outputs 内部结构）
 

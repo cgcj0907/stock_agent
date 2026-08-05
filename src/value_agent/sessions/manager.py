@@ -52,8 +52,14 @@ MODULE_DEPENDENCIES: dict[ModuleName, set[ModuleName]] = {
         ModuleName.M7,
         ModuleName.M8,
     },
-    ModuleName.M10: {ModuleName.M4, ModuleName.M7, ModuleName.M8, ModuleName.M9},
-    ModuleName.M11: {ModuleName.M10},
+    ModuleName.M10: {  # 维度评分消费全部上游 score + M9 veto
+        ModuleName.M1, ModuleName.M2, ModuleName.M3, ModuleName.M4,
+        ModuleName.M5, ModuleName.M6, ModuleName.M7, ModuleName.M8, ModuleName.M9,
+    },
+    ModuleName.M11: {  # 监控规则消费 M2/M3/M7/M8/M9 输出，并在 M10 之后生成
+        ModuleName.M2, ModuleName.M3, ModuleName.M7, ModuleName.M8,
+        ModuleName.M9, ModuleName.M10,
+    },
 }
 
 def _affected_modules(modules: Iterable[ModuleName]) -> set[ModuleName]:

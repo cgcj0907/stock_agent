@@ -12,7 +12,9 @@ class M11MonitorAgent(Agent):
         id="M11_monitor",
         name="跟踪监控智能体",
         description="生成监控规则：卖出触发 + 验证点 + 风险项",
-        inputs=["M10_decision"],
+        # 实际消费：M2/M3/M7/M8/M9 输出 + M10 上下文；与 MODULE_DEPENDENCIES[M11] 对齐
+        inputs=["M2_financial_quality", "M3_growth", "M7_market", "M8_safety_margin",
+                "M9_risk", "M10_decision"],
         requires_llm=False,
     )
 

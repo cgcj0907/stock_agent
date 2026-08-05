@@ -145,6 +145,31 @@ def test_yaml_default_deps_match_module_dependencies():
         }, f"{module.value} 的 YAML deps 与 MODULE_DEPENDENCIES 不一致（handoff 断点）"
 
 
+def test_agent_inputs_match_expected_consumption():
+    """关键模块 inputs 与引擎实际消费集合一致（批次 D 核对结果，防回归）。
+
+    注：M3 只读 ctx.data（M2 顺序依赖由 MODULE_DEPENDENCIES 保证）；
+    M10/M11 通过 session.module_results 消费的模块必须完整声明。
+    """
+    registry = register_builtin_agents(AgentRegistry())
+    expected = {
+        "M3_growth": set(),
+        "M10_decision": {
+            "M1_business_model", "M2_financial_quality", "M3_growth",
+            "M4_valuation", "M5_moat", "M6_governance", "M7_market",
+            "M8_safety_margin", "M9_risk",
+        },
+        "M11_monitor": {
+            "M2_financial_quality", "M3_growth", "M7_market",
+            "M8_safety_margin", "M9_risk", "M10_decision",
+        },
+    }
+    for agent_id, exp in expected.items():
+        assert set(registry.get(agent_id).spec.inputs) == exp, (
+            f"{agent_id} inputs 与预期消费集合不一致"
+        )
+
+
 def test_default_run_emits_handoff_contracts(stub_data):
     """默认工作流跑通后，各模块 outputs.handoff 必须含契约字段（批次 C）。"""
     from value_agent.agents.builtin import register_builtin_agents

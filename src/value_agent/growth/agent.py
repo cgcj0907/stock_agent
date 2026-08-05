@@ -12,7 +12,7 @@ class M3GrowthAgent(Agent):
         id="M3_growth",
         name="成长与再投资智能体",
         description="历史增速 + 再投资质量 + 景气度评级（供 M4 DCF）",
-        inputs=["M2_financial_quality"],
+        inputs=[],  # 实际只读 ctx.data；M2 顺序依赖由 MODULE_DEPENDENCIES 保证
         requires_llm=False,
     )
 

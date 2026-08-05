@@ -60,6 +60,31 @@ class ModuleResult:
 - 模块**只读** `session.module_results[依赖模块]` 和 `assumptions`，不修改其他模块结果。
 - 分数语义统一：0-100，越高越好；`score=None` 表示该模块不适用（如金融股跑 DCF）。
 
+### 3.1 统一模块契约（方案 1：强约束标准版，见 [09-module-contracts.md](09-module-contracts.md)）
+
+所有模块 `outputs` 内部必须符合五段式骨架：
+
+```python
+outputs = {
+  "schema_version": "1.0",
+  "module_type": "fact | risk | decision | monitor",
+  "core_facts":  {...},   # 规则引擎产物，程序消费（LLM 禁止写入）
+  "qualitative": {...},   # LLM 定性，给人看/前端渲染
+  "signals":     [...],   # 结构化风险信号 {code, severity, metric, message, evidence}
+  "handoff":     {...},   # 下游模块的字段级契约（枚举化、英文下划线键）
+  "meta": {"confidence", "completeness", "degraded", "reason_codes"},
+}
+```
+
+- **输入声明**：`AgentSpec.inputs` = 引擎实际读取的 agent 集合，必须满足
+  `inputs ⊆ workflow deps ⊆ MODULE_DEPENDENCIES`（`sessions/manager.py` 为唯一事实源），
+  由 `tests/test_contracts.py` 强制。
+- **handoff**：下游只读 `outputs.handoff` 契约字段，禁止读 `outputs` 内非契约字段拼字符串；
+  必需字段缺失 → 按降级运行（`completeness=low` + `reason_codes=[INPUT_MISSING]`），不抛错不阻断。
+- **降级态**：字段集合与正常态完全一致，只缺值（None/空），并写
+  `meta = {degraded: true, completeness: "low", reason_codes: [...]}`。
+- 枚举与校验统一用 `core/contracts.py`（BusinessType / MosState / MarketState / Severity / ReasonCode / RiskSignal / build_meta / validate_meta）。
+
 ## 4. LLM 使用约束（幻觉控制清单）
 
 1. 所有数字必须来自工具/规则引擎返回值，LLM 只解释，不计算。
