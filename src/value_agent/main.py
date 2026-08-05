@@ -106,6 +106,24 @@ def list_workflows() -> dict:
 
 
 # ---- 会话 ----
+def _mask_key(key: str) -> str:
+    """API 返回时对 llm_config.api_key 脱敏（数据库 payload 仍存完整 Key）。"""
+    if not key:
+        return ""
+    if len(key) <= 8:
+        return "••••••••"
+    return f"{key[:3]}••••••{key[-4:]}"
+
+
+def _public_session(session: Session) -> dict:
+    """API 响应用：会话脱敏（llm_config 不暴露完整 api_key）。"""
+    d = session.to_dict()
+    cfg = d.get("llm_config")
+    if cfg and cfg.get("api_key"):
+        d["llm_config"] = {**cfg, "api_key": _mask_key(cfg["api_key"])}
+    return d
+
+
 def _load_session(session_id: str):
     try:
         return _manager.load(session_id)
@@ -147,18 +165,18 @@ def create_session(req: CreateSessionRequest) -> dict:
         workflow_steps=req.workflow_steps,
         llm_config=req.llm_config,
     )
-    return session.to_dict()
+    return _public_session(session)
 
 
 @app.get("/api/sessions")
 def list_sessions(status: str | None = None) -> dict:
     sessions = _store.list(status=status)
-    return {"sessions": [s.to_dict() for s in sessions]}
+    return {"sessions": [_public_session(s) for s in sessions]}
 
 
 @app.get("/api/sessions/{session_id}")
 def get_session(session_id: str) -> dict:
-    return _load_session(session_id).to_dict()
+    return _public_session(_load_session(session_id))
 
 
 @app.post("/api/sessions/{session_id}/run")
@@ -166,14 +184,14 @@ def run_session(session_id: str) -> dict:
     session = _load_session(session_id)
     flow = _load_workflow(session)
     _engine.run(session, flow)
-    return session.to_dict()
+    return _public_session(session)
 
 
 @app.post("/api/sessions/{session_id}/messages")
 def post_message(session_id: str, req: MessageRequest) -> dict:
     session = _load_session(session_id)
     _manager.add_message(session, "user", req.content, action=req.action)
-    return session.to_dict()
+    return _public_session(session)
 
 
 @app.post("/api/sessions/{session_id}/rerun")
@@ -184,7 +202,7 @@ def rerun_session(session_id: str, req: RerunRequest) -> dict:
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=f"未知模块: {req.modules}") from exc
     ordered = _manager.rerun(session, modules, assumptions=req.assumptions)
-    return {"rerun_order": [m.value for m in ordered], "session": session.to_dict()}
+    return {"rerun_order": [m.value for m in ordered], "session": _public_session(session)}
 
 
 @app.post("/api/sessions/{session_id}/memo")
@@ -206,7 +224,7 @@ def resume_session(session_id: str) -> dict:
             detail=f"只有 failed/awaiting_input 可恢复，当前 {session.status.value}",
         )
     _manager.resume(session)
-    return session.to_dict()
+    return _public_session(session)
 
 
 @app.delete("/api/sessions/{session_id}")
@@ -231,7 +249,7 @@ def get_memo(session_id: str) -> dict:
 def archive_session(session_id: str) -> dict:
     session = _load_session(session_id)
     _manager.archive(session)
-    return session.to_dict()
+    return _public_session(session)
 
 
 @app.get("/api/sessions/{session_id}/events")

@@ -23,6 +23,8 @@
 
 > ✅ 2026-08-05 收尾：自定义工作流 DAG 节点显示短编号（agent.code）；**LLM 按会话注入**（前端 BFF /api/sessions 服务端解密默认 LLM 配置 → 后端 llm_config → 引擎 _resolve_llm），真实账号验证注入成功，77 测试全绿。
 
+> ✅ 2026-08-05 安全修复：会话 API 响应统一经 `_public_session` 脱敏（`llm_config.api_key` → `sk-••••••1234`），数据库 payload 仍存完整 Key 供重算/续跑。
+
 ## S0 数据层（🔶 进行中）
 - [x] 免费数据源适配器（mock + baostock + akshare 统一接口，字段已归一化）2026-08-04
 - [x] 表结构（schema.sql：company/financials/daily_price/valuation_history/dividends/watchlist）
