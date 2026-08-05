@@ -4,6 +4,9 @@ import { getCurrentUser } from "@/lib/supabase/auth";
 import { createClient } from "@/lib/supabase/server";
 import { decryptSecret } from "@/lib/llm/crypto";
 
+/** 宽松上限：Render 免费版冷启动可能较慢（Vercel Hobby 上限 60s） */
+export const maxDuration = 60;
+
 /**
  * 创建分析会话（BFF）：
  * 浏览器 → 本路由 → 附加用户默认 LLM 配置（服务端解密，Key 不落地浏览器）→ 后端。
@@ -49,14 +52,36 @@ export async function POST(req: Request) {
   const base =
     process.env.API_BASE_SERVER ||
     process.env.NEXT_PUBLIC_API_BASE ||
-    "http://127.0.0.1:8000";
-  const res = await fetch(`${base.replace(/\/+$/, "")}/api/sessions`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ...body, llm_config }),
-    cache: "no-store",
-  });
-  const data = await res.json();
+    "";
+  if (!base) {
+    return NextResponse.json(
+      {
+        error:
+          "后端地址未配置：请在 Vercel 环境变量设置 API_BASE_SERVER（或 NEXT_PUBLIC_API_BASE）为后端地址",
+      },
+      { status: 500 }
+    );
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(`${base.replace(/\/+$/, "")}/api/sessions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...body, llm_config }),
+      cache: "no-store",
+      signal: AbortSignal.timeout(45000),
+    });
+  } catch (e) {
+    const err = e as Error;
+    const msg =
+      err.name === "TimeoutError"
+        ? "后端响应超时（Render 免费版可能正在冷启动，请稍后重试）"
+        : `无法连接后端（${err.message}）`;
+    return NextResponse.json({ error: msg }, { status: 502 });
+  }
+
+  const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     return NextResponse.json(
       { error: data.detail || data.error || `创建会话失败（${res.status}）` },
