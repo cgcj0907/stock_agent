@@ -1,7 +1,7 @@
 """AkShare 数据源（新浪/东财/乐咕乐股，全免费、无 token）。
 
 - 覆盖最全：公司信息（含行业）、财务指标、前复权日线、
-  估值历史（乐咕乐股 pe/pb/ps/股息率，10 年）、分红（巨潮）
+  估值历史（乐咕乐股 pe/pb/ps/股息率，10 年）、分红（东财）
 - 风险：抓取东财/新浪公开接口，**海外 IP（Render）可能被限流/超时**，
   用 `python -m value_agent data ping` 实测；本地开发 100% 可用
 """
@@ -152,15 +152,32 @@ class AkShareDataSource(DataSource):
         return self._retry("dividends", lambda: self._dividends(code))
 
     def _dividends(self, code: str) -> dict:
-        # 巨潮分红：报告期, 每股派息(税前)[元], 进度
-        df = self._ak.stock_dividend_cninfo(symbol=code)
-        records = [
-            {
-                "period": str(r.get("报告期", "") or "").replace("-", ""),
-                "cash_div_tax": to_float(r.get("每股派息(税前)[元]")),
-                "div_proc": str(r.get("进度", "") or ""),
-            }
-            for _, r in df.iterrows()
-            if str(r.get("报告期", "") or "").replace("-", "")
-        ]
+        # 东财分红明细：报告期(YYYY-MM-DD) / 现金分红-现金分红比例(每10股派X元) / 方案进度
+        # （旧巨潮接口 stock_dividend_cninfo 列名已变更：报告期→报告时间、每股派息→派息比例，不再可用）
+        df = self._ak.stock_fhps_detail_em(symbol=code)
+        records = _dividend_records_from_df(df)
         return {"records": records, "source": self.name, "url": source_url("dividends", code)}
+
+
+def _dividend_records_from_df(df) -> list[dict]:
+    """把东财 stock_fhps_detail_em 的 DataFrame 转成统一分红记录（纯函数，可离线测试）。
+
+    - 只保留「已实施」分红（排除预披露/预案，避免用未来/未兑现派息估值）；
+    - 现金分红-现金分红比例 是「每 10 股派 X 元」→ 换算每股派息；
+    - 输出按 period 倒序（最新在前，M4 ddm 取第一条）。
+    """
+    records: list[dict] = []
+    for _, r in df.iterrows():
+        period = str(r.get("报告期", "") or "").replace("-", "")
+        proc = str(r.get("方案进度", "") or "")
+        per_10 = to_float(r.get("现金分红-现金分红比例"))
+        # not (per_10 > 0) 同时滤掉 NaN / None / 0
+        if not period or "实施" not in proc or per_10 is None or not (per_10 > 0):
+            continue
+        records.append({
+            "period": period,  # YYYYMMDD（校验要求）
+            "cash_div_tax": round(per_10 / 10.0, 4),  # 每10股派X元 → 每股派息
+            "div_proc": proc,
+        })
+    records.sort(key=lambda r: r["period"], reverse=True)
+    return records

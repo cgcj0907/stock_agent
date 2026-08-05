@@ -48,7 +48,7 @@ _SOURCE_URL_FN = {
     "financials": sina_financial_indicators_url,
     "daily_price": eastmoney_quote_url,
     "valuation_history": baidu_valuation_url,
-    "dividends": cninfo_disclosure_url,
+    "dividends": lambda code: eastmoney_f10_url(code, "BonusFinancing"),  # 东财 F10 分红融资页
 }
 
 
