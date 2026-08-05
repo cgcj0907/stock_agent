@@ -182,8 +182,9 @@ Button / Card / Input / Select / Tabs / Dialog / Sheet（移动端抽屉）/ Dro
 ```text
 NEXT_PUBLIC_API_BASE=https://value-agent-api.onrender.com   # 直连（SSE 用）
 API_BASE_SERVER=...                                        # BFF 转发目标（同值）
-NEXT_PUBLIC_SUPABASE_URL=...
-NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+NEXT_PUBLIC_SUPABASE_URL=...                               # https://<project-ref>.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...    # 浏览器端（替代 legacy anon）
+SUPABASE_SECRET_KEY=sb_secret_...                          # 仅服务端（替代 legacy service_role）
 ```
 
 ### 6.3 后端需配合的小改动（记录在案）
