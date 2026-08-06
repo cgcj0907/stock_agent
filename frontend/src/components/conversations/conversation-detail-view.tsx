@@ -110,9 +110,18 @@ export function ConversationDetailView({
   }, [workflow, session]);
 
   const statuses = liveStatuses ?? derivedStatuses;
+  const sessionRunning =
+    !!session &&
+    ["created", "in_progress", "awaiting_input"].includes(session.status);
+  const showRunning = running || sessionRunning;
+  const progressConnected = running ? liveConnected : sessionRunning;
 
-  async function refresh(showToast = true) {
-    setLoading(true);
+  async function syncSession(options?: {
+    showToast?: boolean;
+    showLoading?: boolean;
+  }) {
+    const { showToast = true, showLoading = true } = options ?? {};
+    if (showLoading) setLoading(true);
     setError(null);
     try {
       const s = await api<SessionView>(
@@ -127,13 +136,54 @@ export function ConversationDetailView({
       } catch {
         // 无备忘录
       }
-      if (showToast) toast.success("已刷新");
+        if (showToast) toast.success("已刷新");
     } catch (e) {
       setError((e as Error).message);
     } finally {
-      setLoading(false);
+        if (showLoading) setLoading(false);
     }
   }
+
+    async function refresh(showToast = true) {
+      await syncSession({ showToast, showLoading: true });
+    }
+
+    React.useEffect(() => {
+      if (running || !sessionRunning) return;
+
+      let cancelled = false;
+      let syncing = false;
+      const tick = async () => {
+        if (cancelled || syncing) return;
+        syncing = true;
+        try {
+          const s = await api<SessionView>(
+            `/api/sessions/${conversation.session_id}`
+          );
+          if (cancelled) return;
+          setSession(s);
+          try {
+            const memoRes = await api<{ memo?: string }>(
+              `/api/sessions/${conversation.session_id}/memo`
+            );
+            if (!cancelled && memoRes.memo) setMemo(memoRes.memo);
+          } catch {
+            // 无备忘录
+          }
+        } catch {
+          // 轮询失败时静默，避免打断用户；下一轮继续尝试
+        } finally {
+          syncing = false;
+        }
+      };
+
+      void tick();
+      const timer = window.setInterval(tick, 3000);
+      return () => {
+        cancelled = true;
+        window.clearInterval(timer);
+      };
+    }, [conversation.session_id, running, sessionRunning]);
 
   async function handleRerun() {
     setRunning(true);
@@ -379,12 +429,12 @@ export function ConversationDetailView({
         </Card>
       )}
 
-      {running && workflow && (
+      {showRunning && workflow && (
         <AnalysisProgress
           steps={workflow.steps}
           statuses={statuses}
-          running={running}
-          connected={liveConnected}
+          running={showRunning}
+          connected={progressConnected}
           className="animate-in fade-in slide-in-from-top-2"
         />
       )}
@@ -394,12 +444,12 @@ export function ConversationDetailView({
         <Card className="rounded-2xl">
           <CardContent className="flex flex-col gap-3 p-4">
             {/* Codex 风格：在对话框中逐行展示每一步处理动作 */}
-            {(running || liveStatuses) && workflow && (
+              {(showRunning || liveStatuses) && workflow && (
               <StepActivityFeed
                 steps={workflow.steps}
                 statuses={statuses}
-                running={running}
-                connected={liveConnected}
+                  running={showRunning}
+                  connected={progressConnected}
                 companyLabel={
                   conversation.company_name
                     ? `${conversation.company_name}（${conversation.company_code}）`
