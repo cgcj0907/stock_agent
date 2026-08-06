@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from value_agent.agents.base import Agent, AgentContext, AgentSpec
+from value_agent.core.scoring import llm_score
 from value_agent.sessions.models import ModuleResult, ModuleStatus
 
 from .quality import analyze_financial_quality
@@ -21,10 +22,21 @@ class M2FinancialQualityAgent(Agent):
         code = ctx.session.company_code
         fin = ctx.data.financials(code, years=10)
         result = analyze_financial_quality(fin["records"])
+        score = llm_score(
+            ctx, self.spec.id,
+            facts={
+                "ROE 最新": result.metrics.get("roe_latest"),
+                "净利率": result.metrics.get("net_margin"),
+                "现金流/净利最低": result.metrics.get("ocf_to_np_min"),
+                "资产负债率": result.metrics.get("debt_to_assets_latest"),
+                "造假信号数": len(result.signals),
+            },
+            evidence=result.evidence, default=result.score,
+        )
         return ModuleResult(
             module=self.spec.id,
             status=ModuleStatus.DONE,
-            score=result.score,
+            score=score,
             outputs={
                 "metrics": result.metrics,
                 "signals": [sig.to_dict() for sig in result.signals],

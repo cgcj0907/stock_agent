@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 from value_agent.agents.base import Agent, AgentContext, AgentSpec
+from value_agent.core.scoring import llm_score
 from value_agent.sessions.models import ModuleResult, ModuleStatus
 
-from .engine import run_decision
+from .engine import apply_band, run_decision
 
 
 class M10DecisionAgent(Agent):
@@ -20,17 +21,30 @@ class M10DecisionAgent(Agent):
 
     def run(self, ctx: AgentContext) -> ModuleResult:
         result = run_decision(ctx.session.module_results)
+        total = result.total
+        if not result.vetoed:  # 一票否决时保持回避，不让 LLM 覆盖
+            total = llm_score(
+                ctx, self.spec.id,
+                facts={
+                    "五维评分": result.dimensions,
+                    "加权总分": result.total,
+                    "结论": result.conclusion,
+                    "否决项": result.vetoed,
+                },
+                evidence=result.evidence, default=result.total,
+            )
+        _, position, conclusion, decision_code = apply_band(total, result.vetoed)
         return ModuleResult(
             module=self.spec.id,
             status=ModuleStatus.DONE,
-            score=result.total,
+            score=total,
             outputs={
                 "dimensions": result.dimensions,
-                "total": result.total,
-                "conclusion": result.conclusion,
-                "position": result.position,
+                "total": total,
+                "conclusion": conclusion,
+                "position": position,
                 "vetoed": result.vetoed,
-                "decision_code": result.decision_code,
+                "decision_code": decision_code,
                 "blocked_by_veto": result.blocked_by_veto,
             },
             evidence=result.evidence,

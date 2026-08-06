@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from value_agent.agents.base import Agent, AgentContext, AgentSpec
 from value_agent.core.contracts import ReasonCode, build_meta
+from value_agent.core.scoring import llm_score
 from value_agent.sessions.models import ModuleResult, ModuleStatus
 
 from .engine import run_valuation
@@ -123,10 +124,20 @@ class M4ValuationAgent(Agent):
             eps=eps, bvps=bvps, pe_history=pe_history, dividend=dividend,
             business_type=business_type, params=params,
         )
+        score = llm_score(
+            ctx, self.spec.id,
+            facts={
+                "生意类型": business_type,
+                "EPS": eps,
+                "现价": close,
+                "方法覆盖分": result.coverage_score,
+            },
+            evidence=result.evidence, default=result.coverage_score,
+        )
         return ModuleResult(
             module=self.spec.id,
             status=ModuleStatus.DONE,
-            score=result.coverage_score,
+            score=score,
             outputs={
                 "business_type": result.business_type,
                 "methods": methods_to_list(result.methods),

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from value_agent.agents.base import Agent, AgentContext, AgentSpec
+from value_agent.core.scoring import llm_score
 from value_agent.sessions.models import ModuleResult, ModuleStatus
 
 from .engine import assess_growth
@@ -21,8 +22,18 @@ class M3GrowthAgent(Agent):
             raise RuntimeError("M3 需要数据访问（ctx.data）")
         fin = ctx.data.financials(ctx.session.company_code)
         result = assess_growth(fin, default_growth=ctx.assumptions.get("growth_rate", 0.10))
+        score = llm_score(
+            ctx, self.spec.id,
+            facts={
+                "增速估计": result.growth_estimate,
+                "景气度": result.prosperity,
+                "增长信心": result.growth_confidence,
+                "周期行业": result.cyclicality_flag,
+            },
+            evidence=result.evidence, default=result.score,
+        )
         return ModuleResult(
-            module=self.spec.id, status=ModuleStatus.DONE, score=result.score,
+            module=self.spec.id, status=ModuleStatus.DONE, score=score,
             outputs={
                 "growth_estimate": result.growth_estimate,
                 "prosperity": result.prosperity,

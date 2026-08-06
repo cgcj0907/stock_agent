@@ -11,6 +11,7 @@ llm:
   provider_env: LLM_PROVIDER
   model_env: LLM_MODEL
   temperature: 0.2
+  scoring: true        # LLM 评分层：让大模型给各模块 0-100 评分（false 则用规则分）
 
 monitor:
   schedule: "0 18 * * *"    # 每日 18:00 运行

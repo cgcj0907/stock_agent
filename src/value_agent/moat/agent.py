@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 from value_agent.agents.base import Agent, AgentContext, AgentSpec
-from value_agent.core.links import validate_reference_links
 from value_agent.core.llm import LLM_JSON_RULE, parse_llm_json
+from value_agent.core.scoring import llm_score
+from value_agent.data.references import CompanyReferences
 from value_agent.sessions.models import ModuleResult, ModuleStatus
 
 from .engine import assess_moat
@@ -62,16 +63,14 @@ class M5MoatAgent(Agent):
                     "请按以下结构输出 JSON：\n"
                     '{"moat_sources": ["无形资产", "转换成本"], '
                     '"width": "宽|中|窄|无", '
-                    '"evidence": ["关键证据1", "关键证据2"], '
-                    '"references": [{"title": "参考文章标题", "url": "https://..."}]}\n'
-                    "references 给出 1-3 条你参考的来源文章链接"
-                    "（优先公司财报/公告/行业报告，链接必须真实存在、可访问，无法确定则为空数组 []）。",
+                    '"evidence": ["关键证据1", "关键证据2"]}\n'
+                    "参考文章链接由系统自动附上巨潮/东方财富的真实来源，你无需输出 references。",
                 )
                 parsed = parse_llm_json(text)
                 if parsed is not None:
-                    refs = validate_reference_links(parsed.get("references"))
-                    if refs:
-                        parsed["references"] = refs
+                    real_refs = CompanyReferences().fetch(code)
+                    if real_refs:
+                        parsed["references"] = real_refs
                     else:
                         parsed.pop("references", None)
                     outputs["llm_qualitative"] = parsed
@@ -84,7 +83,12 @@ class M5MoatAgent(Agent):
         else:
             evidence.append("未配置 LLM（LLM_API_KEY），当前为规则引擎结果")
 
+        score = llm_score(
+            ctx, self.spec.id,
+            facts={"护城河宽度": result.width, "信号数": len(result.signals)},
+            evidence=evidence, default=result.score,
+        )
         return ModuleResult(
-            module=self.spec.id, status=ModuleStatus.DONE, score=result.score,
+            module=self.spec.id, status=ModuleStatus.DONE, score=score,
             outputs=outputs, evidence=evidence,
         )

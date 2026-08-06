@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from value_agent.agents.base import Agent, AgentContext, AgentSpec
+from value_agent.core.scoring import llm_score
 from value_agent.sessions.models import ModuleResult, ModuleStatus
 
 from .engine import build_monitor_plan
@@ -24,8 +25,13 @@ class M11MonitorAgent(Agent):
         evidence = list(plan.evidence)
         if prior_hits:
             evidence.append(f"跨会话记忆：历史监控命中 {len(prior_hits)} 次（warn/critical 回放为回顾规则）")
+        score = llm_score(
+            ctx, self.spec.id,
+            facts={"规则数": len(plan.rules), "规则类型": [r.rule_type for r in plan.rules]},
+            evidence=evidence, default=plan.score,
+        )
         return ModuleResult(
-            module=self.spec.id, status=ModuleStatus.DONE, score=plan.score,
+            module=self.spec.id, status=ModuleStatus.DONE, score=score,
             outputs={
                 "monitor_rules": [r.__dict__ for r in plan.rules],
                 "rule_count": len(plan.rules),

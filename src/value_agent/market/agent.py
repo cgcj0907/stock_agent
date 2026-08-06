@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from value_agent.agents.base import Agent, AgentContext, AgentSpec
+from value_agent.core.scoring import llm_score
 from value_agent.sessions.models import ModuleResult, ModuleStatus
 
 from .engine import assess_market
@@ -52,8 +53,17 @@ class M7MarketAgent(Agent):
         val = ctx.data.valuation_history(ctx.session.company_code)
         risk_free = ctx.assumptions.get("risk_free_rate", 0.04)
         result = assess_market(val, risk_free=risk_free)
+        score = llm_score(
+            ctx, self.spec.id,
+            facts={
+                "PE 分位": result.pe_percentile,
+                "PB 分位": result.pb_percentile,
+                "价格位置": result.position,
+            },
+            evidence=result.evidence, default=result.score,
+        )
         return ModuleResult(
-            module=self.spec.id, status=ModuleStatus.DONE, score=result.score,
+            module=self.spec.id, status=ModuleStatus.DONE, score=score,
             outputs={
                 "pe_percentile": result.pe_percentile,
                 "pb_percentile": result.pb_percentile,

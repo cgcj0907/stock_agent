@@ -35,6 +35,24 @@ class DecisionResult:
     evidence: list[str] = field(default_factory=list)
 
 
+def apply_band(total: float, vetoed: list[str] | bool) -> tuple[dict, float, str, str]:
+    """按总分 + 否决标志算出（档位, 建议仓位, 结论, 决策码）。"""
+    blocked = bool(vetoed)
+    band = next((b for b in BANDS if total >= b["min_score"]), BANDS[-1])
+    conclusion = "回避（触发一票否决）" if blocked else band["label"]
+    position = 0.0 if blocked else band["position"]
+    # 决策码：否决→avoid；≥80 可建仓→buy；50~80 观察→watch；<50→avoid
+    if blocked:
+        decision_code = "avoid"
+    elif total >= 80:
+        decision_code = "buy"
+    elif total >= 50:
+        decision_code = "watch"
+    else:
+        decision_code = "avoid"
+    return band, position, conclusion, decision_code
+
+
 def run_decision(module_results: dict[str, ModuleResult]) -> DecisionResult:
     """主入口：模块评分 → 五维加权 → 结论档位 + 否决检查。"""
     dims: dict[str, float] = {}
@@ -56,19 +74,8 @@ def run_decision(module_results: dict[str, ModuleResult]) -> DecisionResult:
     if m9 and m9.outputs.get("veto"):
         vetoed = list(m9.outputs["veto"])
 
-    band = next((b for b in BANDS if total >= b["min_score"]), BANDS[-1])
+    band, position, conclusion, decision_code = apply_band(total, vetoed)
     blocked = bool(vetoed)
-    conclusion = "回避（触发一票否决）" if blocked else band["label"]
-    position = 0.0 if blocked else band["position"]
-    # 决策码：否决→avoid；≥80 可建仓→buy；50~80 观察→watch；<50→avoid
-    if blocked:
-        decision_code = "avoid"
-    elif total >= 80:
-        decision_code = "buy"
-    elif total >= 50:
-        decision_code = "watch"
-    else:
-        decision_code = "avoid"
 
     evidence = [
         f"五维评分：{dims}",

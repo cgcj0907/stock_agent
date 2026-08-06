@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from value_agent.agents.base import Agent, AgentContext, AgentSpec
 from value_agent.core.contracts import ReasonCode, build_meta
+from value_agent.core.scoring import llm_score
 from value_agent.sessions.models import ModuleResult, ModuleStatus
 
 from .engine import run_safety_margin
@@ -56,10 +57,20 @@ class M8SafetyMarginAgent(Agent):
         m7 = ctx.inputs.get("M7_market")
         if m7 and m7.outputs.get("position") in ("高估", "泡沫"):
             evidence.append(f"M7 估值位置：{m7.outputs['position']}（卖出参考触发）")
+        score = llm_score(
+            ctx, self.spec.id,
+            facts={
+                "折扣率": result.discount,
+                "要求折扣": result.required_discount,
+                "安全边际状态": result.mos_state,
+                "状态": result.status,
+            },
+            evidence=evidence, default=result.score,
+        )
         return ModuleResult(
             module=self.spec.id,
             status=ModuleStatus.DONE,
-            score=result.score,
+            score=score,
             outputs={
                 "price": price,
                 "discount": result.discount,
