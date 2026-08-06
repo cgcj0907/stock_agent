@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -10,7 +11,6 @@ import {
   LayoutDashboard,
   Settings,
   Sparkles,
-  TrendingUp,
   Workflow,
 } from "lucide-react";
 
@@ -56,9 +56,14 @@ const NAV_GROUPS = [
 
 function BrandMark() {
   return (
-    <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-sm">
-      <TrendingUp className="size-4" />
-    </div>
+    <Image
+      src="/logo.png"
+      alt="Value Agent"
+      width={96}
+      height={96}
+      priority
+      className="size-8 shrink-0 rounded-lg object-cover shadow-sm"
+    />
   );
 }
 

@@ -31,14 +31,16 @@ function ReferenceLinks({ value }: { value: unknown }) {
       {links.map((l, i) => (
         <li key={i} className="flex items-start gap-1.5">
           <ExternalLink className="mt-0.5 size-3 shrink-0 text-muted-foreground" />
-          <a
-            href={l.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="min-w-0 break-all text-emerald-600 underline decoration-emerald-600/40 underline-offset-2 hover:text-emerald-700 hover:decoration-emerald-600 dark:text-emerald-400 dark:hover:text-emerald-300"
-          >
-            {l.title}
-          </a>
+          <span className="min-w-0 flex-1">
+            <a
+              href={l.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="break-all text-emerald-600 underline decoration-emerald-600/40 underline-offset-2 hover:text-emerald-700 hover:decoration-emerald-600 dark:text-emerald-400 dark:hover:text-emerald-300"
+            >
+              {l.title}
+            </a>
+          </span>
         </li>
       ))}
     </ul>
@@ -51,6 +53,13 @@ function ReferenceLinks({ value }: { value: unknown }) {
  * 非对象 / 解析失败时回退到 ValueView 原样展示。
  */
 export function LlmResultView({ value }: { value: unknown }) {
+  // 顶层 references/sources/links 数组（如 M1 新结构把 references 提到顶层）：
+  // 与 llm_qualitative 内嵌 references 保持一致，走参考链接样式；无有效链接再回退普通渲染。
+  if (Array.isArray(value)) {
+    const links = ReferenceLinks({ value });
+    return links !== null ? links : <ValueView value={value} />;
+  }
+
   let data: Record<string, unknown> | null = null;
   if (value && typeof value === "object" && !Array.isArray(value)) {
     data = value as Record<string, unknown>;
