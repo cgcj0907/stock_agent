@@ -70,13 +70,19 @@ const MAX_OUTPUTS = 8;
 const HIDDEN_OUTPUT_KEYS = new Set(["handoff"]);
 
 /** 输出字段名含这些关键词时，按「LLM 结构化结果」占满整行渲染（JSON → TS 数据）。 */
-const LLM_KEY_RE = /llm|qualitative|red_team/i;
+const LLM_KEY_RE = /llm|qualitative|red_team|reasons|business_model|references/i;
 
-/** 需要占满整行渲染的值：LLM 结构化结果，或含 Markdown 语法的长文本。 */
+/** 需要占满整行渲染的值：嵌套对象/数组，LLM 结构化结果，或含 Markdown 语法的长文本。 */
 function isFullWidthValue(v: unknown, key: string): boolean {
+  if (v !== null && typeof v === "object") {
+    // 空数组或空对象不强制全宽
+    if (Array.isArray(v) && v.length === 0) return false;
+    if (!Array.isArray(v) && Object.keys(v as Record<string, unknown>).length === 0) return false;
+    return true;
+  }
   return (
     LLM_KEY_RE.test(key) ||
-    (typeof v === "string" && isMarkdownText(v))
+    (typeof v === "string" && (isMarkdownText(v) || v.length > 30))
   );
 }
 
@@ -173,24 +179,55 @@ export function ResultCard({
         )}
 
         {entries.length > 0 && (
-          <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 rounded-xl bg-muted/40 p-3">
-            {visibleOutputs.map(([k, v]) => {
-              const fullWidth = isFullWidthValue(v, k);
-              return (
-                <div
-                  key={k}
-                  className={fullWidth ? "col-span-2 min-w-0" : "min-w-0"}
-                >
-                  <div className="truncate text-[10px] text-muted-foreground">
+          <div className="flex flex-col gap-3">
+            {/* 1. 常规短字段：紧凑网格 */}
+            {visibleOutputs.filter(([k, v]) => !isFullWidthValue(v, k) && k !== "signals" && k !== "risks" && k !== "risk_items").length > 0 && (
+              <div className="grid grid-cols-2 gap-x-3 gap-y-3 pt-1">
+                {visibleOutputs
+                  .filter(([k, v]) => !isFullWidthValue(v, k) && k !== "signals" && k !== "risks" && k !== "risk_items")
+                  .map(([k, v]) => (
+                    <div key={k} className="min-w-0">
+                      <div className="truncate text-[10px] font-semibold tracking-wide text-muted-foreground">
+                        {fieldLabel(k)}
+                      </div>
+                      <div className="mt-0.5 break-words text-xs leading-5 font-medium text-foreground/80">
+                        {LLM_KEY_RE.test(k) ? (
+                          <LlmResultView value={v} />
+                        ) : (
+                          <ValueView value={v} label={fieldLabel(k)} />
+                        )}
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            )}
+
+            {/* 2. 风险信号列表：特别的展示区块 */}
+            {visibleOutputs
+              .filter(([k]) => k === "signals" || k === "risks" || k === "risk_items")
+              .map(([k, v]) => (
+                <div key={k} className="flex flex-col gap-1.5 border-t border-border/40 pt-3">
+                  <div className="truncate text-[10px] font-semibold tracking-wide text-rose-600/80 uppercase">
                     {fieldLabel(k)}
                   </div>
-                  <div
-                    className={
-                      fullWidth
-                        ? "mt-1"
-                        : "mt-0.5 break-words text-xs leading-5"
-                    }
-                  >
+                  <div className="break-words text-sm leading-relaxed text-foreground/90">
+                    <ValueView value={v} label={fieldLabel(k)} />
+                  </div>
+                </div>
+              ))}
+
+            {/* 3. 长文本/复杂结构：使用分割线，不嵌套卡片 */}
+            {visibleOutputs
+              .filter(([k, v]) => isFullWidthValue(v, k) && k !== "signals" && k !== "risks" && k !== "risk_items")
+              .map(([k, v]) => (
+                <div
+                  key={k}
+                  className="flex flex-col gap-1.5 border-t border-border/40 pt-3"
+                >
+                  <div className="truncate text-[10px] font-semibold tracking-wide text-primary/70 uppercase">
+                    {fieldLabel(k)}
+                  </div>
+                  <div className="break-words text-sm leading-relaxed text-foreground/90">
                     {LLM_KEY_RE.test(k) ? (
                       <LlmResultView value={v} />
                     ) : (
@@ -198,10 +235,10 @@ export function ResultCard({
                     )}
                   </div>
                 </div>
-              );
-            })}
+              ))}
+
             {entries.length > MAX_OUTPUTS && (
-              <div className="col-span-2 flex justify-end pt-0.5">
+              <div className="flex justify-end pt-1">
                 <ExpandToggle
                   expanded={showAllOutputs}
                   label={`展开全部 ${entries.length} 个字段`}

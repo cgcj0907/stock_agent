@@ -19,7 +19,8 @@ export const FIELD_LABELS: Record<string, string> = {
   grossprofit_margin: "毛利率",
   equity_multiplier: "权益乘数",
   implied_asset_turnover: "隐含周转",
-  ocf_to_np_min: "现金流/净利最低",
+  ocf_to_np_min: "近N年最低 现金流/净利比",
+  ocfps_eps_min: "近N年最低 每股现金流/利润比",
   debt_to_assets_latest: "资产负债率",
   // M3 成长
   growth_estimate: "增速估计",

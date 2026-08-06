@@ -63,7 +63,7 @@ class M1BusinessModelAgent(Agent):
                     score=50.0,
                     outputs={
                         "business_type": "cyclical",
-                        "one_liner": f"数据获取失败（{type(exc).__name__}），保守按周期处理",
+                        "business_model": f"数据获取失败（{type(exc).__name__}），保守按周期处理",
                         "understandability": "边缘（需行业周期专识）",
                         "industry": "",
                         "handoff": {
@@ -114,7 +114,7 @@ class M1BusinessModelAgent(Agent):
                     llm_qualitative = parsed
                     evidence.append("LLM 定性：已接入（结构化 JSON）")
                 else:
-                    llm_qualitative = text
+                    llm_qualitative = {"business_model": text}
                     evidence.append("LLM 定性：已接入（输出解析失败，按原文展示）")
             except Exception as exc:  # noqa: BLE001
                 evidence.append(f"LLM 调用失败，business_type 使用规则结果：{type(exc).__name__}")
@@ -123,17 +123,20 @@ class M1BusinessModelAgent(Agent):
 
         outputs = {
             "business_type": result.business_type,
-            "one_liner": result.one_liner,
-            "understandability": result.understandability,
+            "business_model": llm_qualitative.get("business_model") if isinstance(llm_qualitative, dict) else result.one_liner,
+            "understandability": llm_qualitative.get("understandability") if isinstance(llm_qualitative, dict) and llm_qualitative.get("understandability") else result.understandability,
+            "reasons": llm_qualitative.get("reasons") if isinstance(llm_qualitative, dict) else [],
             "industry": result.industry,
+            "references": llm_qualitative.get("references") if isinstance(llm_qualitative, dict) else None,
             # 下游契约（§4 M1）：M4 直接读 handoff.valuation_route，不再猜
             "handoff": {
                 "valuation_route": result.business_type,
                 "understandability_level": _understandability_level(result.understandability),
             },
         }
-        if llm_qualitative is not None:
-            outputs["llm_qualitative"] = llm_qualitative
+        # 移除空 references
+        if not outputs.get("references"):
+            outputs.pop("references", None)
 
         score = llm_score(
             ctx, self.spec.id,

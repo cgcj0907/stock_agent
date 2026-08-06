@@ -92,7 +92,8 @@ def analyze_financial_quality(records: list[dict]) -> FinancialQualityResult:
         "稳定": s_notes,
         "现金流": c_notes,
         "杠杆": h_notes,
-        "信号": [sig.message for sig in signals],
+        # 风险信号已作为独立一级字段 signals 返回并在前端高亮展示，
+        # 不再重复塞进摘要，避免「信号：无」之类的冗余。
     }
     evidence += p_notes + s_notes + c_notes + h_notes
     for sig in signals:
@@ -184,7 +185,7 @@ def _cashflow(ocf_to_np: list[float], ocfps: list[float], eps: list[float]):
     if ocfps and eps:
         ratio = min(v / e for v, e in zip(ocfps, eps) if e)
         score = W_CASH if ratio >= 1.0 else (14 if ratio >= 0.8 else 6)
-        notes.append(f"每股经营现金流/每股收益 最低 {ratio:.2f}（无直接 ocf_to_np，用 ocfps/eps）")
+        notes.append(f"每股经营现金流/每股收益 最低 {ratio:.2f}（由于源数据缺失现金流净额，采用每股数据估算）")
         return score, notes, {"ocfps_eps_min": round(ratio, 2)}
     return W_CASH / 2, ["⚠️ 缺少现金流数据，按中性计"], {"ocf_to_np_min": None}
 

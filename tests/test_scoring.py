@@ -129,7 +129,7 @@ def test_m1_uses_llm_score_and_strips_score_from_qualitative(monkeypatch):
     assert res.score == 88
     assert res.outputs["business_type"] == "growth"
     assert res.outputs["handoff"]["valuation_route"] == "growth"
-    assert "score" not in res.outputs["llm_qualitative"]
+    assert "score" not in res.outputs
 
 
 def test_m1_drops_references_when_tool_empty(monkeypatch):
@@ -146,7 +146,7 @@ def test_m1_drops_references_when_tool_empty(monkeypatch):
         '{"score": 88, "reason": "模式清晰"}',
     ])
     res = M1BusinessModelAgent().run(_ctx(llm=llm))
-    assert "references" not in res.outputs["llm_qualitative"]
+    assert "references" not in res.outputs
 
 
 def test_m1_references_use_tool_real_links(monkeypatch):
@@ -166,7 +166,7 @@ def test_m1_references_use_tool_real_links(monkeypatch):
         '{"score": 88, "reason": "模式清晰"}',
     ])
     res = M1BusinessModelAgent().run(_ctx(llm=llm))
-    assert res.outputs["llm_qualitative"]["references"] == real_refs
+    assert res.outputs["references"] == real_refs
 
 
 def test_m1_falls_back_to_rule_business_type_when_llm_missing_type(monkeypatch):

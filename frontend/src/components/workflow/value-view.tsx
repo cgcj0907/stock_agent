@@ -17,11 +17,11 @@ function isPrimitive(v: unknown): boolean {
 }
 
 function fmtNumber(n: number): string {
-  return Number.isFinite(n) ? String(n) : "—";
+  return Number.isFinite(n) ? String(n) : "无";
 }
 
 function fmtPrimitive(v: unknown): string {
-  if (v === null || v === undefined) return "—";
+  if (v === null || v === undefined || v === "") return "无";
   if (typeof v === "number") return fmtNumber(v);
   if (typeof v === "boolean") return v ? "是" : "否";
   return String(v);
@@ -127,5 +127,5 @@ export function ValueView({ value, label }: { value: unknown; label?: string }) 
 }
 
 function Dash() {
-  return <span className="text-muted-foreground">—</span>;
+  return <span className="text-muted-foreground/60 italic">无</span>;
 }

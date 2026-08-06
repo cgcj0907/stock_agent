@@ -33,7 +33,7 @@ def test_m1_continues_when_financials_fail_but_company_info_exists():
     res = _run_m1(_NoFin())
     assert res.status.value == "done"
     assert res.outputs["industry"] == "白酒"
-    assert "数据获取失败" not in res.outputs["one_liner"]
+    assert "数据获取失败" not in res.outputs["business_model"]
     assert any("财务数据获取失败" in e for e in res.evidence)
 
 
@@ -48,4 +48,4 @@ def test_m1_degrades_only_when_financials_also_fail():
     res = _run_m1(_NoData())
     assert res.status.value == "done"
     assert res.outputs["business_type"] == "cyclical"  # 保守按周期
-    assert "数据获取失败" in res.outputs["one_liner"]
+    assert "数据获取失败" in res.outputs["business_model"]

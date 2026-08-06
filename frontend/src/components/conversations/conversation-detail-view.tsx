@@ -27,7 +27,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { AnalysisProgress } from "@/components/workflow/analysis-progress";
 import { StepActivityFeed } from "@/components/workflow/step-activity-feed";
 import { WorkflowDag } from "@/components/workflow/workflow-dag";
 import { ResultCard } from "@/components/workflow/result-card";
@@ -505,16 +504,6 @@ export function ConversationDetailView({
             />
           </div>
         </Card>
-      )}
-
-      {showRunning && workflow && (
-        <AnalysisProgress
-          steps={workflow.steps}
-          statuses={statuses}
-          running={showRunning}
-          connected={progressConnected}
-          className="animate-in fade-in slide-in-from-top-2"
-        />
       )}
 
       <section className="flex flex-col gap-3">
