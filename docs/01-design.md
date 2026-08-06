@@ -296,6 +296,7 @@ flowchart LR
 | 研报/新闻（RAG 语料） | 东财/慧博/萝卜投研 | 日/事件 |
 
 - 存储：DuckDB 起步 → PostgreSQL+TimescaleDB；向量库 pgvector/ChromaDB。
+- 读取策略（读穿缓存）：存储优先；未入库/库为空时实时源（AkShare）拉取，并**后台回写**存储（首次实时源、之后命中存储，回写失败不影响本次结果）。
 - 更新策略：日频行情、财报季触发式、事件驱动；**point-in-time 快照**（回测防前视偏差）。
 - 质量校验：pandera schema + 财务勾稽校验，失败数据标记 `quality_flag` 不进分析。
 
