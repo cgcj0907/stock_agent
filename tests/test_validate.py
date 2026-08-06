@@ -1,6 +1,4 @@
 """数据勾稽校验测试：合法/非法记录。"""
-import pytest
-
 from value_agent.data.validate import (
     validate_daily_prices,
     validate_financials,

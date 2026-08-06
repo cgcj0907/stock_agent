@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from value_agent.agents.base import Agent, AgentContext, AgentSpec
+from value_agent.core.links import validate_reference_links
 from value_agent.core.llm import LLM_JSON_RULE, parse_llm_json
 from value_agent.sessions.models import ModuleResult, ModuleStatus
 
@@ -44,10 +45,15 @@ class M9RiskAgent(Agent):
                     '"verdict": "一句话反方结论", '
                     '"references": [{"title": "参考文章标题", "url": "https://..."}]}\n'
                     "references 给出 1-3 条你参考的来源文章链接"
-                    "（优先公司财报/公告/行业报告，无法确定则为空数组 []）。",
+                    "（优先公司财报/公告/行业报告，链接必须真实存在、可访问，无法确定则为空数组 []）。",
                 )
                 parsed = parse_llm_json(text)
                 if parsed is not None:
+                    refs = validate_reference_links(parsed.get("references"))
+                    if refs:
+                        parsed["references"] = refs
+                    else:
+                        parsed.pop("references", None)
                     outputs["llm_red_team"] = parsed
                     evidence.append("LLM 红队：已接入（结构化 JSON）")
                 else:

@@ -65,7 +65,6 @@ export const FIELD_LABELS: Record<string, string> = {
   module_type: "模块类型",
   core_facts: "核心事实",
   qualitative: "定性分析",
-  handoff: "下游契约",
   meta: "质量元数据",
   reason_codes: "降级原因",
   risk_items: "风险清单",

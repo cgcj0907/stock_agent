@@ -7,7 +7,6 @@ import {
   ChevronUp,
   Clock3,
   Loader2,
-  Paperclip,
   SkipForward,
   XCircle,
 } from "lucide-react";
@@ -24,7 +23,6 @@ import {
   MarkdownValue,
 } from "@/components/workflow/markdown-value";
 import { ValueView } from "@/components/workflow/value-view";
-import { LinkedText } from "@/lib/linkify";
 import { fieldLabel } from "@/lib/labels";
 import type { AgentInfo } from "@/lib/agents/catalog";
 import type { ModuleResultView } from "@/hooks/use-workflow-run";
@@ -64,9 +62,11 @@ const STATUS_BADGE: Record<
   },
 };
 
-/** 默认折叠展示的字段/证据条数，超出后可展开。 */
+/** 默认折叠展示的字段条数，超出后可展开。 */
 const MAX_OUTPUTS = 8;
-const MAX_EVIDENCE = 4;
+
+/** 内部契约字段（如下游 handoff），只供模块间传递，不展示给用户。 */
+const HIDDEN_OUTPUT_KEYS = new Set(["handoff"]);
 
 /** 输出字段名含这些关键词时，按「LLM 结构化结果」占满整行渲染（JSON → TS 数据）。 */
 const LLM_KEY_RE = /llm|qualitative|red_team/i;
@@ -110,17 +110,15 @@ export function ResultCard({
 }) {
   const badge = STATUS_BADGE[result.status] ?? STATUS_BADGE.pending;
   const StatusIcon = badge.icon;
-  const entries = Object.entries(result.outputs ?? {});
+  const entries = Object.entries(result.outputs ?? {}).filter(
+    ([k]) => !HIDDEN_OUTPUT_KEYS.has(k),
+  );
   const score = result.score;
   const [showAllOutputs, setShowAllOutputs] = React.useState(false);
-  const [showAllEvidence, setShowAllEvidence] = React.useState(false);
 
   const visibleOutputs = showAllOutputs
     ? entries
     : entries.slice(0, MAX_OUTPUTS);
-  const visibleEvidence = showAllEvidence
-    ? result.evidence
-    : result.evidence.slice(0, MAX_EVIDENCE);
 
   return (
     <Card
@@ -209,36 +207,6 @@ export function ResultCard({
                   expanded={showAllOutputs}
                   label={`展开全部 ${entries.length} 个字段`}
                   onClick={() => setShowAllOutputs((v) => !v)}
-                />
-              </div>
-            )}
-          </div>
-        )}
-
-        {result.evidence.length > 0 && (
-          <div className="flex flex-col gap-1.5">
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-              证据 / 数据来源
-            </div>
-            <ul className="flex flex-col gap-1">
-              {visibleEvidence.map((ev, i) => (
-                <li
-                  key={i}
-                  className="flex items-start gap-1.5 text-xs leading-5 text-muted-foreground"
-                >
-                  <Paperclip className="mt-1 size-3 shrink-0" />
-                  <span className="min-w-0 break-words">
-                    <LinkedText text={ev} />
-                  </span>
-                </li>
-              ))}
-            </ul>
-            {result.evidence.length > MAX_EVIDENCE && (
-              <div className="flex justify-end">
-                <ExpandToggle
-                  expanded={showAllEvidence}
-                  label={`展开全部 ${result.evidence.length} 条证据`}
-                  onClick={() => setShowAllEvidence((v) => !v)}
                 />
               </div>
             )}

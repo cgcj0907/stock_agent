@@ -25,7 +25,7 @@ function ReferenceLinks({ value }: { value: unknown }) {
     })
     .filter((x): x is { title: string; url: string } => x !== null);
 
-  if (links.length === 0) return <ValueView value={value} />;
+  if (links.length === 0) return null;
   return (
     <ul className="flex flex-col gap-1">
       {links.map((l, i) => (
@@ -67,20 +67,21 @@ export function LlmResultView({ value }: { value: unknown }) {
 
   return (
     <div className="flex flex-col gap-1.5">
-      {Object.entries(data).map(([k, v]) => (
-        <div key={k} className="flex flex-col gap-0.5">
-          <span className="text-[10px] font-semibold text-muted-foreground">
-            {fieldLabel(k)}
-          </span>
-          <div className="text-xs leading-5">
-            {k === "references" || k === "sources" || k === "links" ? (
-              <ReferenceLinks value={v} />
-            ) : (
+      {Object.entries(data).map(([k, v]) => {
+        if (k === "references" || k === "sources" || k === "links") {
+          return <ReferenceLinks key={k} value={v} />; // 无有效链接时返回 null，跳过该行
+        }
+        return (
+          <div key={k} className="flex flex-col gap-0.5">
+            <span className="text-[10px] font-semibold text-muted-foreground">
+              {fieldLabel(k)}
+            </span>
+            <div className="text-xs leading-5">
               <ValueView value={v} label={fieldLabel(k)} />
-            )}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

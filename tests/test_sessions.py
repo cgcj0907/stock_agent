@@ -5,18 +5,18 @@
 """
 import pytest
 
+from tests.helpers import StubAgent
 from value_agent.agents import Agent, AgentContext, AgentRegistry, AgentSpec
-from value_agent.agents.builtin import StubAgent
 from value_agent.sessions import (
+    PIPELINE_ORDER,
+    InMemoryStore,
     InvalidTransitionError,
     ModuleName,
     ModuleResult,
     ModuleStatus,
-    PIPELINE_ORDER,
     Session,
     SessionManager,
     SessionStatus,
-    InMemoryStore,
     transition,
 )
 from value_agent.sessions.manager import _affected_modules
@@ -124,7 +124,7 @@ def test_save_memo_version_keeps_status(manager, session):
 
 def test_delete_session(manager, session):
     sid = session.id
-    manager._store.delete(sid)  # noqa: SLF001
+    manager._store.delete(sid)
     with pytest.raises(KeyError):
         manager.load(sid)
 
