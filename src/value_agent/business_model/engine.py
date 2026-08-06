@@ -41,6 +41,29 @@ class BusinessModelResult:
     evidence: list[str] = field(default_factory=list)
 
 
+BUSINESS_TYPE_ALIASES = {
+    "consumer_monopoly": "consumer_monopoly",
+    "消费垄断": "consumer_monopoly",
+    "growth": "growth",
+    "成长": "growth",
+    "cyclical": "cyclical",
+    "周期": "cyclical",
+    "financial": "financial",
+    "金融": "financial",
+    "asset_based": "asset_based",
+    "资产型": "asset_based",
+    "stable_dividend": "stable_dividend",
+    "高分红稳定": "stable_dividend",
+}
+
+
+def normalize_business_type(value: str | None) -> str | None:
+    if not value:
+        return None
+    key = value.strip().lower()
+    return BUSINESS_TYPE_ALIASES.get(key) or BUSINESS_TYPE_ALIASES.get(value.strip())
+
+
 def classify_business_type(
     industry: str, roe: float | None, gross_margin: float | None, debt: float | None
 ) -> str:
@@ -63,14 +86,17 @@ def classify_business_type(
     return "cyclical"  # 未知行业保守按周期（估值禁用 DCF/唐朝）
 
 
-def analyze_business_model(company_info: dict, financials: dict) -> BusinessModelResult:
+def analyze_business_model(
+    company_info: dict, financials: dict, *, business_type: str | None = None
+) -> BusinessModelResult:
     recs = [r for r in financials.get("records", []) if r.get("period")]
     industry = company_info.get("industry", "")
     roe = latest_annual(recs, "roe")               # 年度口径（无行业信息时靠它分类）
     gm = latest_annual(recs, "grossprofit_margin")
     debt = latest_annual(recs, "debt_to_assets")
 
-    btype = classify_business_type(industry or "", roe, gm, debt)
+    rule_btype = classify_business_type(industry or "", roe, gm, debt)
+    btype = normalize_business_type(business_type) or rule_btype
     one_liner = f"{company_info.get('name', company_info.get('code'))}：{industry or '未知行业'}，{TYPE_LABEL[btype]}型生意"
     und = UNDERSTAND[btype]
     # 评分：数据完整度 + 简单性
@@ -88,6 +114,8 @@ def analyze_business_model(company_info: dict, financials: dict) -> BusinessMode
         f"生意类型：{btype}（{TYPE_LABEL[btype]}）—— M4 估值方法将按此路由",
         f"可理解性：{und}",
     ]
+    if btype != rule_btype:
+        evidence.append(f"规则分类参考：{rule_btype}（{TYPE_LABEL[rule_btype]}）")
     return BusinessModelResult(
         business_type=btype, one_liner=one_liner,
         understandability=und, industry=industry, score=round(score, 1),

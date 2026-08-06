@@ -47,14 +47,42 @@ class AkShareDataSource(DataSource):
         return self._retry("company_info", lambda: self._company_info(code))
 
     def _company_info(self, code: str) -> dict:
-        df = self._ak.stock_individual_info_em(symbol=code)
-        kv = dict(zip(df["item"], df["value"]))
+        """公司信息：东财个股信息优先；接口失败（如 JSONDecodeError）回退巨潮公司概况。"""
+        try:
+            df = self._ak.stock_individual_info_em(symbol=code)
+            kv = dict(zip(df["item"], df["value"]))
+            return {
+                "code": code,
+                "ts_code": code,
+                "name": str(kv.get("股票简称", code)),
+                "industry": str(kv.get("行业", "")),
+                "list_date": str(kv.get("上市时间", "") or ""),
+                "source": self.name,
+                "url": source_url("company", code),
+            }
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "[akshare] 东财个股信息 %s 失败（%s），回退巨潮公司概况",
+                code, type(exc).__name__,
+            )
+            return self._company_info_cninfo(code)
+
+    def _company_info_cninfo(self, code: str) -> dict:
+        """巨潮公司概况兜底：名称 / 所属行业 / 上市日期。"""
+        df = self._ak.stock_profile_cninfo(symbol=code)
+        if df is None or df.empty:
+            return {
+                "code": code, "ts_code": code, "name": code,
+                "industry": "", "list_date": "",
+                "source": self.name, "url": source_url("company", code),
+            }
+        row = df.iloc[0]
         return {
             "code": code,
             "ts_code": code,
-            "name": str(kv.get("股票简称", code)),
-            "industry": str(kv.get("行业", "")),
-            "list_date": str(kv.get("上市时间", "") or ""),
+            "name": str(row.get("A股简称") or row.get("公司名称") or code),
+            "industry": str(row.get("所属行业") or ""),
+            "list_date": str(row.get("上市日期") or ""),
             "source": self.name,
             "url": source_url("company", code),
         }
@@ -92,9 +120,9 @@ class AkShareDataSource(DataSource):
     def _daily_prices(self, code: str, start: str | None = None, end: str | None = None) -> dict:
         # 接口需显式日期范围（None 会返回空）
         if start is None:
-            start = (datetime.date.today() - datetime.timedelta(days=365 * 10)).strftime("%Y%m%d")
+            start = (datetime.datetime.now(datetime.UTC).date() - datetime.timedelta(days=365 * 10)).strftime("%Y%m%d")
         if end is None:
-            end = datetime.date.today().strftime("%Y%m%d")
+            end = datetime.datetime.now(datetime.UTC).date().strftime("%Y%m%d")
         df = self._ak.stock_zh_a_hist(
             symbol=code, period="daily", start_date=start, end_date=end, adjust="qfq"
         )

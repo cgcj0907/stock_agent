@@ -7,7 +7,7 @@ from value_agent.core.scoring import llm_score
 from value_agent.data.references import CompanyReferences
 from value_agent.sessions.models import ModuleResult, ModuleStatus
 
-from .engine import analyze_business_model
+from .engine import analyze_business_model, normalize_business_type
 
 
 def _understandability_level(label: str) -> str:
@@ -22,6 +22,12 @@ def _understandability_level(label: str) -> str:
 
 _LLM_SYSTEM = (
     "你是价值投资分析师。基于给定公司信息判断其商业模式与能力圈可理解性。"
+    "你必须先做排他判断：公司最终只能归入一个主导生意类型。"
+    "判断时优先看盈利模式、需求驱动、周期属性、资产特征、竞争结构与财务特征，"
+    "不要把“高增长”直接等同于“成长型”，也不要把“重资产”直接等同于“资产型”。"
+    "如果行业强依赖景气、商品价格、运价、地产周期或产能周期，应优先考虑周期型；"
+    "如果增长主要来自长期渗透率提升、产品迭代、再投资效率和竞争优势，才更接近成长型。"
+    "你必须先判断该公司更接近哪一类生意类型，再给出一句话商业模式描述。"
     + LLM_JSON_RULE
 )
 
@@ -38,12 +44,18 @@ class M1BusinessModelAgent(Agent):
         if ctx.data is None:
             raise RuntimeError("M1 需要数据访问（ctx.data）")
         code = ctx.session.company_code
+        # 公司信息与财务数据分开容错：东财接口瞬时故障（如 JSONDecodeError）时，
+        # 公司信息失败仍可用财务数据（ROE/毛利率/负债率）完成分类，不整模块降级。
+        info: dict = {}
+        data_issues: list[str] = []
         try:
             info = ctx.data.company_info(code)
-            fin = ctx.data.financials(code)
-            result = analyze_business_model(info, fin)
         except Exception as exc:  # noqa: BLE001
-            # 数据源瞬时故障：降级为 DONE（保守按周期），不阻塞下游估值
+            data_issues.append(f"公司信息获取失败（{type(exc).__name__}），仅用财务数据分类")
+        try:
+            fin = ctx.data.financials(code)
+        except Exception as exc:  # noqa: BLE001
+            # 财务数据也失败：降级为 DONE（保守按周期），不阻塞下游估值
             return ModuleResult(
                 module=self.spec.id,
                 status=ModuleStatus.DONE,
@@ -60,6 +72,51 @@ class M1BusinessModelAgent(Agent):
                 },
                 evidence=[f"数据源异常：{type(exc).__name__}（{str(exc)[:80]}），已降级为周期分类"],
             )
+        rule_result = analyze_business_model(info, fin)
+        result = rule_result
+        evidence = data_issues + list(rule_result.evidence)
+        llm_qualitative = None
+
+        if ctx.llm is not None:  # LLM 定性层（可选）
+            try:
+                text = ctx.llm.chat(
+                    _LLM_SYSTEM,
+                    f"公司：{info.get('name')}（{code}），行业：{result.industry}，"
+                    f"财务摘要：{rule_result.evidence[0]}。\n"
+                    f"规则参考类型：{rule_result.business_type}。\n"
+                    "请按以下结构输出 JSON：\n"
+                    '{"business_type": "consumer_monopoly|growth|cyclical|financial|asset_based|stable_dividend 之一", '
+                    '"business_model": "一句话描述其生意本质", '
+                    '"understandability": "可理解|基本可理解|难以理解", '
+                    '"reasons": ["判断理由1", "判断理由2"]}\n'
+                    "business_type 必须从给定枚举中选择一个，优先依据行业属性、盈利模式、周期性、"
+                    "资产特征与财务表现综合判断，不要机械跟随规则参考类型。\n"
+                    "reasons 至少覆盖两点：为什么是该类型；为什么不是另一个最相近的类型。\n"
+                    "参考文章链接由系统自动附上巨潮/东方财富的真实来源，你无需输出 references。",
+                )
+                parsed = parse_llm_json(text)
+                if parsed is not None:
+                    llm_business_type = normalize_business_type(parsed.get("business_type"))
+                    if llm_business_type is not None:
+                        result = analyze_business_model(info, fin, business_type=llm_business_type)
+                        evidence = data_issues + list(result.evidence)
+                        evidence.append(f"LLM 主判生意类型：{llm_business_type}")
+                    else:
+                        evidence.append("LLM 未给出合法 business_type，已回退规则分类")
+                    real_refs = CompanyReferences().fetch(code)
+                    if real_refs:
+                        parsed["references"] = real_refs
+                    else:
+                        parsed.pop("references", None)
+                    llm_qualitative = parsed
+                    evidence.append("LLM 定性：已接入（结构化 JSON）")
+                else:
+                    llm_qualitative = text
+                    evidence.append("LLM 定性：已接入（输出解析失败，按原文展示）")
+            except Exception as exc:  # noqa: BLE001
+                evidence.append(f"LLM 调用失败，business_type 使用规则结果：{type(exc).__name__}")
+        else:
+            evidence.append("未配置 LLM（LLM_API_KEY），当前 business_type 使用规则结果")
 
         outputs = {
             "business_type": result.business_type,
@@ -72,36 +129,8 @@ class M1BusinessModelAgent(Agent):
                 "understandability_level": _understandability_level(result.understandability),
             },
         }
-        evidence = list(result.evidence)
-
-        if ctx.llm is not None:  # LLM 定性层（可选）
-            try:
-                text = ctx.llm.chat(
-                    _LLM_SYSTEM,
-                    f"公司：{info.get('name')}（{code}），行业：{result.industry}，"
-                    f"规则判定类型：{result.business_type}。\n"
-                    "请按以下结构输出 JSON：\n"
-                    '{"business_model": "一句话描述其生意本质", '
-                    '"understandability": "可理解|基本可理解|难以理解", '
-                    '"reasons": ["判断理由1", "判断理由2"]}\n'
-                    "参考文章链接由系统自动附上巨潮/东方财富的真实来源，你无需输出 references。",
-                )
-                parsed = parse_llm_json(text)
-                if parsed is not None:
-                    real_refs = CompanyReferences().fetch(code)
-                    if real_refs:
-                        parsed["references"] = real_refs
-                    else:
-                        parsed.pop("references", None)
-                    outputs["llm_qualitative"] = parsed
-                    evidence.append("LLM 定性：已接入（结构化 JSON）")
-                else:
-                    outputs["llm_qualitative"] = text
-                    evidence.append("LLM 定性：已接入（输出解析失败，按原文展示）")
-            except Exception as exc:  # noqa: BLE001
-                evidence.append(f"LLM 调用失败，使用规则结果：{type(exc).__name__}")
-        else:
-            evidence.append("未配置 LLM（LLM_API_KEY），当前为规则引擎结果")
+        if llm_qualitative is not None:
+            outputs["llm_qualitative"] = llm_qualitative
 
         score = llm_score(
             ctx, self.spec.id,

@@ -37,6 +37,16 @@ class _RecordingLLM:
         return self._text
 
 
+class _RecordingQueuedLLM:
+    def __init__(self, texts: list[str]) -> None:
+        self._texts = list(texts)
+        self.calls: list[tuple[str, str]] = []
+
+    def chat(self, system: str, user: str) -> str:
+        self.calls.append((system, user))
+        return self._texts.pop(0)
+
+
 def _ctx(llm=None) -> AgentContext:
     session = Session(id="s1", company_code="600519", status=SessionStatus.CREATED)
     return AgentContext(
@@ -112,11 +122,13 @@ def test_m1_uses_llm_score_and_strips_score_from_qualitative(monkeypatch):
         lambda self, code, limit=5: [],
     )
     llm = _QueuedLLM([
-        '{"business_model": "卖酒", "understandability": "可理解", "reasons": ["r"], "references": []}',
+        '{"business_type": "growth", "business_model": "卖酒", "understandability": "可理解", "reasons": ["r"], "references": []}',
         '{"score": 88, "reason": "模式清晰"}',
     ])
     res = M1BusinessModelAgent().run(_ctx(llm=llm))
     assert res.score == 88
+    assert res.outputs["business_type"] == "growth"
+    assert res.outputs["handoff"]["valuation_route"] == "growth"
     assert "score" not in res.outputs["llm_qualitative"]
 
 
@@ -129,7 +141,7 @@ def test_m1_drops_references_when_tool_empty(monkeypatch):
         lambda self, code, limit=5: [],
     )
     llm = _QueuedLLM([
-        ('{"business_model": "卖酒", "understandability": "可理解", "reasons": ["r"], '
+        ('{"business_type": "growth", "business_model": "卖酒", "understandability": "可理解", "reasons": ["r"], '
          '"references": [{"title": "编造的假链接", "url": "https://example.com/fake"}]}'),
         '{"score": 88, "reason": "模式清晰"}',
     ])
@@ -149,12 +161,47 @@ def test_m1_references_use_tool_real_links(monkeypatch):
         lambda self, code, limit=5: real_refs,
     )
     llm = _QueuedLLM([
-        ('{"business_model": "卖酒", "understandability": "可理解", "reasons": ["r"], '
+        ('{"business_type": "growth", "business_model": "卖酒", "understandability": "可理解", "reasons": ["r"], '
          '"references": [{"title": "编造的假链接", "url": "https://example.com/fake"}]}'),
         '{"score": 88, "reason": "模式清晰"}',
     ])
     res = M1BusinessModelAgent().run(_ctx(llm=llm))
     assert res.outputs["llm_qualitative"]["references"] == real_refs
+
+
+def test_m1_falls_back_to_rule_business_type_when_llm_missing_type(monkeypatch):
+    from value_agent.business_model.agent import M1BusinessModelAgent
+
+    monkeypatch.setattr(
+        "value_agent.business_model.agent.CompanyReferences.fetch",
+        lambda self, code, limit=5: [],
+    )
+    llm = _QueuedLLM([
+        '{"business_model": "卖酒", "understandability": "可理解", "reasons": ["r"]}',
+        '{"score": 88, "reason": "模式清晰"}',
+    ])
+    res = M1BusinessModelAgent().run(_ctx(llm=llm))
+    assert res.outputs["business_type"] == "consumer_monopoly"
+    assert res.outputs["handoff"]["valuation_route"] == "consumer_monopoly"
+
+
+def test_m1_prompt_requires_exclusive_type_judgment(monkeypatch):
+    from value_agent.business_model.agent import M1BusinessModelAgent
+
+    monkeypatch.setattr(
+        "value_agent.business_model.agent.CompanyReferences.fetch",
+        lambda self, code, limit=5: [],
+    )
+    llm = _RecordingQueuedLLM([
+        '{"business_type": "growth", "business_model": "卖酒", "understandability": "可理解", "reasons": ["r"]}',
+        '{"score": 88, "reason": "模式清晰"}',
+    ])
+    M1BusinessModelAgent().run(_ctx(llm=llm))
+    system, user = llm.calls[0]
+    assert "排他判断" in system
+    assert "不要把“高增长”直接等同于“成长型”" in system
+    assert "为什么是该类型" in user
+    assert "为什么不是另一个最相近的类型" in user
 
 
 # ---------- M10 接入 ----------
