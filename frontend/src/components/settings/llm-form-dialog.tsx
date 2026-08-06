@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Loader2, PlugZap } from "lucide-react";
+import { CheckCircle2, Loader2, PlugZap, XCircle } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -248,7 +248,12 @@ function LlmFormFields({
                 : "border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/60 dark:text-red-300"
             }`}
           >
-            {testResult.ok ? "✅" : "❌"} {testResult.message}
+            {testResult.ok ? (
+              <CheckCircle2 className="mr-1 inline size-4 align-[-2px]" />
+            ) : (
+              <XCircle className="mr-1 inline size-4 align-[-2px]" />
+            )}
+            {testResult.message}
             {testResult.latencyMs != null && `（${testResult.latencyMs}ms）`}
           </div>
         )}

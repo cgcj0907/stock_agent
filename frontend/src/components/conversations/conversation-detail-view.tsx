@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
+  Bot,
   FileText,
   Loader2,
   RefreshCcw,
@@ -426,7 +427,11 @@ export function ConversationDetailView({
                         : "bg-muted-foreground/60"
                     }`}
                   >
-                    {m.role === "user" ? "我" : "🤖"}
+                    {m.role === "user" ? (
+                      "我"
+                    ) : (
+                      <Bot className="size-4" />
+                    )}
                   </div>
                   <div
                     className={`max-w-[80%] whitespace-pre-wrap rounded-2xl px-3.5 py-2 text-sm leading-6 ${

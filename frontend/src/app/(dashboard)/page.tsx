@@ -8,9 +8,11 @@ import {
   History,
   LineChart,
   ShieldCheck,
+  TrendingUp,
   Workflow,
 } from "lucide-react";
 
+import { AgentIcon } from "@/components/agent-icon";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/supabase/auth";
@@ -38,7 +40,7 @@ const FEATURED_AGENTS = [
     id: "M2_financial_quality",
     code: "M2",
     name: "财务质量",
-    emoji: "🧮",
+    icon: "calculator",
     desc: "盈利能力、现金流、造假信号",
     color: "from-emerald-500 to-teal-600",
   },
@@ -46,7 +48,7 @@ const FEATURED_AGENTS = [
     id: "M4_valuation",
     code: "M4",
     name: "现金流估值",
-    emoji: "💹",
+    icon: "chart-line",
     desc: "多模型 DCF 估值与区间",
     color: "from-sky-500 to-blue-600",
   },
@@ -54,7 +56,7 @@ const FEATURED_AGENTS = [
     id: "M8_safety_margin",
     code: "M8",
     name: "安全边际",
-    emoji: "🛡️",
+    icon: "shield-check",
     desc: "估值与价格的缓冲测算",
     color: "from-amber-500 to-orange-600",
   },
@@ -220,7 +222,7 @@ export default async function DashboardPage() {
                     className="group flex items-center gap-3 rounded-xl border p-3 transition-colors hover:border-emerald-300 hover:bg-emerald-50/50 dark:hover:border-emerald-700 dark:hover:bg-emerald-950/30"
                   >
                     <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-400">
-                      📈
+                      <TrendingUp className="size-5" />
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm font-medium">
@@ -260,7 +262,7 @@ export default async function DashboardPage() {
                 <div
                   className={`flex size-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-lg text-white shadow-sm ${agent.color}`}
                 >
-                  {agent.emoji}
+                  <AgentIcon icon={agent.icon} className="size-5" />
                 </div>
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">

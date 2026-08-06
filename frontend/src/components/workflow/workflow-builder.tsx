@@ -26,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { AgentIcon } from "@/components/agent-icon";
 import { LOCAL_AGENTS, type AgentInfo } from "@/lib/agents/catalog";
 import type {
   CustomWorkflow,
@@ -46,7 +47,7 @@ function BuilderNode({ id, data }: NodeProps) {
         className="!h-2 !w-2 !border-0 !bg-muted-foreground/50"
       />
       <div className="flex items-center gap-2">
-        <span className="text-base leading-none">{agent?.emoji ?? "🤖"}</span>
+        <AgentIcon icon={agent?.icon} className="size-4" />
         <div className="min-w-0">
           <div className="truncate text-xs font-semibold leading-tight">
             {agent?.code ?? ""}
@@ -227,7 +228,7 @@ export function WorkflowBuilder({
                   disabled={added}
                   className="flex items-center gap-2 rounded-xl border px-2.5 py-2 text-left text-xs transition-colors hover:border-emerald-300 hover:bg-emerald-50/50 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:border-emerald-700 dark:hover:bg-emerald-950/30"
                 >
-                  <span className="text-base leading-none">{agent.emoji}</span>
+                  <AgentIcon icon={agent.icon} className="size-4" />
                   <span className="min-w-0 flex-1 truncate font-medium">
                     {agent.name}
                   </span>

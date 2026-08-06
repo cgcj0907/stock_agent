@@ -17,6 +17,7 @@ import {
   CardContent,
   CardHeader,
 } from "@/components/ui/card";
+import { AgentIcon } from "@/components/agent-icon";
 import { LlmResultView } from "@/components/workflow/llm-result-view";
 import {
   isMarkdownText,
@@ -127,9 +128,7 @@ export function ResultCard({
     >
       <CardHeader className="flex-row items-center justify-between space-y-0 pb-1">
         <div className="flex items-center gap-2.5">
-          <span className="text-xl leading-none">
-            {agent?.emoji ?? "🤖"}
-          </span>
+          <AgentIcon icon={agent?.icon} className="size-5" />
           <div>
             <div className="flex items-center gap-2">
               <span className="text-sm font-semibold">

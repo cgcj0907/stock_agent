@@ -3,6 +3,7 @@
 import * as React from "react";
 import { CheckCircle2, Loader2, XCircle } from "lucide-react";
 
+import { AgentIcon } from "@/components/agent-icon";
 import { findAgent } from "@/lib/agents/catalog";
 import type { StepStatus, WorkflowStep } from "@/lib/workflows/catalog";
 import { cn } from "@/lib/utils";
@@ -139,7 +140,11 @@ export function AnalysisProgress({
       <div className="mt-2 min-h-[1.25rem] text-xs text-muted-foreground">
         {running && runningAgent ? (
           <>
-            正在执行：<span className="font-medium text-foreground">{runningAgent.emoji} {runningAgent.name}</span>
+            正在执行：
+            <span className="inline-flex items-center gap-1 font-medium text-foreground">
+              <AgentIcon icon={runningAgent.icon} className="size-3.5" />
+              {runningAgent.name}
+            </span>
           </>
         ) : running ? (
           "正在初始化…"
@@ -164,7 +169,8 @@ export function AnalysisProgress({
               )}
             >
               <span className={cn("size-1.5 rounded-full", state.dot)} />
-              {agent?.emoji ?? "🤖"} {agent?.name ?? s.id}
+              <AgentIcon icon={agent?.icon} className="size-3.5" />
+              {agent?.name ?? s.id}
             </span>
           );
         })}

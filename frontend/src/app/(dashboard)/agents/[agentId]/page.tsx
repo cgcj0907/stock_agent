@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowRight, Boxes, Cpu, GitBranch, Layers } from "lucide-react";
 
+import { AgentIcon } from "@/components/agent-icon";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -51,7 +52,7 @@ export default async function AgentDetailPage({
             <div
               className={`flex size-16 items-center justify-center rounded-2xl bg-gradient-to-br text-3xl text-white shadow-md ${agent.gradient}`}
             >
-              {agent.emoji}
+              <AgentIcon icon={agent.icon} className="size-9" />
             </div>
             <div>
               <div className="flex flex-wrap items-center gap-2">

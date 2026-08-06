@@ -11,6 +11,7 @@ import {
   CardContent,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { AgentIcon } from "@/components/agent-icon";
 import { FavoriteButton } from "@/components/agents/favorite-button";
 import type { AgentInfo } from "@/lib/agents/catalog";
 
@@ -112,7 +113,7 @@ export function AgentsClient({
                     <div
                       className={`flex size-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-lg text-white shadow-sm ${agent.gradient}`}
                     >
-                      {agent.emoji}
+                      <AgentIcon icon={agent.icon} className="size-6" />
                     </div>
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5">

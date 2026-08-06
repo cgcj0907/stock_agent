@@ -10,6 +10,7 @@ import {
   XCircle,
 } from "lucide-react";
 
+import { AgentIcon } from "@/components/agent-icon";
 import { findAgent } from "@/lib/agents/catalog";
 import type { StepStatus, WorkflowStep } from "@/lib/workflows/catalog";
 import { cn } from "@/lib/utils";
@@ -61,7 +62,7 @@ function StepRow({
         status === "running" && "bg-emerald-50/70 dark:bg-emerald-950/30"
       )}
     >
-      <span className="text-base leading-none">{agent?.emoji ?? "🤖"}</span>
+      <AgentIcon icon={agent?.icon} className="size-4" />
       <span className="min-w-0 flex-1 truncate font-medium">
         {agent?.name ?? step.agent}
       </span>

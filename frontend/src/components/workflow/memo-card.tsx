@@ -1,6 +1,16 @@
 "use client";
 
 import * as React from "react";
+import {
+  BarChart3,
+  Calculator,
+  ChartLine,
+  ClipboardList,
+  RadioTower,
+  Settings2,
+  TriangleAlert,
+  type LucideIcon,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { SourceLinks } from "@/components/workflow/source-links";
@@ -192,7 +202,7 @@ export function MemoCard({
       {/* 执行摘要 */}
       {(m10 || iv) && (
         <div className="border-b px-6 py-5">
-          <SectionTitle icon="📋" title="执行摘要" />
+          <SectionTitle icon={ClipboardList} title="执行摘要" />
           {m10?.conclusion && (
             <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 dark:border-emerald-800 dark:bg-emerald-950/40">
               <span className="text-sm font-bold text-emerald-800 dark:text-emerald-300">
@@ -200,7 +210,8 @@ export function MemoCard({
               </span>
               {m10?.vetoed && m10.vetoed.length > 0 && (
                 <span className="text-xs text-red-600 dark:text-red-400">
-                  ⚠️ 触发否决：{m10.vetoed.join("、")}
+                  <TriangleAlert className="mr-1 inline size-3.5 align-[-2px]" />
+                  触发否决：{m10.vetoed.join("、")}
                 </span>
               )}
             </div>
@@ -280,7 +291,7 @@ export function MemoCard({
       {/* 模块结果 */}
       {doneModules.length > 0 && (
         <div className="border-b px-6 py-5">
-          <SectionTitle icon="📊" title="模块执行结果" />
+          <SectionTitle icon={BarChart3} title="模块执行结果" />
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
@@ -332,7 +343,7 @@ export function MemoCard({
       {/* M2 财务质量 */}
       {metrics && Object.keys(metrics).length > 0 && (
         <div className="border-b px-6 py-5">
-          <SectionTitle icon="🧮" title="财务质量（M2）" />
+          <SectionTitle icon={Calculator} title="财务质量（M2）" />
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             <Kpi label="ROE 最新" value={metrics.roe_latest != null ? `${fmt(metrics.roe_latest)}%` : "—"} />
             <Kpi label="ROE 均值" value={metrics.roe_mean != null ? `${fmt(metrics.roe_mean)}%` : "—"} />
@@ -342,7 +353,10 @@ export function MemoCard({
           {m2?.signals && m2.signals.length > 0 && (
             <ul className="mt-3 flex flex-col gap-1.5 text-xs text-muted-foreground">
               {m2.signals.map((sig, i) => (
-                <li key={i}>⚠️ {typeof sig === "string" ? sig : sig.message}</li>
+                <li key={i}>
+                  <TriangleAlert className="mr-1 inline size-3.5 align-[-2px]" />
+                  {typeof sig === "string" ? sig : sig.message}
+                </li>
               ))}
             </ul>
           )}
@@ -352,7 +366,7 @@ export function MemoCard({
       {/* M4 方法 */}
       {m4?.methods && Object.keys(m4.methods).length > 0 && (
         <div className="border-b px-6 py-5">
-          <SectionTitle icon="💹" title="估值方法（M4）" />
+          <SectionTitle icon={ChartLine} title="估值方法（M4）" />
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {m4.methods.map((m, i) => {
               const name = m.method ?? "";
@@ -375,7 +389,7 @@ export function MemoCard({
       {/* M11 监控规则 */}
       {rules.length > 0 && (
         <div className="border-b px-6 py-5">
-          <SectionTitle icon="📡" title="监控规则（M11）" />
+          <SectionTitle icon={RadioTower} title="监控规则（M11）" />
           <div className="flex flex-col gap-2">
             {rules.map((r, i) => {
               const sev = SEVERITY[r.severity ?? "info"] ?? SEVERITY.info;
@@ -401,7 +415,7 @@ export function MemoCard({
       {/* 假设 */}
       {assumptions && Object.keys(assumptions).length > 0 && (
         <div className="border-b px-6 py-5">
-          <SectionTitle icon="⚙️" title="假设（assumptions）" />
+          <SectionTitle icon={Settings2} title="假设（assumptions）" />
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {Object.entries(assumptions).map(([k, v]) => (
               <div key={k} className="rounded-xl border bg-card px-3 py-2">
@@ -455,11 +469,11 @@ const METHOD_LABELS: Record<string, string> = {
   relative_median_pe: "相对中位 PE",
 };
 
-function SectionTitle({ icon, title }: { icon: string; title: string }) {
+function SectionTitle({ icon: Icon, title }: { icon: LucideIcon; title: string }) {
   return (
     <div className="mb-3.5 flex items-center gap-2 text-sm font-bold">
-      <span className="flex size-6 items-center justify-center rounded-lg bg-muted text-sm">
-        {icon}
+      <span className="flex size-6 items-center justify-center rounded-lg bg-muted">
+        <Icon className="size-4" />
       </span>
       {title}
     </div>

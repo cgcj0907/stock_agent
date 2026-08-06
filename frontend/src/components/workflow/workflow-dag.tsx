@@ -13,6 +13,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
+import { AgentIcon } from "@/components/agent-icon";
 import { findAgent } from "@/lib/agents/catalog";
 import {
   computeStepDepths,
@@ -68,7 +69,7 @@ function AgentFlowNode({ data }: NodeProps) {
         className="!h-2 !w-2 !border-0 !bg-muted-foreground/50"
       />
       <div className="flex items-center gap-2">
-        <span className="text-base leading-none">{agent?.emoji ?? "🤖"}</span>
+        <AgentIcon icon={agent?.icon} className="size-4" />
         <div className="min-w-0">
           <div className="truncate text-xs font-semibold leading-tight">
             {(agent?.code as string) ?? (data.code as string)}

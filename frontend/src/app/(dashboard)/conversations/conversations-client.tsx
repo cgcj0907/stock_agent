@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { History, Search, Trash2 } from "lucide-react";
+import { History, Search, Trash2, TrendingUp } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -139,7 +139,7 @@ export function ConversationsClient({
                 className="group flex items-center gap-3 rounded-2xl border bg-card px-4 py-3 transition-shadow hover:shadow-sm"
               >
                 <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-sm">
-                  📈
+                  <TrendingUp className="size-5" />
                 </div>
                 <Link
                   href={`/conversations/${c.id}`}
