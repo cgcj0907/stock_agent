@@ -58,12 +58,15 @@ class WorkflowEngine:
         workflow: Workflow,
         on_step: Callable[[Session, WorkflowStep, ModuleResult], None] | None = None,
         on_step_start: Callable[[Session, WorkflowStep, ModuleResult], None] | None = None,
+        on_llm_chunk: Callable[[Session, WorkflowStep, str, str], None] | None = None,
     ) -> Session:
         """按工作流执行会话中的分析；支持断点续跑（已完成步骤跳过）。
 
         on_step：每完成一个步骤回调 (session, step, result)，供 SSE 进度推送使用。
         on_step_start：每开始执行一个步骤回调 (session, step, result)（result 为 RUNNING），
             供 SSE 实时推送「正在执行」进度；断点续跑/条件跳过不会触发。
+        on_llm_chunk：LLM 流式生成时每产出增量回调 (session, step, kind, chunk)，
+            kind ∈ content|thinking，供 SSE 实时推送「正在思考/写作」的增量内容。
         """
 
         # 实时进度：每完成一步落库一次，保证断线重连/轮询也能看到已完成的步骤
@@ -93,7 +96,14 @@ class WorkflowEngine:
                     self._mark_blocked(session, workflow, sid)
                 break
             for step in ready:
-                self._execute(session, workflow, step, step_map, on_step_start=on_step_start)
+                self._execute(
+                    session,
+                    workflow,
+                    step,
+                    step_map,
+                    on_step_start=on_step_start,
+                    on_llm_chunk=on_llm_chunk,
+                )
                 pending.discard(step.id)
                 result = session.module_results.get(step.agent_id)
                 _emit_step(on_step, step, result)
@@ -161,6 +171,7 @@ class WorkflowEngine:
         step: WorkflowStep,
         step_map: dict[str, WorkflowStep],
         on_step_start: Callable[[Session, WorkflowStep, ModuleResult], None] | None = None,
+        on_llm_chunk: Callable[[Session, WorkflowStep, str, str], None] | None = None,
     ) -> None:
         agent_id = step.agent_id
         session.current_module = agent_id
@@ -193,6 +204,15 @@ class WorkflowEngine:
             if d in step_map and step_map[d].agent_id in session.module_results:
                 inputs[step_map[d].agent_id] = session.module_results[step_map[d].agent_id]
 
+        def _llm_chunk_cb(step_id: str, kind: str, chunk: str) -> None:
+            """Agent 内流式增量 → 引擎级回调（忽略 agent 传入的 step_id，用引擎侧步骤）。"""
+            if on_llm_chunk is None:
+                return
+            try:
+                on_llm_chunk(session, step, kind, chunk)
+            except Exception:  # noqa: BLE001
+                logger.exception("llm chunk 回调失败（不影响执行）")
+
         ctx = AgentContext(
             session=session,
             assumptions=session.assumptions,
@@ -200,6 +220,8 @@ class WorkflowEngine:
             params=step.params,
             data=self._data,
             llm=self._resolve_llm(session),
+            step_id=step.id,
+            on_llm_chunk=_llm_chunk_cb,
         )
         agent = self._registry.get(agent_id)
         result = ModuleResult(module=agent_id, status=ModuleStatus.RUNNING, started_at=_now())

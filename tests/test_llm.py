@@ -55,3 +55,111 @@ def test_llm_json_rule_is_strict():
     assert "JSON" in LLM_JSON_RULE
     assert "不要 Markdown" in LLM_JSON_RULE
     assert "不要代码块" in LLM_JSON_RULE
+
+# ---------- 流式增量解析 ----------
+def test_stream_delta_extracts_dict_content():
+    from value_agent.core.llm import _stream_delta
+
+    chunk = {"choices": [{"delta": {"content": "商业"}}]}
+    assert _stream_delta(chunk) == "商业"
+
+
+def test_stream_delta_extracts_object_content():
+    from value_agent.core.llm import _stream_delta
+
+    class _Delta:
+        content = "模式"
+
+    class _Choice:
+        delta = _Delta()
+
+    class _Chunk:
+        def __init__(self) -> None:
+            self.choices = [_Choice()]
+
+    assert _stream_delta(_Chunk()) == "模式"
+
+
+def test_stream_delta_ignores_empty_or_meta_chunks():
+    from value_agent.core.llm import _stream_delta
+
+    assert _stream_delta({"choices": [{"delta": {}}]}) is None
+    assert _stream_delta({"choices": [{"delta": {"content": ""}}]}) is None
+    assert _stream_delta({"choices": [{"delta": {"role": "assistant"}}]}) is None
+    assert _stream_delta({}) is None
+    assert _stream_delta(None) is None
+
+
+def test_stream_parts_extracts_content_and_thinking():
+    """同一块同时含正文与思考（DeepSeek Reasoner）时两类都产出。"""
+    from value_agent.core.llm import _stream_parts
+
+    chunk = {
+        "choices": [
+            {
+                "delta": {
+                    "reasoning_content": "先判断生意类型",
+                    "content": "{\"business_type\": \"cyclical\"}",
+                }
+            }
+        ]
+    }
+    assert list(_stream_parts(chunk)) == [
+        ("content", '{"business_type": "cyclical"}'),
+        ("thinking", "先判断生意类型"),
+    ]
+
+
+def test_stream_parts_falls_back_to_reasoning_field():
+    """OpenAI o 系用 reasoning 字段：也应识别为 thinking。"""
+    from value_agent.core.llm import _stream_parts
+
+    class _Delta:
+        reasoning = "深入思考中"
+        content = None
+
+    class _Choice:
+        delta = _Delta()
+
+    class _Chunk:
+        def __init__(self) -> None:
+            self.choices = [_Choice()]
+
+    assert list(_stream_parts(_Chunk())) == [("thinking", "深入思考中")]
+
+
+def test_stream_chat_yields_deltas_in_order(monkeypatch):
+    """stream_chat 应逐个 yield (kind, delta)；空/元数据块被跳过。"""
+    import sys
+
+    from value_agent.core.llm import LlmClient
+
+    captured = {}
+
+    class _FakeLiteLLM:
+        @staticmethod
+        def completion(**kwargs):
+            captured["stream"] = kwargs.get("stream")
+            captured["messages"] = kwargs["messages"]
+
+            def _gen():
+                yield {"choices": [{"delta": {"content": "你"}}]}
+                yield {"choices": [{"delta": {"reasoning_content": "思考"}}]}
+                yield {"choices": [{"delta": {"content": "好"}}]}
+                yield {"choices": [{"delta": {}}]}
+                yield {"choices": [{"delta": {"content": "！"}}]}
+
+            return _gen()
+
+    monkeypatch.setitem(sys.modules, "litellm", _FakeLiteLLM)
+
+    client = LlmClient(api_key="k", base_url="https://x/v1")
+    out = list(client.stream_chat("sys", "usr"))
+    assert out == [
+        ("content", "你"),
+        ("thinking", "思考"),
+        ("content", "好"),
+        ("content", "！"),
+    ]
+    assert captured["stream"] is True
+    assert [m["role"] for m in captured["messages"]] == ["system", "user"]

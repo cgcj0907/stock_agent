@@ -40,6 +40,8 @@ export function WorkflowRunView({ workflow }: { workflow: WorkflowInfo }) {
     runStatus,
     error,
     statuses,
+    streams,
+    thinkings,
     results,
     memo,
     sessionId,
@@ -166,6 +168,8 @@ export function WorkflowRunView({ workflow }: { workflow: WorkflowInfo }) {
           statuses={statuses}
           running={running}
           connected={connected}
+          streams={streams}
+          thinkings={thinkings}
           companyLabel={
             companyName ? `${companyName}（${companyCode}）` : companyCode
           }

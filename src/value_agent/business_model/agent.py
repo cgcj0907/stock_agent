@@ -82,7 +82,7 @@ class M1BusinessModelAgent(Agent):
 
         if ctx.llm is not None:  # LLM 定性层（可选）
             try:
-                text = ctx.llm.chat(
+                text = ctx.stream_llm(
                     _LLM_SYSTEM,
                     f"公司：{info.get('name')}（{code}），行业：{result.industry}，"
                     f"财务摘要：{rule_result.evidence[0]}。\n"

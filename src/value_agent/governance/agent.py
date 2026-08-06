@@ -56,7 +56,7 @@ class M6GovernanceAgent(Agent):
 
         if ctx.llm is not None:
             try:
-                text = ctx.llm.chat(
+                text = ctx.stream_llm(
                     _LLM_SYSTEM,
                     f"公司：{ctx.session.company_name or code}，分红信号：{result.note}。\n"
                     "请按以下结构输出 JSON：\n"

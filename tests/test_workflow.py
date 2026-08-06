@@ -256,3 +256,112 @@ def test_run_fires_callbacks_only_for_executed_steps(engine):
 
     assert started == ["M2"]  # M4 条件不满足，跳过，不触发 running
     assert set(done) == {"M2", "M4"}  # 完成回调包含 skipped
+
+
+# ---------- LLM 流式增量回调 ----------
+class _StreamingLLM:
+    """模拟支持 stream_chat 的 LLM：逐字符产出文本。"""
+
+    def __init__(self, text: str = "hello world") -> None:
+        self._text = text
+        self.calls = 0
+
+    def stream_chat(self, system: str, user: str):
+        self.calls += 1
+        for ch in self._text:
+            yield "content", ch
+
+
+def test_engine_forwards_llm_chunks(engine, registry):
+    """引擎应把 Agent 内 stream_llm 的每个增量转发给 on_llm_chunk 回调（带步骤定位）。"""
+
+    class StreamAgent(Agent):
+        spec = AgentSpec(id="T_llm_stream", name="流式步骤")
+
+        def run(self, ctx: AgentContext) -> ModuleResult:
+            text = ctx.stream_llm("sys", "usr")
+            assert text == "hello world", "stream_llm 应返回拼接后的完整文本"
+            return ModuleResult(module=self.spec.id, status=ModuleStatus.DONE)
+
+    registry.register(StreamAgent(), overwrite=True)
+    llm = _StreamingLLM("hello world")
+    engine._llm = llm
+
+    session = SessionManager(InMemoryStore()).create_session("600519", "贵州茅台")
+    flow = Workflow(
+        id="stream",
+        name="流式流",
+        steps=[WorkflowStep(id="S1", agent_id="T_llm_stream")],
+    )
+    chunks: list[tuple[str, str, str]] = []
+
+    def on_chunk(sess, step, kind, chunk):
+        chunks.append((step.id, kind, chunk))
+
+    engine.run(session, flow, on_llm_chunk=on_chunk)
+    assert "".join(c for _, _, c in chunks) == "hello world"
+    assert all(sid == "S1" for sid, _, _ in chunks)
+    assert all(kind == "content" for _, kind, _ in chunks)
+    assert llm.calls == 1
+
+
+def test_engine_forwards_thinking_chunks(engine, registry):
+    """思考增量（thinking）应转发给 on_llm_chunk，且不混入 stream_llm 返回值。"""
+
+    class ThinkLLM:
+        def stream_chat(self, system: str, user: str):
+            yield "thinking", "先看商业模式"
+            yield "content", "回答正文"
+
+    class ThinkAgent(Agent):
+        spec = AgentSpec(id="T_llm_think", name="思考步骤")
+
+        def run(self, ctx: AgentContext) -> ModuleResult:
+            text = ctx.stream_llm("sys", "usr")
+            assert text == "回答正文", "thinking 不应混入正文返回值"
+            return ModuleResult(module=self.spec.id, status=ModuleStatus.DONE)
+
+    registry.register(ThinkAgent(), overwrite=True)
+    engine._llm = ThinkLLM()
+
+    session = SessionManager(InMemoryStore()).create_session("600519", "贵州茅台")
+    flow = Workflow(
+        id="think",
+        name="思考流",
+        steps=[WorkflowStep(id="S1", agent_id="T_llm_think")],
+    )
+    chunks: list[tuple[str, str]] = []
+
+    def on_chunk(sess, step, kind, chunk):
+        chunks.append((kind, chunk))
+
+    engine.run(session, flow, on_llm_chunk=on_chunk)
+    assert chunks == [("thinking", "先看商业模式"), ("content", "回答正文")]
+
+
+def test_engine_llm_chunk_callback_failure_does_not_break_run(engine, registry):
+    """on_llm_chunk 抛异常时不应中断步骤执行。"""
+
+    class StreamAgent(Agent):
+        spec = AgentSpec(id="T_llm_stream_fail", name="流式步骤")
+
+        def run(self, ctx: AgentContext) -> ModuleResult:
+            text = ctx.stream_llm("sys", "usr")
+            assert text == "abc"
+            return ModuleResult(module=self.spec.id, status=ModuleStatus.DONE)
+
+    registry.register(StreamAgent(), overwrite=True)
+    engine._llm = _StreamingLLM("abc")
+
+    session = SessionManager(InMemoryStore()).create_session("600519", "贵州茅台")
+    flow = Workflow(
+        id="stream_fail",
+        name="流式失败流",
+        steps=[WorkflowStep(id="S1", agent_id="T_llm_stream_fail")],
+    )
+
+    def on_chunk(sess, step, kind, chunk):
+        raise RuntimeError("回调炸了")
+
+    engine.run(session, flow, on_llm_chunk=on_chunk)
+    assert session.module_results["T_llm_stream_fail"].status == ModuleStatus.DONE

@@ -50,6 +50,10 @@ export function useWorkflowRun(
   const [statuses, setStatuses] = React.useState<Record<string, StepStatus>>(
     {}
   );
+  // LLM 流式增量：step id -> 已累积正文（打字机渲染数据源）
+  const [streams, setStreams] = React.useState<Record<string, string>>({});
+  // LLM 思考过程增量：step id -> 已累积思考文本（灰字思考区，独立于正文）
+  const [thinkings, setThinkings] = React.useState<Record<string, string>>({});
   const [results, setResults] = React.useState<
     Record<string, ModuleResultView>
   >({});
@@ -64,6 +68,8 @@ export function useWorkflowRun(
     setError(null);
     setMemo(null);
     setResults({});
+    setStreams({});
+    setThinkings({});
     setStatuses(Object.fromEntries(stepIds.map((id) => [id, "pending"])));
     setRunStatus("running");
 
@@ -130,6 +136,22 @@ export function useWorkflowRun(
             ...prev,
             [String(evt.step)]: (evt.status as StepStatus) ?? "done",
           }));
+        } else if (evt.type === "llm_chunk") {
+          const step = String(evt.step);
+          const kind = String(evt.kind ?? "content");
+          const chunk = String(evt.chunk ?? "");
+          if (!chunk) return;
+          if (kind === "thinking") {
+            setThinkings((prev) => ({
+              ...prev,
+              [step]: (prev[step] ?? "") + chunk,
+            }));
+          } else {
+            setStreams((prev) => ({
+              ...prev,
+              [step]: (prev[step] ?? "") + chunk,
+            }));
+          }
         } else if (evt.type === "done") {
           finalStatus = String(evt.status ?? "completed");
         } else if (evt.type === "error") {
@@ -218,6 +240,8 @@ export function useWorkflowRun(
     runStatus,
     error,
     statuses,
+    streams,
+    thinkings,
     results,
     memo,
     start,

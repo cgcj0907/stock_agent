@@ -36,7 +36,7 @@ class M9RiskAgent(Agent):
 
         if ctx.llm is not None:
             try:
-                text = ctx.llm.chat(
+                text = ctx.stream_llm(
                     _LLM_SYSTEM,
                     f"公司：{ctx.session.company_name or ctx.session.company_code}；"
                     f"规则风险清单：{result.risk_items}。\n"

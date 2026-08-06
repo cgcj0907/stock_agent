@@ -49,32 +49,62 @@ const STATUS_META: Record<
 function StepRow({
   step,
   status,
+  stream,
+  thinking,
 }: {
   step: WorkflowStep;
   status: StepStatus;
+  /** 该步骤 LLM 已流式产出的正文增量（打字机渲染源） */
+  stream?: string;
+  /** 该步骤 LLM 的思考过程增量（reasoning_content，灰字思考区） */
+  thinking?: string;
 }) {
   const agent = findAgent(step.agent);
   const meta = STATUS_META[status] ?? STATUS_META.pending;
+  const showStream = status === "running" && (!!stream || !!thinking);
   return (
     <li
       className={cn(
-        "flex items-center gap-2.5 px-4 py-2 text-sm transition-colors",
+        "px-4 py-2 text-sm transition-colors",
         status === "running" && "bg-emerald-50/70 dark:bg-emerald-950/30"
       )}
     >
-      <AgentIcon icon={agent?.icon} className="size-4" />
-      <span className="min-w-0 flex-1 truncate font-medium">
-        {agent?.name ?? step.agent}
-      </span>
-      <span
-        className={cn(
-          "flex shrink-0 items-center gap-1.5 text-xs font-medium",
-          meta.text
-        )}
-      >
-        {meta.icon}
-        {meta.label}
-      </span>
+      <div className="flex items-center gap-2.5">
+        <AgentIcon icon={agent?.icon} className="size-4" />
+        <span className="min-w-0 flex-1 truncate font-medium">
+          {agent?.name ?? step.agent}
+        </span>
+        <span
+          className={cn(
+            "flex shrink-0 items-center gap-1.5 text-xs font-medium",
+            meta.text
+          )}
+        >
+          {meta.icon}
+          {meta.label}
+        </span>
+      </div>
+      {showStream && (
+        <div className="mt-2 flex flex-col gap-1.5 pl-6">
+          {thinking && (
+            <div className="flex gap-2">
+              <span className="mt-0.5 size-1.5 shrink-0 animate-pulse rounded-full bg-amber-500/70" />
+              <pre className="max-h-28 min-w-0 flex-1 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-dashed border-muted-foreground/20 bg-muted/30 px-3 py-2 font-mono text-[11px] italic leading-5 text-muted-foreground/80">
+                {thinking}
+              </pre>
+            </div>
+          )}
+          {stream && (
+            <div className="flex gap-2">
+              <span className="mt-0.5 size-1.5 shrink-0 animate-pulse rounded-full bg-emerald-500" />
+              <pre className="max-h-40 min-w-0 flex-1 overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-muted/50 px-3 py-2 font-mono text-[11px] leading-5 text-muted-foreground">
+                {stream}
+                <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse rounded-sm bg-emerald-500 align-middle" />
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
     </li>
   );
 }
@@ -89,6 +119,8 @@ export function StepActivityFeed({
   running,
   connected,
   companyLabel,
+  streams,
+  thinkings,
   className,
 }: {
   steps: WorkflowStep[];
@@ -96,6 +128,10 @@ export function StepActivityFeed({
   running: boolean;
   connected?: boolean;
   companyLabel?: string;
+  /** step id -> LLM 流式正文增量（运行中展示打字机效果） */
+  streams?: Record<string, string>;
+  /** step id -> LLM 思考过程增量（运行中展示灰字思考区） */
+  thinkings?: Record<string, string>;
   className?: string;
 }) {
   const failed = steps.some((s) => statuses[s.id] === "failed");
@@ -143,7 +179,13 @@ export function StepActivityFeed({
       </div>
       <ol className="divide-y divide-border/60">
         {steps.map((s) => (
-          <StepRow key={s.id} step={s} status={statuses[s.id] ?? "pending"} />
+          <StepRow
+            key={s.id}
+            step={s}
+            status={statuses[s.id] ?? "pending"}
+            stream={streams?.[s.id]}
+            thinking={thinkings?.[s.id]}
+          />
         ))}
       </ol>
     </div>

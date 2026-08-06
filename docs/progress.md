@@ -17,6 +17,8 @@
 
 ---
 
+> ✅ 2026-08-06 **LLM 流式管道（打字机 + 思考过程）**：`LlmClient.stream_chat()` 逐个 yield `(kind, delta)`（content 正文 / thinking 思考过程，兼容 DeepSeek Reasoner 的 `reasoning_content` 与 OpenAI o 系 `reasoning`）；`AgentContext.stream_llm()` 边生成边回调 `on_llm_chunk(step_id, kind, chunk)`，thinking 不混入正文返回值；`WorkflowEngine.run(on_llm_chunk=...)` 透传；`/events` SSE 新增 `llm_chunk{step,agent,kind,chunk}` 事件；M1/M5/M6/M9 定性调用全部切流式；前端 `StepActivityFeed` 渲染灰字思考区 + 正文打字机光标，对话页重跑同步；新增 `/chat/stream` 流式追问端点（`chat_chunk`/`done` 事件、assistant 落库），前端追问气泡打字机渲染。155 测试全绿 + 前端 tsc/eslint 通过。
+
 > ✅ 2026-08-05 **方案 1 批次 E（增强项，docs/09-module-contracts.md §10.2）**：O-3 M10 决策快照审计（engine 在 M10 完成后写 session.decision_snapshots，含输入 handoff 摘要）；O-4 memo 质量自评（accuracy/logicality/storytelling 规则自评 + 降级标注）；O-5 输出稳定性测试（固定输入 3 次运行，outputs key 集合与契约枚举一致）；I-2 跨会话监控命中记忆（run_daily_monitor 把触发写入 session.monitor_hits，M11 将 warn/critical 历史命中回放为回顾规则）；配套测试 6 个。108 测试全绿 + 前端 tsc 通过。
 
 > ✅ 2026-08-05 **市销率警告修复**：akshare 1.18.81 的 `stock_zh_valuation_baidu` 不支持「市销率」指标（可选值见 docstring），传入返回空结构报 NoneType 错；PS 无下游消费，从估值指标列表移除，records.ps 保持 None。真实验证 731 条估值记录正常、无警告。

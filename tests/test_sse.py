@@ -177,3 +177,120 @@ def test_watch_sse_ends_when_created_session_never_starts(client: TestClient, mo
     assert events[-1]["status"] == "created"
     # 未被触发执行：没有 step 事件，状态仍停留在 created
     assert all(e["type"] != "step" for e in events)
+
+
+def test_sse_streams_llm_chunks(client: TestClient, monkeypatch) -> None:
+    """运行期间 LLM 流式增量应以 llm_chunk 事件实时推送（打字机数据源）。"""
+    from value_agent.agents import Agent, AgentContext, AgentSpec
+    from value_agent.sessions import ModuleResult, ModuleStatus
+
+    class StreamLLM:
+        def stream_chat(self, system: str, user: str):
+            yield "thinking", "先看生意类型"
+            yield "content", '{"business_model": "测试"}'
+
+    class TStreamAgent(Agent):
+        spec = AgentSpec(id="T_stream", name="流式步骤")
+
+        def run(self, ctx: AgentContext) -> ModuleResult:
+            text = ctx.stream_llm("sys", "usr")
+            assert text == '{"business_model": "测试"}'
+            return ModuleResult(module=self.spec.id, status=ModuleStatus.DONE)
+
+    from value_agent.main import _engine, _registry
+
+    monkeypatch.setitem(_registry._agents, "T_stream", TStreamAgent())
+    monkeypatch.setattr(_engine, "_llm", StreamLLM())
+
+    r = client.post(
+        "/api/sessions",
+        json={
+            "company_code": "600519",
+            "company_name": "贵州茅台",
+            "workflow_steps": [{"id": "stream", "agent": "T_stream"}],
+        },
+    )
+    assert r.status_code == 200
+    sid = r.json()["id"]
+
+    with client.stream("GET", f"/api/sessions/{sid}/events") as resp:
+        assert resp.status_code == 200
+        events = list(_events(resp))
+
+    chunks = [e for e in events if e["type"] == "llm_chunk"]
+    assert chunks, "应推送 llm_chunk 增量事件"
+    content = "".join(str(e["chunk"]) for e in chunks if e["kind"] == "content")
+    thinking = "".join(str(e["chunk"]) for e in chunks if e["kind"] == "thinking")
+    assert content == '{"business_model": "测试"}'
+    assert thinking == "先看生意类型"
+    assert all(e["step"] == "stream" for e in chunks)
+    assert all(e["agent"] == "T_stream" for e in chunks)
+    # 顺序：thinking 先于 content
+    assert [e["kind"] for e in chunks] == ["thinking", "content"]
+    # 事件顺序：步骤 running → LLM 增量 → 步骤 done
+    types = [e["type"] for e in events]
+    assert types.index("step") < types.index("llm_chunk") < types.index("done")
+
+
+def test_chat_stream_streams_reply_and_persists(client: TestClient, monkeypatch) -> None:
+    """追问对话流式端点：实时推送 chat_chunk（thinking/content），结束落库 assistant 消息。"""
+    from value_agent.main import _engine
+
+    class StreamChatLLM:
+        def stream_chat(self, system: str, user: str):
+            yield "thinking", "让我想想"
+            yield "content", "茅台"
+            yield "content", "值得关注"
+
+    monkeypatch.setattr(_engine, "_llm", StreamChatLLM())
+
+    r = client.post(
+        "/api/sessions",
+        json={"company_code": "600519", "company_name": "贵州茅台", "workflow_id": "quick"},
+    )
+    assert r.status_code == 200
+    sid = r.json()["id"]
+
+    with client.stream(
+        "POST",
+        f"/api/sessions/{sid}/chat/stream",
+        json={"content": "怎么看茅台？"},
+    ) as resp:
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("text/event-stream")
+        events = list(_events(resp))
+
+    chunks = [e for e in events if e["type"] == "chat_chunk"]
+    assert [e["kind"] for e in chunks] == ["thinking", "content", "content"]
+    assert "".join(str(e["chunk"]) for e in chunks if e["kind"] == "content") == "茅台值得关注"
+
+    done = [e for e in events if e["type"] == "done"]
+    assert done and done[0]["content"] == "茅台值得关注"
+
+    # user + assistant 消息均已落库
+    sess = client.get(f"/api/sessions/{sid}").json()
+    msgs = sess.get("messages", [])
+    assert [m["role"] for m in msgs] == ["user", "assistant"]
+    assert msgs[-1]["content"] == "茅台值得关注"
+
+
+def test_chat_stream_falls_back_without_llm(client: TestClient) -> None:
+    """未配置 LLM 时流式对话返回兜底文案并正常结束。"""
+    r = client.post(
+        "/api/sessions",
+        json={"company_code": "600519", "workflow_id": "quick"},
+    )
+    assert r.status_code == 200
+    sid = r.json()["id"]
+
+    with client.stream(
+        "POST",
+        f"/api/sessions/{sid}/chat/stream",
+        json={"content": "hi"},
+    ) as resp:
+        assert resp.status_code == 200
+        events = list(_events(resp))
+
+    done = [e for e in events if e["type"] == "done"]
+    assert done and "未配置可用的 LLM" in done[0]["content"]
+    assert events[-1]["type"] == "done"

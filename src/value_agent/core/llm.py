@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import re
+from collections.abc import Iterator
 
 from value_agent.core.config import load_settings
 
@@ -45,6 +46,44 @@ def parse_llm_json(text: str) -> dict | None:
     return None
 
 
+def _extract_stream_field(chunk, field: str) -> str | None:
+    """从一次流式响应块的 delta 中提取指定字段文本；兼容对象/字典访问，无则 None。"""
+    try:
+        if isinstance(chunk, dict):
+            choices = chunk.get("choices") or []
+            delta = (choices[0] or {}).get("delta") if choices else {}
+            value = delta.get(field) if isinstance(delta, dict) else None
+        else:
+            delta = chunk.choices[0].delta
+            value = getattr(delta, field, None)
+            if value is None and isinstance(delta, dict):
+                value = delta.get(field)
+    except Exception:  # noqa: BLE001
+        return None
+    return value if isinstance(value, str) and value else None
+
+
+def _stream_delta(chunk) -> str | None:
+    """从一次流式响应块中提取正文增量（content），无法解析返回 None。"""
+    return _extract_stream_field(chunk, "content")
+
+
+def _stream_parts(chunk) -> Iterator[tuple[str, str]]:
+    """把一次流式响应块拆成 (kind, delta)：content=正文 / thinking=思考过程。
+
+    优先取 content，再取 reasoning_content / reasoning（DeepSeek Reasoner / OpenAI o 系），
+    同一块里两类都出现时都产出。
+    """
+    content = _extract_stream_field(chunk, "content")
+    if content:
+        yield "content", content
+    reasoning = _extract_stream_field(chunk, "reasoning_content")
+    if reasoning is None:
+        reasoning = _extract_stream_field(chunk, "reasoning")
+    if reasoning:
+        yield "thinking", reasoning
+
+
 class LlmClient:
     """轻量 LLM 封装（OpenAI 兼容协议）。"""
 
@@ -77,6 +116,33 @@ class LlmClient:
             ],
         )
         return resp.choices[0].message.content
+
+    def stream_chat(self, system: str, user: str) -> Iterator[tuple[str, str]]:
+        """流式对话：逐个 yield (kind, delta) 增量（生成器），供实时打字机渲染。
+
+        kind ∈ {"content", "thinking"}：content 为正文，thinking 为思考过程
+        （reasoning_content / reasoning，如 DeepSeek Reasoner、OpenAI o 系）。
+        与 chat() 语义一致（同一 system/user 消息），但开启 stream=True；
+        未安装依赖抛 ImportError，调用失败抛异常（由调用方降级）。
+        调用方可边收边转发（如 SSE llm_chunk），无需等整段生成完。
+        """
+        try:
+            import litellm  # 延迟导入
+        except ImportError as exc:
+            raise ImportError("未安装 litellm：`pip install litellm`") from exc
+        resp = litellm.completion(
+            model=self.model,
+            api_key=self.api_key,
+            base_url=self.base_url,
+            temperature=self.temperature,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            stream=True,
+        )
+        for chunk in resp:
+            yield from _stream_parts(chunk)
 
 
 def _provider_default() -> str:

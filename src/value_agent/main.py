@@ -230,24 +230,18 @@ def post_message(session_id: str, req: MessageRequest) -> dict:
     return _public_session(session)
 
 
-@app.post("/api/sessions/{session_id}/chat")
-def chat(session_id: str, req: ChatRequest) -> dict:
-    """追问对话：记录用户消息 → 用（请求级>会话级>全局）LLM 回复 → 记录 assistant 消息。"""
-    session = _load_session(session_id)
-    content = req.content.strip()
-    if not content:
-        raise HTTPException(status_code=400, detail="消息不能为空")
-
-    _manager.add_message(session, "user", content)
-
-    # 解析 LLM：请求级 > 会话级 > 全局
-    llm = None
+def _chat_llm(session: Session, req: ChatRequest):
+    """追问对话的 LLM 解析：请求级 > 会话级 > 全局。"""
     cfg = req.llm_config or getattr(session, "llm_config", None)
     if cfg and cfg.get("api_key"):
-        llm = llm_from_config(cfg)
-    if llm is None:
-        llm = _engine._resolve_llm(session)
+        client = llm_from_config(cfg)
+        if client is not None:
+            return client
+    return _engine._resolve_llm(session)
 
+
+def _chat_prompt(session: Session, content: str) -> tuple[str, str]:
+    """追问对话的 system/user 提示词（含分析摘要上下文）。"""
     results = session.module_results
     summary = "；".join(
         f"{k} {v.status.value}" + (f"（{v.score}分）" if v.score is not None else "")
@@ -255,17 +249,34 @@ def chat(session_id: str, req: ChatRequest) -> dict:
         if v.status.value != "pending"
     ) or "（无完成模块）"
     company = session.company_name or session.company_code
+    system = (
+        "你是 A 股价值投资分析助手：基于给定公司的分析结果，用简洁中文回答用户追问，"
+        "数据不确定时明确说明，不构成投资建议。"
+    )
+    user = (
+        f"公司：{company}（{session.company_code}）\n"
+        f"工作流：{session.workflow_id}\n"
+        f"分析摘要：{summary}\n\n"
+        f"用户提问：{content}"
+    )
+    return system, user
 
+
+@app.post("/api/sessions/{session_id}/chat")
+def chat(session_id: str, req: ChatRequest) -> dict:
+    """追问对话（阻塞版）：记录用户消息 → 用 LLM 回复 → 记录 assistant 消息。"""
+    session = _load_session(session_id)
+    content = req.content.strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="消息不能为空")
+
+    _manager.add_message(session, "user", content)
+
+    llm = _chat_llm(session, req)
+    system, user = _chat_prompt(session, content)
     if llm is not None:
         try:
-            reply = llm.chat(
-                "你是 A 股价值投资分析助手：基于给定公司的分析结果，用简洁中文回答用户追问，"
-                "数据不确定时明确说明，不构成投资建议。",
-                f"公司：{company}（{session.company_code}）\n"
-                f"工作流：{session.workflow_id}\n"
-                f"分析摘要：{summary}\n\n"
-                f"用户提问：{content}",
-            )
+            reply = llm.chat(system, user)
         except Exception as exc:  # noqa: BLE001
             logger.exception("对话 LLM 调用失败")
             reply = f"（LLM 调用失败：{type(exc).__name__}，请检查 LLM 配置后重试）"
@@ -274,6 +285,77 @@ def chat(session_id: str, req: ChatRequest) -> dict:
 
     _manager.add_message(session, "assistant", reply)
     return _public_session(session)
+
+
+@app.post("/api/sessions/{session_id}/chat/stream")
+def chat_stream(session_id: str, req: ChatRequest) -> StreamingResponse:
+    """追问对话（流式版）：SSE 实时推送 chat_chunk（kind=content|thinking），结尾 done。
+
+    事件流：
+    - `chat_chunk`  LLM 流式增量 {kind, chunk}
+    - `done`        生成结束 {content: 完整回复}（此时 assistant 消息已落库）
+    - `error`       失败
+    心跳：每 15s 发送 `: keep-alive` 注释，防止长链接被代理切断。
+    """
+    session = _load_session(session_id)
+    content = req.content.strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="消息不能为空")
+
+    _manager.add_message(session, "user", content)
+    llm = _chat_llm(session, req)
+    system, user = _chat_prompt(session, content)
+
+    q: "queue.Queue[dict | None]" = queue.Queue()
+
+    def worker() -> None:
+        try:
+            parts: list[str] = []
+            if llm is not None:
+                try:
+                    for kind, chunk in llm.stream_chat(system, user):
+                        if kind == "content":
+                            parts.append(chunk)
+                        q.put({"type": "chat_chunk", "kind": kind, "chunk": chunk})
+                except Exception as exc:  # noqa: BLE001
+                    logger.exception("对话 LLM 流式调用失败")
+                    parts.append(f"（LLM 调用失败：{type(exc).__name__}，请检查 LLM 配置后重试）")
+            else:
+                parts.append(
+                    "未配置可用的 LLM，暂时无法回答追问。请先在「LLM 配置」中添加服务商并设为默认。"
+                )
+            reply = "".join(parts)
+            _manager.add_message(session, "assistant", reply)
+            q.put({"type": "done", "content": reply})
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("对话流式执行失败")
+            q.put({"type": "error", "message": str(exc)})
+        finally:
+            q.put(None)
+
+    threading.Thread(target=worker, daemon=True).start()
+
+    def gen():
+        heartbeat = max(0.1, float(os.getenv("SSE_HEARTBEAT_SECONDS", "15")))
+        while True:
+            try:
+                item = q.get(timeout=heartbeat)
+            except queue.Empty:
+                yield ": keep-alive\n\n"
+                continue
+            if item is None:
+                break
+            yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
 
 
 @app.post("/api/sessions/{session_id}/rerun")
@@ -341,6 +423,7 @@ def stream_events(session_id: str):
     事件流：
     - `started`  连接建立、运行开始（前端据此确认长链接已建立）
     - `step`     步骤状态变化（running / done / failed / skipped）
+    - `llm_chunk` LLM 流式增量文本（step 定位步骤，kind=content|thinking，chunk 为一段文本）
     - `done`     运行结束（含会话终态 completed/failed）
     - `error`    运行失败
     心跳：每 15s 发送 `: keep-alive` 注释，避免代理/平台（Render/Vercel）切断空闲长链接。
@@ -359,9 +442,26 @@ def stream_events(session_id: str):
             }
         )
 
+    def _push_chunk(sess, step, kind, chunk) -> None:  # type: ignore[no-untyped-def]
+        q.put(
+            {
+                "type": "llm_chunk",
+                "step": step.id,
+                "agent": step.agent_id,
+                "kind": kind,
+                "chunk": chunk,
+            }
+        )
+
     def worker() -> None:
         try:
-            _engine.run(session, flow, on_step=_push_step, on_step_start=_push_step)
+            _engine.run(
+                session,
+                flow,
+                on_step=_push_step,
+                on_step_start=_push_step,
+                on_llm_chunk=_push_chunk,
+            )
             q.put({"type": "done", "status": session.status.value})
         except WorkflowValidationError as exc:
             q.put({"type": "error", "message": str(exc)})

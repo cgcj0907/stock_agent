@@ -25,13 +25,17 @@ export async function api<T = unknown>(
   return res.json() as Promise<T>;
 }
 
-/** 解析后端 SSE 事件流 */
+/** 解析后端 SSE 事件流（支持 GET/POST，init 用于 POST 携带 body） */
 export async function streamSse(
   url: string,
   onEvent: (event: Record<string, unknown>) => void,
-  options?: { signal?: AbortSignal }
+  options?: { signal?: AbortSignal; init?: RequestInit }
 ): Promise<void> {
-  const res = await fetch(url, { cache: "no-store", signal: options?.signal });
+  const res = await fetch(url, {
+    ...options?.init,
+    cache: "no-store",
+    signal: options?.signal,
+  });
   if (!res.ok || !res.body) {
     throw new Error(`SSE 连接失败（${res.status}）`);
   }
@@ -65,6 +69,8 @@ export async function runSessionViaSse(
     /** 长链接已建立、后端开始执行（收到 started 事件） */
     onStarted?: () => void;
     onStep: (step: string, status: string) => void;
+    /** LLM 流式增量（打字机数据源）：kind=content|thinking（思考过程单独灰字渲染） */
+    onChunk?: (step: string, agent: string, kind: string, chunk: string) => void;
     onDone: (status: string) => void;
     onError: (message: string) => void;
   }
@@ -74,6 +80,13 @@ export async function runSessionViaSse(
       handlers.onStarted?.();
     } else if (evt.type === "step") {
       handlers.onStep(String(evt.step), String(evt.status));
+    } else if (evt.type === "llm_chunk") {
+      handlers.onChunk?.(
+        String(evt.step),
+        String(evt.agent ?? ""),
+        String(evt.kind ?? "content"),
+        String(evt.chunk ?? "")
+      );
     } else if (evt.type === "done") {
       handlers.onDone(String(evt.status ?? "completed"));
     } else if (evt.type === "error") {
@@ -88,6 +101,8 @@ export async function watchSessionViaSse(
   handlers: {
     onStarted?: () => void;
     onStep: (step: string, status: string) => void;
+    /** watch 端点不推送 llm_chunk（增量不落库），保留接口以便将来支持 */
+    onChunk?: (step: string, agent: string, kind: string, chunk: string) => void;
     onDone: (status: string) => void;
     onError: (message: string) => void;
     signal?: AbortSignal;
@@ -100,6 +115,13 @@ export async function watchSessionViaSse(
         handlers.onStarted?.();
       } else if (evt.type === "step") {
         handlers.onStep(String(evt.step), String(evt.status));
+      } else if (evt.type === "llm_chunk") {
+        handlers.onChunk?.(
+          String(evt.step),
+          String(evt.agent ?? ""),
+          String(evt.kind ?? "content"),
+          String(evt.chunk ?? "")
+        );
       } else if (evt.type === "done") {
         handlers.onDone(String(evt.status ?? "completed"));
       } else if (evt.type === "error") {
@@ -107,5 +129,41 @@ export async function watchSessionViaSse(
       }
     },
     { signal: handlers.signal }
+  );
+}
+
+
+/** 追问对话（流式版）：POST /chat/stream，SSE 实时推送 chat_chunk（kind=content|thinking），
+ *  结尾 done（含完整回复）。assistant 消息由服务端在结束时落库。 */
+export async function chatViaSse(
+  sessionId: string,
+  body: { content: string; llm_config?: Record<string, unknown> },
+  handlers: {
+    onChunk?: (kind: string, chunk: string) => void;
+    onDone: (content: string) => void;
+    onError: (message: string) => void;
+  }
+): Promise<void> {
+  await streamSse(
+    `${API_BASE}/api/sessions/${sessionId}/chat/stream`,
+    (evt) => {
+      if (evt.type === "chat_chunk") {
+        handlers.onChunk?.(
+          String(evt.kind ?? "content"),
+          String(evt.chunk ?? "")
+        );
+      } else if (evt.type === "done") {
+        handlers.onDone(String(evt.content ?? ""));
+      } else if (evt.type === "error") {
+        handlers.onError(String(evt.message ?? "对话失败"));
+      }
+    },
+    {
+      init: {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    }
   );
 }

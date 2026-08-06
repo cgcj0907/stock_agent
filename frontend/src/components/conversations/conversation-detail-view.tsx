@@ -33,7 +33,7 @@ import { WorkflowDag } from "@/components/workflow/workflow-dag";
 import { ResultCard } from "@/components/workflow/result-card";
 import { MemoCard } from "@/components/workflow/memo-card";
 import { findAgent } from "@/lib/agents/catalog";
-import { api, runSessionViaSse, watchSessionViaSse } from "@/lib/api";
+import { api, chatViaSse, runSessionViaSse, watchSessionViaSse } from "@/lib/api";
 import { createClient } from "@/lib/supabase/client";
 import { getWorkflow, type StepStatus } from "@/lib/workflows/catalog";
 import { timeAgo } from "@/lib/time";
@@ -80,6 +80,10 @@ export function ConversationDetailView({
   const [liveStatuses, setLiveStatuses] = React.useState<
     Record<string, StepStatus> | null
   >(null);
+  // LLM 流式增量：step id -> 已累积正文（重跑时实时打字机渲染）
+  const [streams, setStreams] = React.useState<Record<string, string>>({});
+  // LLM 思考过程增量：step id -> 已累积思考文本（灰字思考区）
+  const [thinkings, setThinkings] = React.useState<Record<string, string>>({});
   const [loading, setLoading] = React.useState(false);
   const [running, setRunning] = React.useState(false);
   const [liveConnected, setLiveConnected] = React.useState(false);
@@ -89,6 +93,9 @@ export function ConversationDetailView({
   );
   const [chatInput, setChatInput] = React.useState("");
   const [chatBusy, setChatBusy] = React.useState(false);
+  // 追问对话流式：AI 正在生成的正文 / 思考过程（打字机气泡）
+  const [pendingReply, setPendingReply] = React.useState("");
+  const [pendingThinking, setPendingThinking] = React.useState("");
   const [selectedLlmId, setSelectedLlmId] = React.useState<string | null>(
     initialLlmSettings.find((l) => l.is_default)?.id ??
       initialLlmSettings[0]?.id ??
@@ -234,6 +241,8 @@ export function ConversationDetailView({
     setRunning(true);
     setLiveConnected(false);
     setError(null);
+    setStreams({});
+    setThinkings({});
     setLiveStatuses(
       Object.fromEntries(
         (workflow?.steps.map((s) => s.id) ?? []).map((id) => [
@@ -251,6 +260,19 @@ export function ConversationDetailView({
             ...prev,
             [step]: status as StepStatus,
           })),
+        onChunk: (step, _agent, kind, chunk) => {
+          if (kind === "thinking") {
+            setThinkings((prev) => ({
+              ...prev,
+              [step]: (prev[step] ?? "") + chunk,
+            }));
+          } else {
+            setStreams((prev) => ({
+              ...prev,
+              [step]: (prev[step] ?? "") + chunk,
+            }));
+          }
+        },
         onDone: (status) => {
           finalStatus = status;
         },
@@ -301,34 +323,45 @@ export function ConversationDetailView({
     if (!content || chatBusy) return;
     setChatBusy(true);
     // 乐观追加用户消息
-    setMessages((prev) => [
-      ...prev,
-      { role: "user", content },
-    ]);
+    setMessages((prev) => [...prev, { role: "user", content }]);
     setChatInput("");
+    setPendingReply("");
+    setPendingThinking("");
+    // 本地缓冲：避免回调闭包读到过期的 state
+    let replyBuf = "";
+    let thinkBuf = "";
     try {
-      const res = await fetch(`/api/sessions/${conversation.session_id}/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          content,
-          conversation_id: conversation.id,
-          llm_settings_id: selectedLlmId ?? undefined,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "对话失败");
-      // 服务端已把新消息写入 Supabase；这里把 assistant 回复追加到本地
-      const assistant = (data.messages ?? []).find(
-        (m: ChatMessage) => m.role === "assistant"
+      await chatViaSse(
+        conversation.session_id,
+        { content },
+        {
+          onChunk: (kind, chunk) => {
+            if (kind === "thinking") {
+              thinkBuf += chunk;
+              setPendingThinking(thinkBuf);
+            } else {
+              replyBuf += chunk;
+              setPendingReply(replyBuf);
+            }
+          },
+          onDone: (full) => {
+            // 服务端已把 assistant 消息落库；本地提交完整回复
+            const reply = full || replyBuf || "（无回复）";
+            setMessages((prev) => [...prev, { role: "assistant", content: reply }]);
+            setPendingReply("");
+            setPendingThinking("");
+          },
+          onError: (message) => {
+            toast.error(message);
+            setPendingReply("");
+            setPendingThinking("");
+          },
+        }
       );
-      if (assistant) {
-        setMessages((prev) => [...prev, assistant]);
-      } else {
-        throw new Error("未收到回复");
-      }
     } catch (e) {
       toast.error((e as Error).message);
+      setPendingReply("");
+      setPendingThinking("");
     } finally {
       setChatBusy(false);
     }
@@ -493,8 +526,10 @@ export function ConversationDetailView({
               <StepActivityFeed
                 steps={workflow.steps}
                 statuses={statuses}
-                  running={showRunning}
-                  connected={progressConnected}
+                running={showRunning}
+                connected={progressConnected}
+                streams={streams}
+                thinkings={thinkings}
                 companyLabel={
                   conversation.company_name
                     ? `${conversation.company_name}（${conversation.company_code}）`
@@ -539,6 +574,31 @@ export function ConversationDetailView({
                   </div>
                 </div>
               ))
+            )}
+
+            {/* AI 正在流式生成：打字机气泡（灰字思考区 + 正文） */}
+            {(chatBusy || pendingReply || pendingThinking) && (
+              <div className="flex gap-2.5">
+                <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted-foreground/60 text-xs text-white">
+                  <Bot className="size-4" />
+                </div>
+                <div className="max-w-[80%] rounded-2xl rounded-tl-sm bg-muted/60 px-3.5 py-2 text-sm leading-6">
+                  {pendingThinking && (
+                    <div className="mb-1.5 whitespace-pre-wrap rounded-lg border border-dashed border-muted-foreground/20 bg-muted/30 px-2.5 py-1.5 font-mono text-[11px] italic leading-5 text-muted-foreground/80">
+                      {pendingThinking}
+                    </div>
+                  )}
+                  <div className="whitespace-pre-wrap">
+                    {pendingReply ||
+                      (chatBusy && (
+                        <Loader2 className="size-3.5 animate-spin text-muted-foreground" />
+                      ))}
+                    {pendingReply && (
+                      <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse rounded-sm bg-emerald-500 align-middle" />
+                    )}
+                  </div>
+                </div>
+              </div>
             )}
 
             {/* 追问输入 + LLM 选择 */}

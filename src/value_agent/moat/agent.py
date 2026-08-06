@@ -57,7 +57,7 @@ class M5MoatAgent(Agent):
 
         if ctx.llm is not None:
             try:
-                text = ctx.llm.chat(
+                text = ctx.stream_llm(
                     _LLM_SYSTEM,
                     f"公司：{ctx.session.company_name or code}，财务信号：{result.signals}。\n"
                     "请按以下结构输出 JSON：\n"
