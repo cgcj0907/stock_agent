@@ -25,6 +25,18 @@ def test_m1_continues_when_company_info_fails():
     assert any("公司信息获取失败" in e for e in res.evidence)
 
 
+def test_m1_continues_when_financials_fail_but_company_info_exists():
+    class _NoFin(StubData):
+        def financials(self, code: str, years: int = 10) -> dict:
+            raise RuntimeError("JSONDecodeError")
+
+    res = _run_m1(_NoFin())
+    assert res.status.value == "done"
+    assert res.outputs["industry"] == "白酒"
+    assert "数据获取失败" not in res.outputs["one_liner"]
+    assert any("财务数据获取失败" in e for e in res.evidence)
+
+
 def test_m1_degrades_only_when_financials_also_fail():
     class _NoData(StubData):
         def company_info(self, code: str) -> dict:

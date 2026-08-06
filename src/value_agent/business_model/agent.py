@@ -55,23 +55,26 @@ class M1BusinessModelAgent(Agent):
         try:
             fin = ctx.data.financials(code)
         except Exception as exc:  # noqa: BLE001
-            # 财务数据也失败：降级为 DONE（保守按周期），不阻塞下游估值
-            return ModuleResult(
-                module=self.spec.id,
-                status=ModuleStatus.DONE,
-                score=50.0,
-                outputs={
-                    "business_type": "cyclical",
-                    "one_liner": f"数据获取失败（{type(exc).__name__}），保守按周期处理",
-                    "understandability": "边缘（需行业周期专识）",
-                    "industry": "",
-                    "handoff": {
-                        "valuation_route": "cyclical",
-                        "understandability_level": "medium",
+            if not info:
+                # 公司信息和财务都失败：只能整体降级
+                return ModuleResult(
+                    module=self.spec.id,
+                    status=ModuleStatus.DONE,
+                    score=50.0,
+                    outputs={
+                        "business_type": "cyclical",
+                        "one_liner": f"数据获取失败（{type(exc).__name__}），保守按周期处理",
+                        "understandability": "边缘（需行业周期专识）",
+                        "industry": "",
+                        "handoff": {
+                            "valuation_route": "cyclical",
+                            "understandability_level": "medium",
+                        },
                     },
-                },
-                evidence=[f"数据源异常：{type(exc).__name__}（{str(exc)[:80]}），已降级为周期分类"],
-            )
+                    evidence=[f"数据源异常：{type(exc).__name__}（{str(exc)[:80]}），已降级为周期分类"],
+                )
+            data_issues.append(f"财务数据获取失败（{type(exc).__name__}），仅用公司信息与 LLM 判断")
+            fin = {"records": [], "source": "fallback(empty_financials)"}
         rule_result = analyze_business_model(info, fin)
         result = rule_result
         evidence = data_issues + list(rule_result.evidence)
