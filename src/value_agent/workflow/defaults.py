@@ -20,16 +20,21 @@ _STEP_NAMES = {
 
 
 def default_workflow() -> Workflow:
-    """由 PIPELINE_ORDER + MODULE_DEPENDENCIES 生成标准工作流。"""
+    """由 PIPELINE_ORDER + MODULE_DEPENDENCIES 生成标准工作流。
+
+    步骤 id 用短编号（M1/M2/…，与 config/workflows/default.yaml 及前端目录一致），
+    agent_id 用模块全名；SSE step 事件与前端状态映射都依赖短 id。
+    """
     steps: list[WorkflowStep] = []
     for module in PIPELINE_ORDER:
         agent_id = module.value
-        deps = [d.value for d in MODULE_DEPENDENCIES.get(module, set())]
+        short_id = agent_id.split("_", 1)[0]
+        deps = sorted(d.value.split("_", 1)[0] for d in MODULE_DEPENDENCIES.get(module, set()))
         steps.append(
             WorkflowStep(
-                id=module.value,
+                id=short_id,
                 agent_id=agent_id,
-                deps=sorted(deps),
+                deps=deps,
             )
         )
     return Workflow(

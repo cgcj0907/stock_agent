@@ -365,3 +365,13 @@ def test_engine_llm_chunk_callback_failure_does_not_break_run(engine, registry):
 
     engine.run(session, flow, on_llm_chunk=on_chunk)
     assert session.module_results["T_llm_stream_fail"].status == ModuleStatus.DONE
+
+
+def test_default_workflow_uses_short_step_ids():
+    """默认工作流 step id 应为短编号（与 YAML/前端目录一致），agent_id 为模块全名。"""
+    flow = default_workflow()
+    ids = flow.step_ids()
+    assert ids[0] == "M1"
+    assert flow.step("M1").agent_id == "M1_business_model"
+    assert "M1_business_model" not in ids
+    assert set(ids) == {f"M{i}" for i in range(1, 12)}
