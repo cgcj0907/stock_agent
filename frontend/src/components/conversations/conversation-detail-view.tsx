@@ -27,6 +27,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { AnalysisProgress } from "@/components/workflow/analysis-progress";
+import { StepActivityFeed } from "@/components/workflow/step-activity-feed";
 import { WorkflowDag } from "@/components/workflow/workflow-dag";
 import { ResultCard } from "@/components/workflow/result-card";
 import { MemoCard } from "@/components/workflow/memo-card";
@@ -166,7 +167,7 @@ export function ConversationDetailView({
         `/api/sessions/${conversation.session_id}`
       );
       setSession(s);
-      setLiveStatuses(null);
+      // 保留 liveStatuses：分析完成后动作流继续留在对话中（Codex 风格）
       try {
         const memoRes = await api<{ memo?: string }>(
           `/api/sessions/${conversation.session_id}/memo`
@@ -391,6 +392,21 @@ export function ConversationDetailView({
         <h2 className="text-base font-semibold">对话</h2>
         <Card className="rounded-2xl">
           <CardContent className="flex flex-col gap-3 p-4">
+            {/* Codex 风格：在对话框中逐行展示每一步处理动作 */}
+            {(running || liveStatuses) && workflow && (
+              <StepActivityFeed
+                steps={workflow.steps}
+                statuses={statuses}
+                running={running}
+                connected={liveConnected}
+                companyLabel={
+                  conversation.company_name
+                    ? `${conversation.company_name}（${conversation.company_code}）`
+                    : conversation.company_code
+                }
+                className="animate-in fade-in slide-in-from-top-2"
+              />
+            )}
             {messages.length === 0 ? (
               <p className="py-2 text-center text-xs text-muted-foreground">
                 基于本次分析结果，追问任意投资问题

@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { AnalysisProgress } from "@/components/workflow/analysis-progress";
+import { StepActivityFeed } from "@/components/workflow/step-activity-feed";
 import { WorkflowDag } from "@/components/workflow/workflow-dag";
 import { ResultCard } from "@/components/workflow/result-card";
 import { MemoCard } from "@/components/workflow/memo-card";
@@ -154,6 +155,20 @@ export function WorkflowRunView({ workflow }: { workflow: WorkflowInfo }) {
           statuses={statuses}
           running={running}
           connected={connected}
+          className="animate-in fade-in slide-in-from-top-2"
+        />
+      )}
+
+      {/* Codex 风格：对话中逐行展示每一步处理动作 */}
+      {(running || Object.keys(statuses).length > 0) && (
+        <StepActivityFeed
+          steps={workflow.steps}
+          statuses={statuses}
+          running={running}
+          connected={connected}
+          companyLabel={
+            companyName ? `${companyName}（${companyCode}）` : companyCode
+          }
           className="animate-in fade-in slide-in-from-top-2"
         />
       )}
