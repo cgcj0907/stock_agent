@@ -43,6 +43,7 @@ export function useWorkflowRun(
   const [companyCode, setCompanyCode] = React.useState("");
   const [companyName, setCompanyName] = React.useState("");
   const [running, setRunning] = React.useState(false);
+  const [connected, setConnected] = React.useState(false);
   const [sessionId, setSessionId] = React.useState<string | null>(null);
   const [runStatus, setRunStatus] = React.useState<RunStatus>("idle");
   const [error, setError] = React.useState<string | null>(null);
@@ -59,6 +60,7 @@ export function useWorkflowRun(
     if (!code || running) return;
 
     setRunning(true);
+    setConnected(false);
     setError(null);
     setMemo(null);
     setResults({});
@@ -120,7 +122,10 @@ export function useWorkflowRun(
 
       let finalStatus = "completed";
       await streamSse(`${API_BASE}/api/sessions/${session.id}/events`, (evt) => {
-        if (evt.type === "step") {
+        if (evt.type === "started") {
+          // 长链接已建立：后端开始实时推送 session step 进度
+          setConnected(true);
+        } else if (evt.type === "step") {
           setStatuses((prev) => ({
             ...prev,
             [String(evt.step)]: (evt.status as StepStatus) ?? "done",
@@ -208,6 +213,7 @@ export function useWorkflowRun(
     companyName,
     setCompanyName,
     running,
+    connected,
     sessionId,
     runStatus,
     error,

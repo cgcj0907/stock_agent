@@ -35,6 +35,7 @@ export function WorkflowRunView({ workflow }: { workflow: WorkflowInfo }) {
     companyName,
     setCompanyName,
     running,
+    connected,
     runStatus,
     error,
     statuses,
@@ -152,6 +153,7 @@ export function WorkflowRunView({ workflow }: { workflow: WorkflowInfo }) {
           steps={workflow.steps}
           statuses={statuses}
           running={running}
+          connected={connected}
           className="animate-in fade-in slide-in-from-top-2"
         />
       )}

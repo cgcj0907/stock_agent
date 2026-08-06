@@ -195,3 +195,64 @@ def test_engine_resolves_per_session_llm(engine):
 
     # 无 llm_config（engine 全局 llm=None）→ 回退 None
     assert engine._resolve_llm(manager.create_session("600519")) is None
+
+
+def test_run_fires_step_start_then_completion_callbacks(engine):
+    """实时进度：每个步骤先回调 running（开始），再回调终态（完成）。"""
+    session = SessionManager(InMemoryStore()).create_session("600519", "贵州茅台")
+    flow = Workflow(
+        id="cb",
+        name="回调流",
+        steps=[
+            WorkflowStep(id="M2", agent_id="M2_financial_quality"),
+            WorkflowStep(id="M4", agent_id="M4_valuation", deps=["M2"]),
+        ],
+    )
+    started: list[tuple[str, str]] = []
+    done: list[tuple[str, str]] = []
+
+    def on_start(sess, step, result) -> None:
+        started.append((step.id, result.status.value))
+
+    def on_step(sess, step, result) -> None:
+        done.append((step.id, result.status.value))
+
+    engine.run(session, flow, on_step=on_step, on_step_start=on_start)
+
+    assert [sid for sid, _ in started] == ["M2", "M4"]
+    assert [st for _, st in started] == ["running", "running"]
+    assert [st for _, st in done] == ["done", "done"]
+    # 每个步骤：开始回调（running）必须先于完成回调
+    for (start_sid, _), (done_sid, _) in zip(started, done):
+        assert start_sid == done_sid
+
+
+def test_run_fires_callbacks_only_for_executed_steps(engine):
+    """条件跳过/断点续跑不触发 running 回调。"""
+    session = SessionManager(InMemoryStore()).create_session("600519", "贵州茅台")
+    flow = Workflow(
+        id="cond",
+        name="条件流",
+        steps=[
+            WorkflowStep(id="M2", agent_id="M2_financial_quality"),
+            WorkflowStep(
+                id="M4",
+                agent_id="M4_valuation",
+                deps=["M2"],
+                condition="inputs['M2'].outputs.get('skip') == True",
+            ),
+        ],
+    )
+    started: list[str] = []
+    done: list[str] = []
+
+    def on_start(sess, step, result) -> None:
+        started.append(step.id)
+
+    def on_step(sess, step, result) -> None:
+        done.append(step.id)
+
+    engine.run(session, flow, on_step=on_step, on_step_start=on_start)
+
+    assert started == ["M2"]  # M4 条件不满足，跳过，不触发 running
+    assert set(done) == {"M2", "M4"}  # 完成回调包含 skipped

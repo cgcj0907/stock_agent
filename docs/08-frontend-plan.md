@@ -195,10 +195,24 @@ SUPABASE_SECRET_KEY=sb_secret_...                          # 仅服务端（替�
 ### 6.4 运行流程（工作流分析页）
 ```
 用户输入公司 → POST /api/sessions → 拿到 session_id
-→ 前端建 conversations 记录 → GET /api/sessions/{id}/events (SSE)
-→ 收到 step 事件 → DAG 节点高亮 + 进度条 + 聊天流式输出
+→ 前端建 conversations 记录 → GET /api/sessions/{id}/events (SSE 长链接)
+→ started 事件（连接建立）→ step 事件（running → done/failed/skipped，实时）
+→ DAG 节点高亮 + 进度条实时刷新 + 聊天流式输出
 → done 事件 → 拉取 GET /api/sessions/{id} 展示模块结果 → 可生成/查看备忘录
 ```
+
+**SSE 事件协议（`GET /api/sessions/{id}/events`，浏览器直连后端）**：
+
+| 事件 | 说明 |
+|---|---|
+| `started` | 长链接已建立、运行开始（前端据此显示「实时更新中」） |
+| `step` | 步骤状态变化：先 `running`（开始执行时实时推送），再 `done` / `failed` / `skipped` |
+| `done` | 运行结束，`status` 为会话终态 `completed` / `failed` |
+| `error` | 运行失败（含 `message`） |
+| `: keep-alive` | 心跳注释：每 15s 发送一次（`SSE_HEARTBEAT_SECONDS` 可调），防止代理/平台切断空闲长链接 |
+
+配套：`WorkflowEngine.run(on_step_start=...)` 在每步开始前回调 `RUNNING`；
+每完成一步 `SessionManager.persist` 落库一次，断线重连/轮询也能看到已完成步骤。
 
 ---
 

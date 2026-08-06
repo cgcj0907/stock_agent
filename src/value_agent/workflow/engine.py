@@ -57,11 +57,29 @@ class WorkflowEngine:
         session: Session,
         workflow: Workflow,
         on_step: Callable[[Session, WorkflowStep, ModuleResult], None] | None = None,
+        on_step_start: Callable[[Session, WorkflowStep, ModuleResult], None] | None = None,
     ) -> Session:
         """按工作流执行会话中的分析；支持断点续跑（已完成步骤跳过）。
 
         on_step：每完成一个步骤回调 (session, step, result)，供 SSE 进度推送使用。
+        on_step_start：每开始执行一个步骤回调 (session, step, result)（result 为 RUNNING），
+            供 SSE 实时推送「正在执行」进度；断点续跑/条件跳过不会触发。
         """
+
+        # 实时进度：每完成一步落库一次，保证断线重连/轮询也能看到已完成的步骤
+        def _persist_step() -> None:
+            try:
+                self._manager.persist(session)
+            except Exception:  # noqa: BLE001
+                logger.exception("步骤进度落库失败（不影响执行）")
+
+        def _emit_step(cb, step, result) -> None:
+            if cb is not None and result is not None:
+                try:
+                    cb(session, step, result)
+                except Exception:  # noqa: BLE001
+                    logger.exception("步骤回调失败（不影响执行）")
+
         workflow.validate(available_agents=set(self._registry.ids()))
         transition(session, SessionStatus.IN_PROGRESS)
 
@@ -75,12 +93,11 @@ class WorkflowEngine:
                     self._mark_blocked(session, workflow, sid)
                 break
             for step in ready:
-                self._execute(session, workflow, step, step_map)
+                self._execute(session, workflow, step, step_map, on_step_start=on_step_start)
                 pending.discard(step.id)
-                if on_step is not None:
-                    result = session.module_results.get(step.agent_id)
-                    if result is not None:
-                        on_step(session, step, result)
+                result = session.module_results.get(step.agent_id)
+                _emit_step(on_step, step, result)
+                _persist_step()
 
         self._finalize(session, workflow)
         return session
@@ -143,6 +160,7 @@ class WorkflowEngine:
         workflow: Workflow,
         step: WorkflowStep,
         step_map: dict[str, WorkflowStep],
+        on_step_start: Callable[[Session, WorkflowStep, ModuleResult], None] | None = None,
     ) -> None:
         agent_id = step.agent_id
         session.current_module = agent_id
@@ -186,6 +204,11 @@ class WorkflowEngine:
         agent = self._registry.get(agent_id)
         result = ModuleResult(module=agent_id, status=ModuleStatus.RUNNING, started_at=_now())
         session.module_results[agent_id] = result
+        if on_step_start is not None:
+            try:
+                on_step_start(session, step, result)
+            except Exception:  # noqa: BLE001
+                logger.exception("步骤开始回调失败（不影响执行）")
         try:
             result = agent.run(ctx)
             if result.status == ModuleStatus.PENDING:

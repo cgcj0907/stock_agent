@@ -36,16 +36,20 @@ const STEP_STATE: Record<
 /**
  * 分析进度条：总体进度百分比 + 当前执行模块 + 各步骤状态标签，
  * 让用户在 1–2 分钟的分析过程中有明确感知。
+ *
+ * `connected`：SSE 长链接是否已建立（后端实时推送 session step 进度）。
  */
 export function AnalysisProgress({
   steps,
   statuses,
   running,
+  connected,
   className,
 }: {
   steps: WorkflowStep[];
   statuses: Record<string, StepStatus>;
   running: boolean;
+  connected?: boolean;
   className?: string;
 }) {
   const total = steps.length;
@@ -85,13 +89,38 @@ export function AnalysisProgress({
             </>
           )}
         </div>
-        <div className="flex items-baseline gap-2">
-          <span className="text-xs text-muted-foreground tabular-nums">
-            已完成 {doneCount}/{total}
-          </span>
-          <span className="text-sm font-bold tabular-nums text-emerald-600 dark:text-emerald-400">
-            {pct}%
-          </span>
+        <div className="flex items-center gap-2">
+          {running && (
+            <span
+              className={cn(
+                "flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-medium",
+                connected
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300"
+                  : "border-border bg-muted/40 text-muted-foreground"
+              )}
+              title={
+                connected
+                  ? "已建立 SSE 长链接，后端实时推送步骤进度"
+                  : "正在建立实时进度连接…"
+              }
+            >
+              <span
+                className={cn(
+                  "size-1.5 rounded-full",
+                  connected ? "bg-emerald-500 animate-pulse" : "bg-muted-foreground/40"
+                )}
+              />
+              {connected ? "实时更新中" : "连接中…"}
+            </span>
+          )}
+          <div className="flex items-baseline gap-2">
+            <span className="text-xs text-muted-foreground tabular-nums">
+              已完成 {doneCount}/{total}
+            </span>
+            <span className="text-sm font-bold tabular-nums text-emerald-600 dark:text-emerald-400">
+              {pct}%
+            </span>
+          </div>
         </div>
       </div>
 

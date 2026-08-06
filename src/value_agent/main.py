@@ -307,12 +307,20 @@ def archive_session(session_id: str) -> dict:
 
 @app.get("/api/sessions/{session_id}/events")
 def stream_events(session_id: str):
-    """SSE：运行工作流并推送每个模块的完成事件（浏览器直连）。"""
+    """SSE 长链接：运行工作流并实时推送每个步骤的进度（浏览器直连）。
+
+    事件流：
+    - `started`  连接建立、运行开始（前端据此确认长链接已建立）
+    - `step`     步骤状态变化（running / done / failed / skipped）
+    - `done`     运行结束（含会话终态 completed/failed）
+    - `error`    运行失败
+    心跳：每 15s 发送 `: keep-alive` 注释，避免代理/平台（Render/Vercel）切断空闲长链接。
+    """
     session = _load_session(session_id)
     flow = _load_workflow(session)
     q: "queue.Queue[dict | None]" = queue.Queue()
 
-    def on_step(sess, step, result) -> None:  # type: ignore[no-untyped-def]
+    def _push_step(sess, step, result) -> None:  # type: ignore[no-untyped-def]
         q.put(
             {
                 "type": "step",
@@ -324,7 +332,7 @@ def stream_events(session_id: str):
 
     def worker() -> None:
         try:
-            _engine.run(session, flow, on_step=on_step)
+            _engine.run(session, flow, on_step=_push_step, on_step_start=_push_step)
             q.put({"type": "done", "status": session.status.value})
         except WorkflowValidationError as exc:
             q.put({"type": "error", "message": str(exc)})
@@ -337,10 +345,30 @@ def stream_events(session_id: str):
     threading.Thread(target=worker, daemon=True).start()
 
     def gen():
+        yield (
+            "data: "
+            + json.dumps({"type": "started", "status": "in_progress"}, ensure_ascii=False)
+            + "\n\n"
+        )
+        # 心跳间隔可配置（测试用短间隔，默认 15s）
+        heartbeat = max(0.1, float(os.getenv("SSE_HEARTBEAT_SECONDS", "15")))
         while True:
-            item = q.get()
+            try:
+                item = q.get(timeout=heartbeat)
+            except queue.Empty:
+                # 心跳：LLM/数据步骤可能长时间无事件，保持长链接不超时
+                yield ": keep-alive\n\n"
+                continue
             if item is None:
                 break
             yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
 
-    return StreamingResponse(gen(), media_type="text/event-stream")
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )

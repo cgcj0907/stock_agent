@@ -80,6 +80,7 @@ export function ConversationDetailView({
   >(null);
   const [loading, setLoading] = React.useState(false);
   const [running, setRunning] = React.useState(false);
+  const [liveConnected, setLiveConnected] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [messages, setMessages] = React.useState<ChatMessage[]>(
     initialMessages
@@ -134,6 +135,7 @@ export function ConversationDetailView({
 
   async function handleRerun() {
     setRunning(true);
+    setLiveConnected(false);
     setError(null);
     setLiveStatuses(
       Object.fromEntries(
@@ -146,6 +148,7 @@ export function ConversationDetailView({
     try {
       let finalStatus = "completed";
       await runSessionViaSse(conversation.session_id, {
+        onStarted: () => setLiveConnected(true),
         onStep: (step, status) =>
           setLiveStatuses((prev) => ({
             ...prev,
@@ -379,6 +382,7 @@ export function ConversationDetailView({
           steps={workflow.steps}
           statuses={statuses}
           running={running}
+          connected={liveConnected}
           className="animate-in fade-in slide-in-from-top-2"
         />
       )}
