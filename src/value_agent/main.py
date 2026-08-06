@@ -11,6 +11,7 @@ import logging
 import os
 import queue
 import threading
+import time
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -136,6 +137,34 @@ def _load_session(session_id: str):
         return _manager.load(session_id)
     except KeyError:
         raise HTTPException(status_code=404, detail="会话不存在") from None
+
+
+def _step_status_events(
+    session: Session,
+    workflow: Workflow,
+    previous: dict[str, str] | None = None,
+) -> tuple[dict[str, str], list[dict]]:
+    """把会话 module_results 映射成前端可消费的 step 事件。"""
+    current: dict[str, str] = {}
+    events: list[dict] = []
+    for step in workflow.steps:
+        result = session.module_results.get(step.agent_id)
+        status = result.status.value if result is not None else "pending"
+        current[step.agent_id] = status
+        if previous is None:
+            if status == "pending":
+                continue
+        elif previous.get(step.agent_id) == status:
+            continue
+        events.append(
+            {
+                "type": "step",
+                "step": step.id,
+                "agent": step.agent_id,
+                "status": status,
+            }
+        )
+    return current, events
 
 
 def _load_workflow(session: Session) -> Workflow:
@@ -370,5 +399,78 @@ def stream_events(session_id: str):
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
             "Connection": "keep-alive",
+        },
+    )
+
+
+@app.get("/api/sessions/{session_id}/watch")
+def watch_events(session_id: str):
+    """SSE 观察接口：仅订阅会话进度，不触发新的执行。"""
+    session = _load_session(session_id)
+    flow = _load_workflow(session)
+
+    def gen():
+        yield (
+            "data: "
+            + json.dumps({"type": "started", "status": session.status.value}, ensure_ascii=False)
+            + "\n\n"
+        )
+        heartbeat = max(0.1, float(os.getenv("SSE_HEARTBEAT_SECONDS", "15")))
+        poll = max(0.1, float(os.getenv("SSE_WATCH_POLL_SECONDS", "0.5")))
+        # created 会话若一直未开始执行，观察超过该时长后主动结束，避免长链接悬挂
+        idle = max(0.1, float(os.getenv("SSE_WATCH_IDLE_SECONDS", "60")))
+        opened_at = time.monotonic()
+        last_keepalive = opened_at
+        previous: dict[str, str] | None = None
+
+        while True:
+            current_session = _load_session(session_id)
+            previous, events = _step_status_events(current_session, flow, previous)
+            for event in events:
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                last_keepalive = time.monotonic()
+
+            if current_session.status in (
+                SessionStatus.COMPLETED,
+                SessionStatus.FAILED,
+                SessionStatus.ARCHIVED,
+            ):
+                yield (
+                    "data: "
+                    + json.dumps(
+                        {"type": "done", "status": current_session.status.value},
+                        ensure_ascii=False,
+                    )
+                    + "\n\n"
+                )
+                break
+
+            # 从未开始的 created 会话：观察超时即结束（不会自己触发执行）
+            if (
+                current_session.status == SessionStatus.CREATED
+                and time.monotonic() - opened_at >= idle
+            ):
+                yield (
+                    "data: "
+                    + json.dumps(
+                        {"type": "done", "status": current_session.status.value},
+                        ensure_ascii=False,
+                    )
+                    + "\n\n"
+                )
+                break
+
+            if time.monotonic() - last_keepalive >= heartbeat:
+                yield ": keep-alive\n\n"
+                last_keepalive = time.monotonic()
+            time.sleep(poll)
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
         },
     )

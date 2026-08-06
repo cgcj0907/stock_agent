@@ -33,7 +33,7 @@ import { WorkflowDag } from "@/components/workflow/workflow-dag";
 import { ResultCard } from "@/components/workflow/result-card";
 import { MemoCard } from "@/components/workflow/memo-card";
 import { findAgent } from "@/lib/agents/catalog";
-import { api, runSessionViaSse } from "@/lib/api";
+import { api, runSessionViaSse, watchSessionViaSse } from "@/lib/api";
 import { createClient } from "@/lib/supabase/client";
 import { getWorkflow, type StepStatus } from "@/lib/workflows/catalog";
 import { timeAgo } from "@/lib/time";
@@ -105,85 +105,130 @@ export function ConversationDetailView({
           ? ((r.status as StepStatus) ?? "pending")
           : "pending";
       }
+      if (
+        ["created", "in_progress", "awaiting_input"].includes(session.status) &&
+        session.current_module
+      ) {
+        const runningStep = workflow.steps.find(
+          (step) => step.agent === session.current_module
+        );
+        if (runningStep && next[runningStep.id] === "pending") {
+          next[runningStep.id] = "running";
+        }
+      }
     }
     return next;
   }, [workflow, session]);
 
   const statuses = liveStatuses ?? derivedStatuses;
-  const sessionRunning =
+  // created：可能即将被其它设备启动，尝试 watch 观察；不参与轮询/进行中展示
+  const sessionActive =
     !!session &&
     ["created", "in_progress", "awaiting_input"].includes(session.status);
+  const sessionRunning =
+    !!session && ["in_progress", "awaiting_input"].includes(session.status);
   const showRunning = running || sessionRunning;
-  const progressConnected = running ? liveConnected : sessionRunning;
+  const progressConnected = running ? liveConnected : liveConnected || sessionRunning;
 
-  async function syncSession(options?: {
-    showToast?: boolean;
-    showLoading?: boolean;
-  }) {
-    const { showToast = true, showLoading = true } = options ?? {};
-    if (showLoading) setLoading(true);
-    setError(null);
-    try {
-      const s = await api<SessionView>(
-        `/api/sessions/${conversation.session_id}`
-      );
-      setSession(s);
+  const syncSession = React.useCallback(
+    async (options?: { showToast?: boolean; showLoading?: boolean }) => {
+      const { showToast = true, showLoading = true } = options ?? {};
+      if (showLoading) setLoading(true);
+      setError(null);
       try {
-        const memoRes = await api<{ memo?: string }>(
-          `/api/sessions/${conversation.session_id}/memo`
+        const s = await api<SessionView>(
+          `/api/sessions/${conversation.session_id}`
         );
-        if (memoRes.memo) setMemo(memoRes.memo);
-      } catch {
-        // 无备忘录
-      }
+        setSession(s);
+        try {
+          const memoRes = await api<{ memo?: string }>(
+            `/api/sessions/${conversation.session_id}/memo`
+          );
+          if (memoRes.memo) setMemo(memoRes.memo);
+        } catch {
+          // 无备忘录
+        }
         if (showToast) toast.success("已刷新");
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
+      } catch (e) {
+        setError((e as Error).message);
+      } finally {
         if (showLoading) setLoading(false);
-    }
+      }
+    },
+    [conversation.session_id]
+  );
+
+  async function refresh(showToast = true) {
+    await syncSession({ showToast, showLoading: true });
   }
 
-    async function refresh(showToast = true) {
-      await syncSession({ showToast, showLoading: true });
-    }
+  React.useEffect(() => {
+    if (running || !sessionActive) return;
 
-    React.useEffect(() => {
-      if (running || !sessionRunning) return;
+    const controller = new AbortController();
+    void watchSessionViaSse(conversation.session_id, {
+      signal: controller.signal,
+      onStarted: () => setLiveConnected(true),
+      // watch 连接时会先吐一批当前快照；用 prev ?? {} 避免依赖 derivedStatuses
+      onStep: (step, status) =>
+        setLiveStatuses((prev) => ({
+          ...(prev ?? {}),
+          [step]: status as StepStatus,
+        })),
+      onDone: async () => {
+        setLiveConnected(false);
+        await syncSession({ showToast: false, showLoading: false });
+      },
+      onError: (message) => {
+        setLiveConnected(false);
+        setError(message);
+      },
+    }).catch((e) => {
+      if ((e as Error)?.name !== "AbortError") {
+        setLiveConnected(false);
+      }
+    });
 
-      let cancelled = false;
-      let syncing = false;
-      const tick = async () => {
-        if (cancelled || syncing) return;
-        syncing = true;
+    return () => {
+      controller.abort();
+      setLiveConnected(false);
+    };
+  }, [conversation.session_id, running, sessionActive, syncSession]);
+
+  React.useEffect(() => {
+    if (running || !sessionRunning || liveConnected) return;
+
+    let cancelled = false;
+    let syncing = false;
+    const tick = async () => {
+      if (cancelled || syncing) return;
+      syncing = true;
+      try {
+        const s = await api<SessionView>(`/api/sessions/${conversation.session_id}`);
+        if (cancelled) return;
+        setSession(s);
         try {
-          const s = await api<SessionView>(
-            `/api/sessions/${conversation.session_id}`
+          const memoRes = await api<{ memo?: string }>(
+            `/api/sessions/${conversation.session_id}/memo`
           );
-          if (cancelled) return;
-          setSession(s);
-          try {
-            const memoRes = await api<{ memo?: string }>(
-              `/api/sessions/${conversation.session_id}/memo`
-            );
-            if (!cancelled && memoRes.memo) setMemo(memoRes.memo);
-          } catch {
-            // 无备忘录
-          }
+          if (!cancelled && memoRes.memo) setMemo(memoRes.memo);
         } catch {
-          // 轮询失败时静默，避免打断用户；下一轮继续尝试
-        } finally {
-          syncing = false;
+          // 无备忘录
         }
-      };
+      } catch {
+        // 轮询失败时静默，避免打断用户；下一轮继续尝试
+      } finally {
+        syncing = false;
+      }
+    };
 
-      void tick();
-      const timer = window.setInterval(tick, 3000);
-      return () => {
-        cancelled = true;
-        window.clearInterval(timer);
-      };
-    }, [conversation.session_id, running, sessionRunning]);
+    void tick();
+    const timer = window.setInterval(tick, 1000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [conversation.session_id, liveConnected, running, sessionRunning]);
 
   async function handleRerun() {
     setRunning(true);

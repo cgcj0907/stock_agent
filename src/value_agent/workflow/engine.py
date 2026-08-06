@@ -204,6 +204,10 @@ class WorkflowEngine:
         agent = self._registry.get(agent_id)
         result = ModuleResult(module=agent_id, status=ModuleStatus.RUNNING, started_at=_now())
         session.module_results[agent_id] = result
+        try:
+            self._manager.persist(session)
+        except Exception:  # noqa: BLE001
+            logger.exception("步骤开始进度落库失败（不影响执行）")
         if on_step_start is not None:
             try:
                 on_step_start(session, step, result)

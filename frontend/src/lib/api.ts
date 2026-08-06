@@ -28,9 +28,10 @@ export async function api<T = unknown>(
 /** 解析后端 SSE 事件流 */
 export async function streamSse(
   url: string,
-  onEvent: (event: Record<string, unknown>) => void
+  onEvent: (event: Record<string, unknown>) => void,
+  options?: { signal?: AbortSignal }
 ): Promise<void> {
-  const res = await fetch(url, { cache: "no-store" });
+  const res = await fetch(url, { cache: "no-store", signal: options?.signal });
   if (!res.ok || !res.body) {
     throw new Error(`SSE 连接失败（${res.status}）`);
   }
@@ -79,4 +80,32 @@ export async function runSessionViaSse(
       handlers.onError(String(evt.message ?? "运行失败"));
     }
   });
+}
+
+/** 通过 SSE 观察已有会话进度，不触发重新执行 */
+export async function watchSessionViaSse(
+  sessionId: string,
+  handlers: {
+    onStarted?: () => void;
+    onStep: (step: string, status: string) => void;
+    onDone: (status: string) => void;
+    onError: (message: string) => void;
+    signal?: AbortSignal;
+  }
+): Promise<void> {
+  await streamSse(
+    `${API_BASE}/api/sessions/${sessionId}/watch`,
+    (evt) => {
+      if (evt.type === "started") {
+        handlers.onStarted?.();
+      } else if (evt.type === "step") {
+        handlers.onStep(String(evt.step), String(evt.status));
+      } else if (evt.type === "done") {
+        handlers.onDone(String(evt.status ?? "completed"));
+      } else if (evt.type === "error") {
+        handlers.onError(String(evt.message ?? "观察失败"));
+      }
+    },
+    { signal: handlers.signal }
+  );
 }
