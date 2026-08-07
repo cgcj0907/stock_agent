@@ -41,3 +41,35 @@ def test_company_info_cninfo_empty_returns_minimal(monkeypatch):
     info = ds.company_info("000333")
     assert info["name"] == "000333"
     assert info["industry"] == ""
+
+
+def test_eastmoney_kline_parsing(monkeypatch):
+    """curl_cffi 东财 kline 解析：klines 字符串 → DataFrame（日期/开收高低/成交量）。"""
+    from value_agent.data.sources.akshare_source import AkShareDataSource
+
+    class _Resp:
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self):
+            return {
+                "data": {
+                    "klines": [
+                        "2024-01-05,10,11,12,9,1000,2000,3,5,0.5,1.2",
+                        "2024-01-08,11,12,13,10,1200,2400,2,9,1,1.3",
+                    ]
+                }
+            }
+
+    def fake_get(url, params=None, headers=None, impersonate=None, timeout=None):
+        assert params["secid"] == "0.000858"
+        assert impersonate == "chrome"
+        assert "Referer" in headers and "User-Agent" in headers
+        return _Resp()
+
+    monkeypatch.setattr("curl_cffi.requests.get", fake_get)
+    src = AkShareDataSource()
+    df = src._eastmoney_kline("000858", "20240101", "20240131")
+    assert len(df) == 2
+    assert df.iloc[-1]["日期"] == "2024-01-08"
+    assert df.iloc[-1]["收盘"] == "12"

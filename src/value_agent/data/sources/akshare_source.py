@@ -117,15 +117,62 @@ class AkShareDataSource(DataSource):
     def daily_prices(self, code: str, start: str | None = None, end: str | None = None) -> dict:
         return self._retry("daily_prices", lambda: self._daily_prices(code, start, end))
 
+    def _eastmoney_kline(self, code: str, start: str, end: str):
+        """用 curl_cffi（Chrome TLS 指纹伪装）+ 浏览器请求头直连东财 kline 接口。
+
+        akshare 的 stock_zh_a_hist 用裸 requests（标准 Python TLS 指纹、无 Referer），
+        容易被东财反爬识别并断连（ConnectionError/RemoteDisconnected，尤其云机房 IP）。
+        这里伪装成真实 Chrome 浏览器请求，显著降低被风控概率。
+        """
+        from curl_cffi import requests as cfrequests  # akshare 依赖，已在镜像内
+
+        market = 1 if code.startswith("6") else 0
+        url = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
+        params = {
+            "fields1": "f1,f2,f3,f4,f5,f6",
+            "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f116",
+            "ut": "7eea3edcaed734bea9cbfc24409ed989",
+            "klt": "101",  # daily
+            "fqt": "1",    # 前复权
+            "secid": f"{market}.{code}",
+            "beg": start,
+            "end": end,
+        }
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            ),
+            "Referer": "https://quote.eastmoney.com/",
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "zh-CN,zh;q=0.9",
+        }
+        resp = cfrequests.get(url, params=params, headers=headers, impersonate="chrome", timeout=15)
+        resp.raise_for_status()
+        data = (resp.json() or {}).get("data") or {}
+        klines = data.get("klines") or []
+        rows = [k.split(",") for k in klines]
+        import pandas as pd
+
+        return pd.DataFrame(
+            rows,
+            columns=["日期", "开盘", "收盘", "最高", "最低", "成交量", "成交额",
+                     "振幅", "涨跌幅", "涨跌额", "换手率"],
+        )
+
     def _daily_prices(self, code: str, start: str | None = None, end: str | None = None) -> dict:
         # 接口需显式日期范围（None 会返回空）
         if start is None:
             start = (datetime.datetime.now(datetime.UTC).date() - datetime.timedelta(days=365 * 10)).strftime("%Y%m%d")
         if end is None:
             end = datetime.datetime.now(datetime.UTC).date().strftime("%Y%m%d")
-        df = self._ak.stock_zh_a_hist(
-            symbol=code, period="daily", start_date=start, end_date=end, adjust="qfq"
-        )
+        try:
+            df = self._eastmoney_kline(code, start, end)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[daily] %s curl_cffi 东财失败，回退 akshare：%s", code, exc)
+            df = self._ak.stock_zh_a_hist(
+                symbol=code, period="daily", start_date=start, end_date=end, adjust="qfq"
+            )
         records = [
             {
                 "trade_date": str(r["日期"]).replace("-", ""),

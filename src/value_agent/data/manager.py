@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
 
 from value_agent.core.config import load_settings
@@ -170,9 +171,17 @@ class DataManager:
                     table, code, exc,
                 )
 
-        threading.Thread(
-            target=_job, name=f"cache-write-{table}-{code}", daemon=True
-        ).start()
+        # serverless（FC 等）请求结束后会冻结/回收实例，daemon 线程可能来不及写完；
+        # 设 DATA_WRITE_BACK=sync 时改为同步写入，保证落库后再返回。
+        if os.getenv("DATA_WRITE_BACK", "").strip().lower() in ("sync", "1", "true"):
+            try:
+                _job()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("[cache] %s %s 同步回写失败：%s", table, code, exc)
+        else:
+            threading.Thread(
+                target=_job, name=f"cache-write-{table}-{code}", daemon=True
+            ).start()
 
     def _with_url(self, data: dict, dataset: str, code: str) -> dict:
         """确保返回数据带文章级数据来源 URL（存储命中时也无缺失）。"""

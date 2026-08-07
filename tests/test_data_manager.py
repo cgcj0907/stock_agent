@@ -129,3 +129,15 @@ def test_persistent_source_failure_raises(tmp_path):
     with pytest.raises(ConnectionError):
         dm.financials("600519")
     assert source.calls == 3  # 重试 3 次后放弃
+
+
+def test_sync_write_back_writes_before_return(monkeypatch, tmp_path):
+    """DATA_WRITE_BACK=sync 时，写入在返回前同步完成（serverless 友好）。"""
+    monkeypatch.setenv("DATA_WRITE_BACK", "sync")
+    db = tmp_path / "sync.db"
+    storage = SqliteMarketStorage(str(db))
+    dm = DataManager(
+        source=MockDataSource(), market_storage=storage, storage_factory=_storage_factory(db)
+    )
+    dm.company_info("600519")
+    assert storage.records_before("company", "600519"), "同步模式返回前应已写入"
