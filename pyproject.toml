@@ -8,14 +8,20 @@ dependencies = [
     "psycopg2-binary>=2.9",     # PostgreSQL（Supabase）
     "pandas>=2.2",
     "numpy>=1.26",
-    "scipy>=1.13",
     "pydantic>=2.8",
     "pyyaml>=6.0",
-    "duckdb>=1.0",              # 单机存储起步；生产可换 PostgreSQL
     "fastapi>=0.115",
     "uvicorn>=0.30",
     "httpx>=0.27",
     "litellm>=1.44",            # 统一 LLM 接入（DeepSeek/Qwen/GPT/本地）
+]
+
+# 部署镜像不装的重量级/可选依赖（运行时用不到，见实测 import 检查）；
+# 需要时显式安装：pip install ".[full]"
+[project.optional-dependencies]
+full = [
+    "scipy>=1.13",
+    "duckdb>=1.0",              # 单机存储起步；生产可换 PostgreSQL
     "chromadb>=0.5",            # RAG 向量库；生产可换 pgvector
     "apscheduler>=3.10",
     "pandera>=0.20",            # 数据 schema 校验
@@ -26,6 +32,11 @@ dev = [
     "pytest>=8.3",
     "ruff>=0.6",
     "mypy>=1.11",
+    "scipy>=1.13",
+    "duckdb>=1.0",
+    "chromadb>=0.5",
+    "apscheduler>=3.10",
+    "pandera>=0.20",
 ]
 
 [build-system]

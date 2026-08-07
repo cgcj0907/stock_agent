@@ -10,3 +10,4 @@ data/cache/
 .mypy_cache/
 dist/
 .superpowers/
+supabase
