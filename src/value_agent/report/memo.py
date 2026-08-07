@@ -87,13 +87,15 @@ def build_memo(session: Session) -> str:
         handoff6 = m6.outputs["handoff"]
         g_score = handoff6.get("governance_score")
         if g_score is not None:
+            dy = m6.outputs.get("dividend_yield")
+            dy_txt = f"{dy:.2%}" if isinstance(dy, (int, float)) else "—"
             lines += [
                 "",
                 "## 治理与资本配置（M6）",
                 "",
                 (
                     f"- 治理评分：{g_score}（分红 {m6.outputs.get('dividend_years', 0)} 期，"
-                    f"最新分红率 {m6.outputs.get('payout_latest')}）"
+                    f"每股派息 {m6.outputs.get('payout_latest')} 元，股息率 {dy_txt}）"
                 ),
             ]
             codes = handoff6.get("governance_risk_codes") or []

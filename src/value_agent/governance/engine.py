@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import datetime
 from dataclasses import dataclass, field
 
 # 治理事件 → (风险码, 中文标签, 严重度, 扣分)
@@ -34,6 +35,7 @@ class GovernanceResult:
     dividend_years: int
     payout_latest: float | None
     note: str
+    dividend_yield: float | None = None  # TTM 每股派息 ÷ 现价（股息率）
     evidence: list[str] = field(default_factory=list)
     # 规则层治理事件 → 结构化风险码 [{code, severity, description}]（M9 消费）
     risk_codes: list[dict] = field(default_factory=list)
@@ -73,13 +75,34 @@ def _event_brief(label: str, ev: dict) -> str:
     return "；".join(bits)
 
 
-def assess_governance(dividends: dict, events: dict | None = None) -> GovernanceResult:
+def _ttm_dividend(records: list[dict], anchor: datetime.date) -> float:
+    """最近 12 个月（截至最新分红报告期）的每股派息合计（TTM 口径）。"""
+    start = anchor - datetime.timedelta(days=365)
+    total = 0.0
+    for r in records:
+        try:
+            d = datetime.datetime.strptime(str(r.get("period")), "%Y%m%d").date()
+        except (TypeError, ValueError):
+            continue
+        if start < d <= anchor:  # 开区间：避免把整一年前的年报重复计入
+            v = r.get("cash_div_tax")
+            if isinstance(v, (int, float)):
+                total += float(v)
+    return round(total, 4)
+
+
+def assess_governance(
+    dividends: dict,
+    events: dict | None = None,
+    price: float | None = None,
+) -> GovernanceResult:
     """输入分红记录（+ 可选治理事件），输出治理/回报股东评分。
 
     代理：连续分红年数 + 每股派息趋势（基础）；
     治理事件（非分红证据）：质押/减持/监管处罚/审计变更/并购回报不佳扣分，
     持续回购加分，并映射为结构化 risk_codes 供 M9 消费。
     events 为 None 表示事件数据源未接入；为 dict（可全空）表示已接入但无事件。
+    price 为现价（元），用于计算股息率 = TTM 每股派息 ÷ 现价；缺失时股息率置 None。
     """
     recs = sorted(
         (r for r in dividends.get("records", []) if r.get("period")),
@@ -109,6 +132,26 @@ def assess_governance(dividends: dict, events: dict | None = None) -> Governance
         note = "有分红预案但无派息数据"
 
     evidence = [f"连续分红 {years} 期；最新每股派息 {latest} 元", note]
+
+    # 股息率：TTM 每股派息（最近 12 个月）÷ 现价
+    dividend_yield: float | None = None
+    if price is not None:
+        try:
+            price = float(price)
+        except (TypeError, ValueError):
+            price = None
+    if price and price > 0 and recs:
+        try:
+            anchor = datetime.datetime.strptime(str(recs[0]["period"]), "%Y%m%d").date()
+            ttm = _ttm_dividend(recs, anchor)
+        except (TypeError, ValueError):
+            ttm = 0.0
+        if ttm > 0:
+            dividend_yield = round(ttm / price, 4)
+            evidence.append(
+                f"股息率（TTM 每股派息 {ttm} 元 ÷ 现价 {price} 元）= {dividend_yield:.2%}"
+            )
+
     risk_codes: list[dict] = []
 
     if events is None:
@@ -167,5 +210,6 @@ def assess_governance(dividends: dict, events: dict | None = None) -> Governance
     score = round(max(0.0, min(score, 100.0)), 1)
     return GovernanceResult(
         score=score, dividend_years=years, payout_latest=latest,
-        note=note, evidence=evidence, risk_codes=risk_codes,
+        note=note, dividend_yield=dividend_yield,
+        evidence=evidence, risk_codes=risk_codes,
     )

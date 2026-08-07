@@ -111,6 +111,13 @@ def test_no_llm_uses_rule_only(monkeypatch):
     assert any("未配置 LLM" in e for e in res.evidence)
 
 
+def test_dividend_yield_computed_in_outputs(monkeypatch):
+    """M6 outputs 携带股息率：StubData 现价 101.65，TTM 每股派息 2.0 → 1.97%。"""
+    res = _run(monkeypatch, None)
+    assert res.outputs["dividend_yield"] == round(2.0 / 101.65, 4)
+    assert any("股息率" in e for e in res.evidence)
+
+
 def test_llm_score_unifies_handoff_governance_score(monkeypatch):
     """llm_score 校准后，handoff.governance_score 与最终分数一致（M4/M9/M10 同口径）。"""
     llm = _FakeLLM('{"shareholder_alignment": "x"}', score='{"score": 82, "reason": "好"}')

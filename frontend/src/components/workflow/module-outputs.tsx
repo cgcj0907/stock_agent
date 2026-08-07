@@ -120,6 +120,79 @@ function ToneBadge({ text, tone, icon: Icon }: { text: unknown; tone: string; ic
   );
 }
 
+/** 枚举值 → 中文展示（规则/LLM 输出为英文枚举，展示统一转中文）。 */
+function labelOf(map: Record<string, string>, v: unknown): string {
+  const k = str(v);
+  return map[k] ?? k;
+}
+
+const SEVERITY_LABEL: Record<string, string> = {
+  info: "提示",
+  low: "低",
+  medium: "中",
+  warn: "警告",
+  high: "高",
+  critical: "严重",
+};
+
+const CONFIDENCE_LABEL: Record<string, string> = {
+  high: "高",
+  medium: "中",
+  low: "低",
+};
+
+const WIDTH_SOURCE_LABEL: Record<string, string> = {
+  rule_proxy: "规则代理",
+  llm: "LLM 定性",
+  degraded: "降级",
+};
+
+const CAP_ALLOC_LABEL: Record<string, string> = {
+  good: "优秀",
+  neutral: "中性",
+  poor: "较差",
+};
+
+const MODULE_SHORT: Record<string, string> = {
+  M1_business_model: "M1 商业模式",
+  M2_financial_quality: "M2 财务质量",
+  M3_growth: "M3 成长景气",
+  M4_valuation: "M4 估值",
+  M5_moat: "M5 护城河",
+  M6_governance: "M6 治理",
+  M7_market: "M7 市场",
+  M8_safety_margin: "M8 安全边际",
+  M9_risk: "M9 风险",
+  M10_decision: "M10 决策",
+  M11_monitor: "M11 监控",
+};
+
+const TRIGGER_WORDS: Array<[RegExp, string]> = [
+  [/expensive/g, "安全边际为负"],
+  [/attractive/g, "安全边际充足"],
+  [/\bfair\b/g, "边际一般"],
+  [/unavailable/g, "数据不足"],
+  [/\bavoid\b/g, "回避"],
+  [/\bbuy\b/g, "买入"],
+  [/\bwatch\b/g, "观察"],
+  [/\balert\b/g, "提醒"],
+  [/\baction\b/g, "执行"],
+  [/\bnarrow\b/g, "窄"],
+  [/\bwide\b/g, "宽"],
+  [/\berosion_risk\b/g, "护城河侵蚀"],
+];
+
+/** 监控/风险触发条件里的英文枚举转中文（展示层，不改后端规则）。 */
+function translateEnumText(s: string): string {
+  let out = s;
+  for (const [re, zh] of TRIGGER_WORDS) out = out.replace(re, zh);
+  return out;
+}
+
+export function moduleShort(id: string): string {
+  return MODULE_SHORT[id] ?? id;
+}
+
 function Section({
   icon: Icon,
   title,
@@ -227,22 +300,65 @@ function KVGrid({ items, cols = 2 }: { items: Array<[string, unknown]>; cols?: 1
   );
 }
 
+function isReference(v: unknown): v is Record<string, unknown> {
+  return isObj(v) && (str(v.title) !== "" || str(v.url) !== "");
+}
+
+/** 参考文章条目：标题可点击跳转真实来源，附带日期/来源/摘要。 */
+function ReferenceLink({ item }: { item: Record<string, unknown> }) {
+  const url = str(item.url);
+  const title = str(item.title) || url || "参考文章";
+  const meta = str(item.meta);
+  const date = str(item.date);
+  const snippet = str(item.snippet);
+  const metaLine = [date, meta].filter(Boolean).join(" · ");
+  return (
+    <li className="flex flex-col gap-0.5">
+      {url ? (
+        <a
+          href={url}
+          target="_blank"
+          rel="noreferrer"
+          className="break-words text-xs leading-5 font-medium text-emerald-700 hover:underline dark:text-emerald-400"
+        >
+          {title}
+        </a>
+      ) : (
+        <span className="break-words text-xs leading-5 font-medium text-foreground/85">{title}</span>
+      )}
+      {metaLine && <span className="text-[10px] leading-4 text-muted-foreground">{metaLine}</span>}
+      {snippet && <span className="text-[11px] leading-4 text-muted-foreground/80">{snippet}</span>}
+    </li>
+  );
+}
+
 function BulletList({ items }: { items: unknown[] }) {
   if (items.length === 0) return null;
   return (
     <ul className="flex flex-col gap-1">
-      {items.map((it, i) => (
-        <li key={i} className="flex items-start gap-1.5 text-xs leading-5 text-foreground/80">
-          <span className="mt-[5px] size-1 shrink-0 rounded-full bg-muted-foreground/50" />
-          <span className="min-w-0 break-words">{fmt(it)}</span>
-        </li>
-      ))}
+      {items.map((it, i) =>
+        isReference(it) ? (
+          <ReferenceLink key={i} item={it} />
+        ) : (
+          <li key={i} className="flex items-start gap-1.5 text-xs leading-5 text-foreground/80">
+            <span className="mt-[5px] size-1 shrink-0 rounded-full bg-muted-foreground/50" />
+            <span className="min-w-0 break-words">{fmt(it)}</span>
+          </li>
+        ),
+      )}
     </ul>
   );
 }
 
-function QualBlock({ qual }: { qual: Record<string, unknown> }) {
-  const entries = Object.entries(qual).filter(([, v]) => {
+function QualBlock({
+  qual,
+  excludeKeys = [],
+}: {
+  qual: Record<string, unknown>;
+  excludeKeys?: string[];
+}) {
+  const entries = Object.entries(qual).filter(([k, v]) => {
+    if (excludeKeys.includes(k)) return false;
     if (Array.isArray(v)) return v.length > 0;
     if (isObj(v)) return Object.keys(v).length > 0;
     return v !== null && v !== undefined && v !== "";
@@ -320,7 +436,7 @@ function M2Outputs({ outputs }: { outputs: Record<string, unknown> }) {
           <ul className="flex flex-col gap-1.5">
             {signals.map((sig, i) => (
               <li key={i} className="flex items-start gap-2 text-xs leading-5">
-                <ToneBadge text={sig.severity ?? "warn"} tone={toneOf(SEVERITY_TONE, sig.severity)} />
+                <ToneBadge text={labelOf(SEVERITY_LABEL, sig.severity ?? "warn")} tone={toneOf(SEVERITY_TONE, sig.severity)} />
                 <span className="min-w-0 flex-1 break-words text-foreground/80">
                   {fmt(sig.message ?? sig.desc ?? sig)}
                 </span>
@@ -348,7 +464,7 @@ function M3Outputs({ outputs }: { outputs: Record<string, unknown> }) {
       <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
         <Metric label="增速估计" value={fmtPct(outputs.growth_estimate)} tone="good" />
         <Metric label="景气度" value={fmt(outputs.prosperity)} />
-        <Metric label="增长信心" value={fmt(handoff.growth_confidence)} />
+        <Metric label="增长信心" value={labelOf(CONFIDENCE_LABEL, handoff.growth_confidence)} />
         <Metric
           label="周期属性"
           value={handoff.cyclicality_flag === true ? "周期行业" : handoff.cyclicality_flag === false ? "非周期" : "—"}
@@ -370,7 +486,7 @@ function M5Outputs({ outputs }: { outputs: Record<string, unknown> }) {
   const signals = arr(outputs.signals);
   const qual = isObj(outputs.llm_qualitative) ? outputs.llm_qualitative : null;
   const qualList = qual ? (
-    <QualBlock qual={qual} />
+    <QualBlock qual={qual} excludeKeys={["width"]} />
   ) : typeof outputs.llm_qualitative === "string" ? (
     <p className="break-words whitespace-pre-wrap text-xs leading-5 text-foreground/80">{outputs.llm_qualitative}</p>
   ) : null;
@@ -379,7 +495,7 @@ function M5Outputs({ outputs }: { outputs: Record<string, unknown> }) {
       <div className="flex flex-wrap items-center gap-2">
         <ToneBadge text={outputs.width ?? "—"} tone={toneOf(WIDTH_TONE, outputs.width)} icon={Castle} />
         <span className="text-[10px] text-muted-foreground">
-          来源：{fmt(outputs.width_source)}
+          来源：{labelOf(WIDTH_SOURCE_LABEL, outputs.width_source)}
           {outputs.width_conflict === true && " · 规则/LLM 冲突"}
         </span>
       </div>
@@ -413,13 +529,26 @@ function M6Outputs({ outputs }: { outputs: Record<string, unknown> }) {
   const handoff = isObj(outputs.handoff) ? outputs.handoff : {};
   const signals = riskRowValue(arr(outputs.signals));
   const qual = isObj(outputs.llm_qualitative) ? outputs.llm_qualitative : null;
+  const dividendYield = typeof outputs.dividend_yield === "number" ? outputs.dividend_yield : null;
   return (
     <div className="flex flex-col gap-3">
       <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
         <Metric label="治理评分" value={fmt(handoff.governance_score)} />
-        <Metric label="资本配置" value={fmt(handoff.capital_allocation_flag)} />
+        <Metric label="资本配置" value={labelOf(CAP_ALLOC_LABEL, handoff.capital_allocation_flag)} />
         <Metric label="连续分红年数" value={fmt(outputs.dividend_years)} />
-        <Metric label="最新分红率" value={fmtPct(outputs.payout_latest)} />
+        <Metric label="每股派息" value={outputs.payout_latest != null ? `${fmt(outputs.payout_latest)} 元` : "—"} />
+        <Metric
+          label="股息率"
+          value={dividendYield != null ? `${(dividendYield * 100).toFixed(1)}%` : "—"}
+          tone={
+            dividendYield != null && dividendYield >= 0.04
+              ? "good"
+              : dividendYield != null && dividendYield < 0.02
+                ? "warn"
+                : "default"
+          }
+          title="TTM 每股派息 ÷ 现价"
+        />
       </div>
       {str(outputs.note) && str(outputs.note) !== "—" && (
         <p className="text-xs leading-5 text-muted-foreground">{fmt(outputs.note)}</p>
@@ -429,7 +558,7 @@ function M6Outputs({ outputs }: { outputs: Record<string, unknown> }) {
           <ul className="flex flex-col gap-1.5">
             {signals.map((sig, i) => (
               <li key={i} className="flex items-start gap-2 text-xs leading-5">
-                <ToneBadge text={sig.severity ?? "warn"} tone={toneOf(SEVERITY_TONE, sig.severity)} />
+                <ToneBadge text={labelOf(SEVERITY_LABEL, sig.severity ?? "warn")} tone={toneOf(SEVERITY_TONE, sig.severity)} />
                 <span className="min-w-0 flex-1 break-words text-foreground/80">{fmt(sig.message ?? sig.desc ?? sig)}</span>
               </li>
             ))}
@@ -491,7 +620,7 @@ function M8Outputs({ outputs }: { outputs: Record<string, unknown> }) {
           icon={Scale}
         />
         {mos && (
-          <span className="font-mono text-[10px] text-muted-foreground">{mos}</span>
+          <span className="text-[10px] text-muted-foreground">{MOS_LABEL[mos] ?? mos}</span>
         )}
         {outputs.sell_reference === true && (
           <ToneBadge text="卖出参考" tone={toneOf(SEVERITY_TONE, "warn")} icon={HandCoins} />
@@ -578,8 +707,8 @@ function M9Outputs({ outputs }: { outputs: Record<string, unknown> }) {
                 <div className="flex flex-wrap items-center gap-1.5">
                   <span className="font-mono text-[10px] font-semibold text-muted-foreground">{fmt(it.id)}</span>
                   <ToneBadge text={it.category} tone={toneOf(SEVERITY_TONE, "warn")} />
-                  <ToneBadge text={it.severity} tone={toneOf(SEVERITY_TONE, it.severity)} />
-                  <span className="text-[10px] text-muted-foreground">{fmt(it.source_module)}</span>
+                  <ToneBadge text={labelOf(SEVERITY_LABEL, it.severity)} tone={toneOf(SEVERITY_TONE, it.severity)} />
+                  <span className="text-[10px] text-muted-foreground">{labelOf(MODULE_SHORT, it.source_module)}</span>
                 </div>
                 <p className="mt-1 break-words text-xs leading-5 text-foreground/80">{fmt(it.impact)}</p>
                 {str(it.mitigation) && (
@@ -587,7 +716,7 @@ function M9Outputs({ outputs }: { outputs: Record<string, unknown> }) {
                 )}
                 {it.expected_loss != null && (
                   <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
-                    期望损失 {fmt(it.expected_loss)} · 触发 {fmt(it.trigger)}
+                    期望损失 {fmt(it.expected_loss)} · 触发 {translateEnumText(fmt(it.trigger))}
                     {it.veto_candidate === true && " · 否决候选"}
                   </p>
                 )}
@@ -651,7 +780,7 @@ function M9Outputs({ outputs }: { outputs: Record<string, unknown> }) {
                   {paths.map((p, i) => (
                     <li key={i} className="rounded-lg border border-border/60 bg-muted/20 px-2.5 py-1.5">
                       <div className="flex items-center gap-1.5">
-                        <ToneBadge text={p.confidence} tone={toneOf(SEVERITY_TONE, p.confidence)} />
+                        <ToneBadge text={labelOf(CONFIDENCE_LABEL, p.confidence)} tone={toneOf(SEVERITY_TONE, p.confidence)} />
                         {p.veto_candidate === true && (
                           <ToneBadge text="否决候选" tone={toneOf(SEVERITY_TONE, "critical")} />
                         )}
@@ -795,13 +924,13 @@ function M11Outputs({ outputs }: { outputs: Record<string, unknown> }) {
                     text={RULE_TYPE_LABEL[str(r.rule_type)] ?? str(r.rule_type)}
                     tone={toneOf(SEVERITY_TONE, r.severity)}
                   />
-                  <ToneBadge text={r.severity} tone={toneOf(SEVERITY_TONE, r.severity)} />
-                  <span className="text-[10px] text-muted-foreground">{fmt(r.source_module)}</span>
+                  <ToneBadge text={labelOf(SEVERITY_LABEL, r.severity)} tone={toneOf(SEVERITY_TONE, r.severity)} />
+                  <span className="text-[10px] text-muted-foreground">{labelOf(MODULE_SHORT, r.source_module)}</span>
                   <span className="ml-auto rounded bg-muted px-1.5 py-0.5 text-[10px] text-foreground/70">
                     {ACTION_LABEL[str(r.action)] ?? str(r.action)}
                   </span>
                 </div>
-                <p className="mt-1 font-mono text-[11px] font-medium text-foreground/85">{fmt(r.trigger)}</p>
+                <p className="mt-1 font-mono text-[11px] font-medium text-foreground/85">{translateEnumText(fmt(r.trigger))}</p>
                 {str(r.message || r.description) && (
                   <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">{fmt(r.message || r.description)}</p>
                 )}

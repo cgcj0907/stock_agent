@@ -128,6 +128,7 @@ class M6GovernanceAgent(Agent):
                 outputs={
                     "dividend_years": 0,
                     "payout_latest": None,
+                    "dividend_yield": None,
                     "note": "分红数据不可用",
                     "signals": [],
                     "handoff": {
@@ -146,8 +147,18 @@ class M6GovernanceAgent(Agent):
         except Exception as exc:  # noqa: BLE001
             logger.warning("M6 治理事件获取失败（%s），按无事件处理", type(exc).__name__)
 
+        # 股息率：现价 best-effort（M6 不依赖 M4，直接从行情取最新收盘价）
+        price = None
         try:
-            result = assess_governance(div, events=events)
+            dp = ctx.data.daily_prices(code).get("records", [])
+            if dp:
+                latest = max(dp, key=lambda r: str(r.get("trade_date") or ""))
+                price = latest.get("close")
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("M6 现价获取失败（%s），股息率按缺省处理", type(exc).__name__)
+
+        try:
+            result = assess_governance(div, events=events, price=price)
         except Exception as exc:  # noqa: BLE001
             return degraded_module_result(
                 self.spec.id,
@@ -155,6 +166,7 @@ class M6GovernanceAgent(Agent):
                 outputs={
                     "dividend_years": 0,
                     "payout_latest": None,
+                    "dividend_yield": None,
                     "note": "治理规则引擎不可用",
                     "signals": [],
                     "handoff": {
@@ -238,7 +250,7 @@ class M6GovernanceAgent(Agent):
             ctx, self.spec.id,
             facts={
                 "连续分红年数": result.dividend_years,
-                "最新分红率": result.payout_latest,
+                "每股派息": result.payout_latest,
                 "治理说明": result.note,
                 "治理风险信号": len(handoff["governance_risk_codes"]),
             },
@@ -250,6 +262,7 @@ class M6GovernanceAgent(Agent):
         outputs: dict = {
             "dividend_years": result.dividend_years,
             "payout_latest": result.payout_latest,
+            "dividend_yield": result.dividend_yield,
             "note": result.note,
             "signals": _risk_signals(handoff["governance_risk_codes"]),
             "handoff": handoff,

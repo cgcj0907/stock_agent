@@ -119,6 +119,29 @@ def test_governance_increasing_payouts_scores_higher():
     assert "递增" in r.note
 
 
+def test_governance_dividend_yield_ttm_over_price():
+    """股息率 = 最近 12 个月每股派息合计 ÷ 现价（含中报+年报），并写入 evidence。"""
+    import datetime
+
+    y = datetime.date.today().year
+    recs = [
+        {"period": f"{y}0630", "cash_div_tax": 0.5},
+        {"period": f"{y}0315", "cash_div_tax": 0.3},
+        {"period": f"{y-2}1231", "cash_div_tax": 0.8},
+    ]
+    r = assess_governance({"records": recs}, price=27.75)
+    assert r.dividend_yield == round(0.8 / 27.75, 4)
+    assert any("股息率" in e for e in r.evidence)
+
+
+def test_governance_dividend_yield_none_without_price():
+    """未给现价时股息率置 None（不阻断正常评估）。"""
+    r = assess_governance({"records": [
+        {"period": "20251231", "cash_div_tax": 0.79},
+    ]})
+    assert r.dividend_yield is None
+
+
 def test_governance_rule_events_lower_score_and_emit_risk_codes():
     """规则层非分红证据：监管处罚/质押/减持等治理事件扣分，并映射结构化风险码（M9 消费）。"""
     div = {"records": [

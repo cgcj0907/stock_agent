@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/card";
 import { AgentIcon } from "@/components/agent-icon";
 import { LlmResultView } from "@/components/workflow/llm-result-view";
-import { ModuleOutputs, MODULE_OUTPUT_COMPONENTS } from "@/components/workflow/module-outputs";
+import { ModuleOutputs, MODULE_OUTPUT_COMPONENTS, moduleShort } from "@/components/workflow/module-outputs";
 import {
   isMarkdownText,
   MarkdownValue,
@@ -170,7 +170,7 @@ export function ResultCard({
           <div>
             <div className="flex items-center gap-2">
               <span className="text-sm font-semibold">
-                {agent?.name ?? result.module}
+                {agent?.name ?? moduleShort(result.module)}
               </span>
               {agent && (
                 <Badge variant="secondary" className="rounded-md px-1.5 text-[10px]">
@@ -179,7 +179,7 @@ export function ResultCard({
               )}
             </div>
             <span className="font-mono text-[10px] text-muted-foreground">
-              {result.module}
+              {moduleShort(result.module)}
             </span>
           </div>
         </div>

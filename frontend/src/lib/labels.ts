@@ -98,7 +98,8 @@ export const FIELD_LABELS: Record<string, string> = {
   trend: "趋势",
   // M6 治理
   dividend_years: "连续分红年数",
-  payout_latest: "最新分红率",
+  payout_latest: "每股派息",
+  dividend_yield: "股息率",
   // M7 市场
   pe_percentile: "PE 分位",
   pb_percentile: "PB 分位",
