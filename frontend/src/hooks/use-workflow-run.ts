@@ -65,6 +65,9 @@ export function useWorkflowRun(
     const code = companyCode.trim();
     if (!code || running) return;
 
+    // 落库 conversations 时写入的会话 id（try/catch 里都可能用到，故提升到外层）
+    let conversationId: string | null = null;
+
     setRunning(true);
     setConnected(false);
     setError(null);
@@ -95,7 +98,6 @@ export function useWorkflowRun(
       setSessionId(session.id);
 
       // 落库 conversations + 用户消息（M5 对话记录数据源；表未创建时忽略）
-      let conversationId: string | null = null;
       try {
         const supabase = createClient();
         const {
@@ -168,11 +170,28 @@ export function useWorkflowRun(
       setRunStatus(status === "failed" ? "failed" : "completed");
 
       try {
+        // 对话状态先落库（不依赖 memo 是否生成）——修复「分析完成仍显示进行中」
+        if (conversationId) {
+          const supabase = createClient();
+          const {
+            data: { user },
+          } = await supabase.auth.getUser();
+          if (user) {
+            await supabase
+              .from("conversations")
+              .update({
+                status: status === "failed" ? "failed" : "completed",
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", conversationId);
+          }
+        }
+
+        // 同步消息/memo 到 Supabase（memos 按 conversation 覆盖最新版本；失败不影响状态）
         const memoRes = await api<{ memo?: string }>(
           `/api/sessions/${session.id}/memo`
         );
         if (memoRes.memo) setMemo(memoRes.memo);
-        // 同步消息/memo 到 Supabase（memos 按 conversation 覆盖最新版本）
         if (memoRes.memo && conversationId) {
           const supabase = createClient();
           const {
@@ -211,13 +230,6 @@ export function useWorkflowRun(
                   content: memoRes.memo,
                 });
             }
-            await supabase
-              .from("conversations")
-              .update({
-                status: status === "failed" ? "failed" : "completed",
-                updated_at: new Date().toISOString(),
-              })
-              .eq("id", conversationId);
           }
         }
       } catch {
@@ -226,6 +238,21 @@ export function useWorkflowRun(
     } catch (e) {
       setError((e as Error).message);
       setRunStatus("failed");
+      // 运行失败也把对话状态同步为 failed（尽力而为，避免一直显示进行中）
+      if (conversationId) {
+        try {
+          const supabase = createClient();
+          await supabase
+            .from("conversations")
+            .update({
+              status: "failed",
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", conversationId);
+        } catch {
+          // 忽略
+        }
+      }
     } finally {
       setRunning(false);
     }
