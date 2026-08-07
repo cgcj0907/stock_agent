@@ -141,3 +141,31 @@ def test_sync_write_back_writes_before_return(monkeypatch, tmp_path):
     )
     dm.company_info("600519")
     assert storage.records_before("company", "600519"), "同步模式返回前应已写入"
+
+
+def test_daily_prices_incremental_refresh_only_fetches_new(tmp_path):
+    """缓存命中时增量刷新：只拉最新日期之后的数据、只写新增；一次分析只拉一次。"""
+    db = tmp_path / "inc.db"
+    storage = SqliteMarketStorage(str(db))
+    storage.upsert("daily_price", "600519", [
+        {"code": "600519", "trade_date": "20240101", "open": 10.0, "close": 11.0, "high": 12.0, "low": 9.0, "volume": 100.0},
+    ])
+    calls = {"n": 0}
+
+    class _IncSource(MockDataSource):
+        def daily_prices(self, code, start=None, end=None):
+            calls["n"] += 1
+            return {"records": [
+                {"trade_date": start, "open": 11.0, "close": 12.0, "high": 13.0, "low": 10.0, "volume": 200.0},
+            ]}
+
+    dm = DataManager(
+        source=_IncSource(), market_storage=storage, storage_factory=_storage_factory(db)
+    )
+    d = dm.daily_prices("600519")
+    assert [r["trade_date"] for r in d["records"]] == ["20240101", "20240102"], "旧+新合并"
+    assert calls["n"] == 1, "只拉一次增量（从 20240102 开始）"
+    assert _wait_until(lambda: len(storage.records_before("daily_price", "600519")) == 2), "新增已回写"
+    # 同进程第二次调用命中合并缓存，不再拉取
+    dm.daily_prices("600519")
+    assert calls["n"] == 1

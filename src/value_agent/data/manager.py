@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import datetime
 import logging
 import os
 import threading
@@ -90,6 +91,32 @@ class DataManager:
         from .storage.factory import create_storage
 
         return create_storage(load_settings())
+
+    def _incremental_daily(self, code: str, recs: list[dict], end: str | None) -> list[dict]:
+        """日线增量刷新：只拉存储中最新交易日之后的数据并只写新增，失败回退缓存。
+
+        避免「只缺最新一个月就全量重写 2400 行」；每次分析自动补上最新行情。
+        返回合并后的 records（旧 + 新）。
+        """
+        latest = max((str(r.get("trade_date") or "") for r in recs), default="")
+        if not latest:
+            return recs
+        try:
+            inc_start_d = datetime.date(int(latest[:4]), int(latest[4:6]), int(latest[6:8])) + datetime.timedelta(days=1)
+        except (ValueError, TypeError, IndexError):
+            return recs
+        inc_start = inc_start_d.strftime("%Y%m%d")
+        try:
+            inc = self._fetch(
+                "daily_price", code, f"price:{code}:{inc_start}:{end}",
+                lambda: self._source.daily_prices(code, inc_start, end),
+            )
+            new_recs = [r for r in inc.get("records", []) if str(r.get("trade_date") or "") > latest]
+            if new_recs:
+                return recs + new_recs
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[daily] %s 增量刷新失败，使用缓存：%s", code, exc)
+        return recs
 
     def _stored(self, table: str, code: str):
         """优先读存储；无存储/无数据返回 None。"""
@@ -217,19 +244,28 @@ class DataManager:
         )
 
     def daily_prices(self, code: str, start: str | None = None, end: str | None = None) -> dict:
+        # 进程内缓存合并结果：一次分析只做一次增量刷新
+        merged_key = f"daily:{code}:merged"
+        if merged_key in self._cache:
+            return self._cache[merged_key]
         recs = self._stored("daily_price", code)
         if recs is not None:
-            return self._with_url(
-                {"records": recs, "source": f"storage({self._storage.name})"},
+            # 有缓存时增量刷新（只拉最新之后、只写新增），失败回退缓存
+            recs = self._incremental_daily(code, recs, end)
+            data = self._with_url(
+                {"records": recs, "source": f"storage({self._storage.name})+incremental"},
                 "daily_price", code,
             )
-        return self._with_url(
-            self._fetch(
-                "daily_price", code, f"price:{code}:{start}:{end}",
-                lambda: self._source.daily_prices(code, start, end),
-            ),
-            "daily_price", code,
-        )
+        else:
+            data = self._with_url(
+                self._fetch(
+                    "daily_price", code, f"price:{code}:{start}:{end}",
+                    lambda: self._source.daily_prices(code, start, end),
+                ),
+                "daily_price", code,
+            )
+        self._cache[merged_key] = data
+        return data
 
     def valuation_history(self, code: str) -> dict:
         recs = self._stored("valuation_history", code)
