@@ -92,8 +92,7 @@ def analyze_financial_quality(records: list[dict]) -> FinancialQualityResult:
         "稳定": s_notes,
         "现金流": c_notes,
         "杠杆": h_notes,
-        # 风险信号已作为独立一级字段 signals 返回并在前端高亮展示，
-        # 不再重复塞进摘要，避免「信号：无」之类的冗余。
+        "信号": [sig.message for sig in signals],
     }
     evidence += p_notes + s_notes + c_notes + h_notes
     for sig in signals:

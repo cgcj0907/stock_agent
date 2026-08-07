@@ -1,7 +1,7 @@
 """M7 价格与情绪智能体。"""
 from __future__ import annotations
 
-from value_agent.agents.base import Agent, AgentContext, AgentSpec
+from value_agent.agents.base import Agent, AgentContext, AgentSpec, degraded_module_result
 from value_agent.core.scoring import llm_score
 from value_agent.sessions.models import ModuleResult, ModuleStatus
 
@@ -50,9 +50,25 @@ class M7MarketAgent(Agent):
     def run(self, ctx: AgentContext) -> ModuleResult:
         if ctx.data is None:
             raise RuntimeError("M7 需要数据访问（ctx.data）")
-        val = ctx.data.valuation_history(ctx.session.company_code)
-        risk_free = ctx.assumptions.get("risk_free_rate", 0.04)
-        result = assess_market(val, risk_free=risk_free)
+        try:
+            val = ctx.data.valuation_history(ctx.session.company_code)
+            risk_free = ctx.assumptions.get("risk_free_rate", 0.04)
+            result = assess_market(val, risk_free=risk_free)
+        except Exception as exc:  # noqa: BLE001
+            return degraded_module_result(
+                self.spec.id,
+                f"估值历史获取失败（{type(exc).__name__}：{str(exc)[:60]}），已降级",
+                outputs={
+                    "pe_percentile": None,
+                    "pb_percentile": None,
+                    "position": "样本不足（<10 期）",
+                    "handoff": {
+                        "valuation_percentile": None,
+                        "market_state": "insufficient",
+                        "margin_adjustment": 0.10,
+                    },
+                },
+            )
         score = llm_score(
             ctx, self.spec.id,
             facts={

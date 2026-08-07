@@ -1,10 +1,10 @@
 """M6 治理与资本配置智能体：分红代理评分 + 可选 LLM 定性。"""
 from __future__ import annotations
 
-from value_agent.agents.base import Agent, AgentContext, AgentSpec
+from value_agent.agents.base import Agent, AgentContext, AgentSpec, degraded_module_result
 from value_agent.core.llm import LLM_JSON_RULE, parse_llm_json
 from value_agent.core.scoring import llm_score
-from value_agent.data.references import CompanyReferences
+from value_agent.data.references import CompanyReferences, format_reference_list, select_references
 from value_agent.sessions.models import ModuleResult, ModuleStatus
 
 from .engine import assess_governance
@@ -38,8 +38,24 @@ class M6GovernanceAgent(Agent):
         if ctx.data is None:
             raise RuntimeError("M6 需要数据访问（ctx.data）")
         code = ctx.session.company_code
-        div = ctx.data.dividends(code)
-        result = assess_governance(div)
+        try:
+            div = ctx.data.dividends(code)
+            result = assess_governance(div)
+        except Exception as exc:  # noqa: BLE001
+            return degraded_module_result(
+                self.spec.id,
+                f"分红数据获取失败（{type(exc).__name__}：{str(exc)[:60]}），已降级",
+                outputs={
+                    "dividend_years": 0,
+                    "payout_latest": None,
+                    "note": "分红数据不可用",
+                    "handoff": {
+                        "governance_score": 0,
+                        "capital_allocation_flag": "neutral",
+                        "governance_risk_codes": [],
+                    },
+                },
+            )
 
         outputs = {
             "dividend_years": result.dividend_years,
@@ -56,23 +72,30 @@ class M6GovernanceAgent(Agent):
 
         if ctx.llm is not None:
             try:
-                text = ctx.stream_llm(
-                    _LLM_SYSTEM,
-                    f"公司：{ctx.session.company_name or code}，分红信号：{result.note}。\n"
+                refs = CompanyReferences().fetch(code, slot=2)  # 先抓真实链接供 LLM 筛选
+                user_prompt = f"公司：{ctx.session.company_name or code}，分红信号：{result.note}。\n"
+                ref_block = format_reference_list(refs)
+                if ref_block:
+                    user_prompt += ref_block + "\n"
+                user_prompt += (
                     "请按以下结构输出 JSON：\n"
                     '{"governance_assessment": "治理评估", '
                     '"capital_allocation": "资本配置评估", '
                     '"risks": ["风险1", "风险2"], '
-                    '"conclusion": "一句话结论"}\n'
-                    "参考文章链接由系统自动附上巨潮/东方财富的真实来源，你无需输出 references。",
+                    '"conclusion": "一句话结论", '
+                    '"reference_indices": [筛选出的参考文章编号(1基)]}\n'
+                    "reference_indices：从参考资料清单中筛选与「治理/资本配置判断」最相关的文章编号"
+                    "（1 基），没有就输出空数组；不得编造标题或链接。"
                 )
+                text = ctx.stream_llm(_LLM_SYSTEM, user_prompt)
                 parsed = parse_llm_json(text)
                 if parsed is not None:
-                    real_refs = CompanyReferences().fetch(code)
-                    if real_refs:
-                        parsed["references"] = real_refs
+                    selected = select_references(refs, parsed.get("reference_indices"))
+                    if selected:
+                        parsed["references"] = selected
                     else:
                         parsed.pop("references", None)
+                    parsed.pop("reference_indices", None)
                     outputs["llm_qualitative"] = parsed
                     evidence.append("LLM 定性：已接入（结构化 JSON）")
                 else:

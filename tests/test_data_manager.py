@@ -85,3 +85,47 @@ def test_write_back_failure_does_not_break_read(tmp_path):
     )
     info = dm.company_info("600519")
     assert info["name"]  # 回写失败也不影响本次返回
+
+
+class _FlakySource(MockDataSource):
+    """前 N 次调用抛瞬时断连，之后恢复正常（模拟 AkShare 网络抖动）。"""
+
+    def __init__(self, fails: int = 2) -> None:
+        super().__init__()
+        self.fails = fails
+        self.calls = 0
+
+    def financials(self, code: str, years: int = 10) -> dict:
+        self.calls += 1
+        if self.calls <= self.fails:
+            raise ConnectionError("RemoteDisconnected")
+        return super().financials(code, years)
+
+
+def test_transient_source_failure_retries(tmp_path):
+    """实时源瞬时断连应自动重试，成功后再正常返回并后台回写。"""
+    db = tmp_path / "retry.db"
+    storage = SqliteMarketStorage(str(db))
+    source = _FlakySource(fails=2)
+    dm = DataManager(
+        source=source, market_storage=storage, storage_factory=_storage_factory(db)
+    )
+    fin = dm.financials("600519")
+    assert len(fin["records"]) == 10
+    assert source.calls == 3  # 2 次失败 + 1 次成功
+    assert _wait_until(lambda: len(storage.records_before("financials", "600519")) == 10)
+
+
+def test_persistent_source_failure_raises(tmp_path):
+    """持续失败时重试耗尽仍向上抛异常（由模块降级处理，不静默返回空）。"""
+    db = tmp_path / "fail.db"
+    storage = SqliteMarketStorage(str(db))
+    source = _FlakySource(fails=999)
+    dm = DataManager(
+        source=source, market_storage=storage, storage_factory=_storage_factory(db)
+    )
+    import pytest
+
+    with pytest.raises(ConnectionError):
+        dm.financials("600519")
+    assert source.calls == 3  # 重试 3 次后放弃

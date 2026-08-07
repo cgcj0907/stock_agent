@@ -1,7 +1,7 @@
 """M3 成长与再投资智能体。"""
 from __future__ import annotations
 
-from value_agent.agents.base import Agent, AgentContext, AgentSpec
+from value_agent.agents.base import Agent, AgentContext, AgentSpec, degraded_module_result
 from value_agent.core.scoring import llm_score
 from value_agent.sessions.models import ModuleResult, ModuleStatus
 
@@ -20,8 +20,24 @@ class M3GrowthAgent(Agent):
     def run(self, ctx: AgentContext) -> ModuleResult:
         if ctx.data is None:
             raise RuntimeError("M3 需要数据访问（ctx.data）")
-        fin = ctx.data.financials(ctx.session.company_code)
-        result = assess_growth(fin, default_growth=ctx.assumptions.get("growth_rate", 0.10))
+        try:
+            fin = ctx.data.financials(ctx.session.company_code)
+            result = assess_growth(fin, default_growth=ctx.assumptions.get("growth_rate", 0.10))
+        except Exception as exc:  # noqa: BLE001
+            return degraded_module_result(
+                self.spec.id,
+                f"财务数据获取失败（{type(exc).__name__}：{str(exc)[:60]}），已降级",
+                outputs={
+                    "growth_estimate": None,
+                    "prosperity": "未知",
+                    "handoff": {
+                        "recommended_growth_rate": None,
+                        "growth_confidence": "low",
+                        "cyclicality_flag": False,
+                        "prosperity_code": "flat",
+                    },
+                },
+            )
         score = llm_score(
             ctx, self.spec.id,
             facts={

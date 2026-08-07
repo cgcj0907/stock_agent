@@ -21,8 +21,8 @@ from value_agent.core.config import load_settings
 from value_agent.core.llm import get_llm
 from value_agent.data.manager import DataManager, _default_source
 from value_agent.data.pipelines.ingest import daily_update, ingest_company
-from value_agent.monitor.runner import notify_webhooks, run_daily_monitor
 from value_agent.data.storage.factory import create_storage
+from value_agent.monitor.runner import notify_webhooks, run_daily_monitor
 from value_agent.report.memo import build_memo
 from value_agent.sessions import InMemoryStore, SessionManager, SqliteStore
 from value_agent.workflow import WorkflowEngine, default_workflow
@@ -153,7 +153,7 @@ def cmd_analyze(args: argparse.Namespace) -> int:
 
 def cmd_sessions(args: argparse.Namespace) -> int:
     manager, _ = _engine(args.store)
-    for s in manager._store.list():  # noqa: SLF001
+    for s in manager._store.list():
         print(f"{s.id}  {s.company_code} {s.company_name:<8} {s.status.value}  {s.workflow_id}")
     return 0
 
@@ -201,6 +201,12 @@ def cmd_data(args: argparse.Namespace) -> int:
             print(f"[data] 每日增量更新 {len(codes)} 家公司 ...")
             stats = daily_update(storage, source, codes, lookback_days=args.days)
             print(f"[data] 完成：行情 +{stats['daily_price']} / 估值 +{stats['valuation_history']} / 跳过 {stats['skipped']}")
+        elif args.action == "fetch":
+            if not args.code:
+                raise SystemExit("[data] fetch 需要股票代码，如：value-agent data fetch 600519")
+            print(f"[data] 全量预取 {args.code} → {storage.name} ...")
+            n = ingest_company(storage, source, args.code)
+            print(f"[data] {args.code} 写入 {n} 条")
         elif args.action == "status":
             print(f"[data] 存储统计: {storage.stats()}")
         elif args.action == "validate":
@@ -286,11 +292,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_workflows)
 
     p = sub.add_parser("data", help="数据初始化/更新/状态/连通性自检")
-    p.add_argument("action", choices=["init", "update", "status", "ping", "ddl", "validate", "snapshot", "sync"])
+    p.add_argument("action", choices=["init", "update", "status", "ping", "ddl", "validate", "snapshot", "sync", "fetch"])
     p.add_argument("--backend", choices=["sqlite", "postgres", "supabase"], default=None,
                    help="存储后端（默认按 config/settings.yaml）")
     p.add_argument("--days", type=int, default=10, help="增量更新回看天数")
-    p.add_argument("code", nargs="?", help="snapshot 用：股票代码")
+    p.add_argument("code", nargs="?", help="snapshot/fetch 用：股票代码")
     p.add_argument("--as-of", default=None, help="snapshot 用：快照时点 YYYYMMDD（point-in-time）")
     p.add_argument("--from-db", default=None, help="sync 用：本地 sqlite 库路径（默认 data/market.db）")
     p.set_defaults(func=cmd_data)

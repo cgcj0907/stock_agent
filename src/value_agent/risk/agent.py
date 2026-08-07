@@ -4,7 +4,7 @@ from __future__ import annotations
 from value_agent.agents.base import Agent, AgentContext, AgentSpec
 from value_agent.core.llm import LLM_JSON_RULE, parse_llm_json
 from value_agent.core.scoring import llm_score
-from value_agent.data.references import CompanyReferences
+from value_agent.data.references import CompanyReferences, format_reference_list, select_references
 from value_agent.sessions.models import ModuleResult, ModuleStatus
 
 from .engine import assess_risk
@@ -36,23 +36,32 @@ class M9RiskAgent(Agent):
 
         if ctx.llm is not None:
             try:
-                text = ctx.stream_llm(
-                    _LLM_SYSTEM,
+                refs = CompanyReferences().fetch(ctx.session.company_code, slot=3)  # 先抓真实链接供 LLM 筛选
+                user_prompt = (
                     f"公司：{ctx.session.company_name or ctx.session.company_code}；"
                     f"规则风险清单：{result.risk_items}。\n"
+                )
+                ref_block = format_reference_list(refs)
+                if ref_block:
+                    user_prompt += ref_block + "\n"
+                user_prompt += (
                     "请按以下结构输出 JSON：\n"
                     '{"key_assumptions": ["假设1", "假设2", "假设3"], '
                     '"permanent_loss_paths": ["路径1", "路径2"], '
-                    '"verdict": "一句话反方结论"}\n'
-                    "参考文章链接由系统自动附上巨潮/东方财富的真实来源，你无需输出 references。",
+                    '"verdict": "一句话反方结论", '
+                    '"reference_indices": [筛选出的参考文章编号(1基)]}\n'
+                    "reference_indices：从参考资料清单中筛选与「风险/红队批判」最相关的文章编号"
+                    "（1 基），没有就输出空数组；不得编造标题或链接。"
                 )
+                text = ctx.stream_llm(_LLM_SYSTEM, user_prompt)
                 parsed = parse_llm_json(text)
                 if parsed is not None:
-                    real_refs = CompanyReferences().fetch(ctx.session.company_code)
-                    if real_refs:
-                        parsed["references"] = real_refs
+                    selected = select_references(refs, parsed.get("reference_indices"))
+                    if selected:
+                        parsed["references"] = selected
                     else:
                         parsed.pop("references", None)
+                    parsed.pop("reference_indices", None)
                     outputs["llm_red_team"] = parsed
                     evidence.append("LLM 红队：已接入（结构化 JSON）")
                 else:

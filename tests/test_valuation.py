@@ -1,9 +1,15 @@
 """M4 估值引擎单元测试：方法级 + 引擎级（路由/区间/覆盖率）。"""
 import pytest
 
+import value_agent.agents  # noqa: F401  先加载 agents（builtin→valuation 链），避免循环导入
 from value_agent.valuation.engine import run_valuation
 from value_agent.valuation.methods import (
-    dcf, ddm, graham_formula, graham_number, relative_median_pe, tang,
+    dcf,
+    ddm,
+    graham_formula,
+    graham_number,
+    relative_median_pe,
+    tang,
 )
 
 
@@ -51,3 +57,61 @@ def test_cyclical_routing_excludes_dcf_tang():
     assert "dcf" not in r.methods
     assert "tang" not in r.methods
     assert "relative_median_pe" in r.methods
+
+
+# ---------- M4 智能体：数据源细粒度容错 ----------
+def _m4_ctx(data, business_type: str | None = None) -> object:
+    from value_agent.agents.base import AgentContext  # 供下方构造 ctx
+    from value_agent.sessions.models import Session, SessionStatus
+
+    session = Session(id="s1", company_code="600519", status=SessionStatus.CREATED)
+    assumptions = {"business_type": business_type} if business_type else {}
+    return AgentContext(
+        session=session, assumptions=assumptions, inputs={}, data=data, llm=None
+    )
+
+
+def test_m4_partial_data_failure_still_values():
+    """某个数据集失败（如分红）时，M4 仍用其余数据完成估值并标记降级，而不是整模块空白。"""
+    from tests.conftest import StubData
+    from value_agent.valuation.agent import M4ValuationAgent
+
+    class _NoDividend(StubData):
+        def dividends(self, code):
+            raise ConnectionError("RemoteDisconnected")
+
+    res = M4ValuationAgent().run(_m4_ctx(_NoDividend()))
+    assert res.status.value == "done"
+    assert res.outputs["intrinsic_value"] is not None, "部分数据失败也应给出估值"
+    assert any("分红数据获取失败" in e for e in res.evidence)
+    assert res.meta.get("degraded") is True
+
+
+def test_m4_all_data_failure_degrades_with_reasons():
+    """全部数据集失败时，M4 降级为 DONE（空估值），evidence 说明各失败原因。"""
+    from value_agent.valuation.agent import M4ValuationAgent
+
+    class _NoData:
+        def financials(self, code, years=10):
+            raise ConnectionError("x")
+
+        def valuation_history(self, code):
+            raise ConnectionError("x")
+
+        def daily_prices(self, code):
+            raise ConnectionError("x")
+
+        def dividends(self, code):
+            raise ConnectionError("x")
+
+    res = M4ValuationAgent().run(_m4_ctx(_NoData()))
+    assert res.status.value == "done"
+    iv = res.outputs["intrinsic_value"]
+    assert iv is None or iv.get("mid") is None  # 无有效估值
+    assert res.outputs["methods"], "methods 列表仍应存在（applicable=false）"
+    assert all(not m["applicable"] for m in res.outputs["methods"])
+    assert any("财务数据获取失败" in e for e in res.evidence)
+    assert any("估值历史获取失败" in e for e in res.evidence)
+    assert any("日线价格获取失败" in e for e in res.evidence)
+    assert any("分红数据获取失败" in e for e in res.evidence)
+    assert res.meta.get("degraded") is True

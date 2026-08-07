@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable
 
-from value_agent.sessions.models import ModuleResult
+from value_agent.sessions.models import ModuleResult, ModuleStatus
 
 if TYPE_CHECKING:
     from value_agent.sessions.models import Session
@@ -68,6 +68,42 @@ class AgentContext:
             if kind == "content":
                 parts.append(delta)
         return "".join(parts)
+
+
+# 数据源拉取失败时的可操作提示（Render 海外 IP 常被 A 股数据源拦截）
+DATA_SOURCE_HINT = (
+    "提示：数据未命中缓存且当前环境（如 Render 海外 IP）常被 A 股数据源拦截；"
+    "可在本地执行 value-agent data fetch <股票代码> 预取到 Supabase 后重试。"
+)
+
+
+def degraded_module_result(
+    module_id: str,
+    reason: str,
+    outputs: dict | None = None,
+    evidence: list[str] | None = None,
+    score: float = 0.0,
+) -> ModuleResult:
+    """数据源失败时的统一降级结果：DONE + 空/保守 outputs + 明确原因 + meta.degraded。
+
+    避免单个模块因数据源瞬时异常直接 FAILED，连锁阻塞依赖它的下游模块
+    （如 M6 分红失败曾把 M4 堵成「依赖步骤失败」）。
+    """
+    from value_agent.core.contracts import ReasonCode, build_meta
+
+    return ModuleResult(
+        module=module_id,
+        status=ModuleStatus.DONE,
+        score=score,
+        outputs=outputs or {},
+        evidence=[reason] + list(evidence or []) + [DATA_SOURCE_HINT],
+        meta=build_meta(
+            0.0,
+            "low",
+            degraded=True,
+            reason_codes=[ReasonCode.DATA_UNAVAILABLE.value],
+        ),
+    )
 
 
 class Agent(ABC):

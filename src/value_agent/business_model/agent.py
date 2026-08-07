@@ -4,7 +4,7 @@ from __future__ import annotations
 from value_agent.agents.base import Agent, AgentContext, AgentSpec
 from value_agent.core.llm import LLM_JSON_RULE, parse_llm_json
 from value_agent.core.scoring import llm_score
-from value_agent.data.references import CompanyReferences
+from value_agent.data.references import CompanyReferences, format_reference_list, select_references
 from value_agent.sessions.models import ModuleResult, ModuleStatus
 
 from .engine import analyze_business_model, normalize_business_type
@@ -82,21 +82,29 @@ class M1BusinessModelAgent(Agent):
 
         if ctx.llm is not None:  # LLM 定性层（可选）
             try:
-                text = ctx.stream_llm(
-                    _LLM_SYSTEM,
+                refs = CompanyReferences().fetch(code, slot=0)  # 先抓真实链接供 LLM 筛选
+                user_prompt = (
                     f"公司：{info.get('name')}（{code}），行业：{result.industry}，"
                     f"财务摘要：{rule_result.evidence[0]}。\n"
                     f"规则参考类型：{rule_result.business_type}。\n"
+                )
+                ref_block = format_reference_list(refs)
+                if ref_block:
+                    user_prompt += ref_block + "\n"
+                user_prompt += (
                     "请按以下结构输出 JSON：\n"
                     '{"business_type": "consumer_monopoly|growth|cyclical|financial|asset_based|stable_dividend 之一", '
                     '"business_model": "一句话描述其生意本质", '
                     '"understandability": "可理解|基本可理解|难以理解", '
-                    '"reasons": ["判断理由1", "判断理由2"]}\n'
+                    '"reasons": ["判断理由1", "判断理由2"], '
+                    '"reference_indices": [筛选出的参考文章编号(1基)]}\n'
                     "business_type 必须从给定枚举中选择一个，优先依据行业属性、盈利模式、周期性、"
                     "资产特征与财务表现综合判断，不要机械跟随规则参考类型。\n"
                     "reasons 至少覆盖两点：为什么是该类型；为什么不是另一个最相近的类型。\n"
-                    "参考文章链接由系统自动附上巨潮/东方财富的真实来源，你无需输出 references。",
+                    "reference_indices：从参考资料清单中筛选与「商业模式/可理解性判断」最相关的文章编号"
+                    "（1 基），没有相关文章就输出空数组；不得编造标题或链接。"
                 )
+                text = ctx.stream_llm(_LLM_SYSTEM, user_prompt)
                 parsed = parse_llm_json(text)
                 if parsed is not None:
                     llm_business_type = normalize_business_type(parsed.get("business_type"))
@@ -106,11 +114,12 @@ class M1BusinessModelAgent(Agent):
                         evidence.append(f"LLM 主判生意类型：{llm_business_type}")
                     else:
                         evidence.append("LLM 未给出合法 business_type，已回退规则分类")
-                    real_refs = CompanyReferences().fetch(code)
-                    if real_refs:
-                        parsed["references"] = real_refs
+                    selected = select_references(refs, parsed.get("reference_indices"))
+                    if selected:
+                        parsed["references"] = selected
                     else:
                         parsed.pop("references", None)
+                    parsed.pop("reference_indices", None)
                     llm_qualitative = parsed
                     evidence.append("LLM 定性：已接入（结构化 JSON）")
                 else:

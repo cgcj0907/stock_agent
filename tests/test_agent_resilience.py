@@ -49,3 +49,22 @@ def test_m1_degrades_only_when_financials_also_fail():
     assert res.status.value == "done"
     assert res.outputs["business_type"] == "cyclical"  # 保守按周期
     assert "数据获取失败" in res.outputs["business_model"]
+
+
+def test_m6_degrades_on_dividend_failure_not_failed():
+    """分红数据源失败时，M6 应降级为 DONE（带原因 + meta.degraded），而不是 FAILED 连锁阻塞下游。"""
+    from value_agent.governance.agent import M6GovernanceAgent
+
+    class _NoDiv(StubData):
+        def dividends(self, code):
+            raise ConnectionError("RemoteDisconnected")
+
+    session = Session(id="s1", company_code="000333", status=SessionStatus.CREATED)
+    ctx = AgentContext(session=session, assumptions={}, inputs={}, data=_NoDiv(), llm=None)
+    res = M6GovernanceAgent().run(ctx)
+    assert res.status.value == "done"
+    assert res.meta.get("degraded") is True
+    assert any("分红数据获取失败" in e for e in res.evidence)
+    # 降级输出仍满足下游契约（M9/M10 消费）
+    assert res.outputs["handoff"]["governance_score"] == 0
+    assert res.outputs["handoff"]["capital_allocation_flag"] == "neutral"

@@ -1,7 +1,7 @@
 """M2 财务质量智能体：取财报数据 → 规则引擎打分 → 输出 ModuleResult。"""
 from __future__ import annotations
 
-from value_agent.agents.base import Agent, AgentContext, AgentSpec
+from value_agent.agents.base import Agent, AgentContext, AgentSpec, degraded_module_result
 from value_agent.core.scoring import llm_score
 from value_agent.sessions.models import ModuleResult, ModuleStatus
 
@@ -20,8 +20,19 @@ class M2FinancialQualityAgent(Agent):
         if ctx.data is None:
             raise RuntimeError("M2 需要数据访问（ctx.data），请注入 DataManager")
         code = ctx.session.company_code
-        fin = ctx.data.financials(code, years=10)
-        result = analyze_financial_quality(fin["records"])
+        try:
+            fin = ctx.data.financials(code, years=10)
+            result = analyze_financial_quality(fin["records"])
+        except Exception as exc:  # noqa: BLE001
+            return degraded_module_result(
+                self.spec.id,
+                f"财务数据获取失败（{type(exc).__name__}：{str(exc)[:60]}），已降级",
+                outputs={
+                    "metrics": {},
+                    "signals": [],
+                    "summary": {"说明": "财务数据不可用"},
+                },
+            )
         score = llm_score(
             ctx, self.spec.id,
             facts={

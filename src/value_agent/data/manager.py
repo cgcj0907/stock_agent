@@ -106,10 +106,30 @@ class DataManager:
             self._cache[key] = fetcher()
         return self._cache[key]
 
+    def _fetch_with_retry(self, fn, attempts: int = 3, delay: float = 0.5):
+        """实时源瞬时断连/限流时轻量重试（指数退避）；全部失败才向上抛，由调用方降级。
+
+        背景：AkShare 底层东财/新浪接口偶发 SSL 断连、连接被重置，M4 一次拉 4 个数据集，
+        任何一个瞬时失败都会把整个模块降级成空白，重试可显著降低这类空白率。
+        """
+        import time
+
+        last: Exception | None = None
+        for i in range(attempts):
+            try:
+                return fn()
+            except Exception as exc:  # noqa: BLE001
+                last = exc
+                logger.warning(
+                    "实时源拉取失败（第 %d/%d 次）：%s", i + 1, attempts, exc
+                )
+                time.sleep(delay * (i + 1))
+        raise last  # type: ignore[misc]
+
     def _fetch(self, table: str, code: str, key: str, fetcher) -> dict:
         """实时源拉取 + 进程内缓存 + 后台回写存储（只在真正拉取时回写一次）。"""
         if key not in self._cache:
-            data = fetcher()
+            data = self._fetch_with_retry(fetcher)
             self._cache[key] = data
             self._write_back(table, code, data.get("records", []))
         return self._cache[key]
@@ -165,7 +185,10 @@ class DataManager:
         if recs:
             r = recs[0]
             return {k: r.get(k) for k in ("code", "ts_code", "name", "industry", "list_date")}
-        info = self._cached(f"info:{code}", lambda: self._source.company_info(code))
+        info = self._cached(
+            f"info:{code}",
+            lambda: self._fetch_with_retry(lambda: self._source.company_info(code)),
+        )
         self._write_back("company", code, [info])
         return self._with_url(info, "company", code)
 

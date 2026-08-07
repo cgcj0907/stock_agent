@@ -1,7 +1,7 @@
 """M4 估值智能体：取数据 → 估值引擎 → 输出 ModuleResult。"""
 from __future__ import annotations
 
-from value_agent.agents.base import Agent, AgentContext, AgentSpec
+from value_agent.agents.base import DATA_SOURCE_HINT, Agent, AgentContext, AgentSpec
 from value_agent.core.contracts import ReasonCode, build_meta
 from value_agent.core.scoring import llm_score
 from value_agent.sessions.models import ModuleResult, ModuleStatus
@@ -72,13 +72,30 @@ class M4ValuationAgent(Agent):
             )
 
     def _run_impl(self, ctx: AgentContext, code: str) -> ModuleResult:
-        fin = ctx.data.financials(code)
-        val = ctx.data.valuation_history(code)
-        price = ctx.data.daily_prices(code)
-        div = ctx.data.dividends(code)
+        # 4 个数据集各自独立拉取：任何一个失败只影响对应输入，不整模块空白；
+        # 失败原因记入 fetch_notes，随 evidence 展示给用户。
+        datasets: dict[str, dict | None] = {}
+        fetch_notes: list[str] = []
+        for key, label, fn in (
+            ("fin", "财务数据", lambda: ctx.data.financials(code)),
+            ("val", "估值历史", lambda: ctx.data.valuation_history(code)),
+            ("price", "日线价格", lambda: ctx.data.daily_prices(code)),
+            ("div", "分红数据", lambda: ctx.data.dividends(code)),
+        ):
+            try:
+                datasets[key] = fn()
+            except Exception as exc:  # noqa: BLE001
+                datasets[key] = None
+                fetch_notes.append(
+                    f"{label}获取失败（{type(exc).__name__}：{str(exc)[:60]}），该项按缺失处理"
+                )
+
+        fin, val, price, div = (
+            datasets["fin"], datasets["val"], datasets["price"], datasets["div"],
+        )
 
         # 输入抽取：优先最新年报 EPS（季度记录按 period 倒序，避免取到最旧/亏损期）
-        fin_recs = [r for r in fin["records"] if r.get("eps")]
+        fin_recs = [r for r in (fin or {}).get("records", []) if r.get("eps")]
         fin_recs_sorted = sorted(
             fin_recs, key=lambda r: str(r.get("period") or ""), reverse=True
         )
@@ -94,8 +111,8 @@ class M4ValuationAgent(Agent):
             fin_recs_sorted[0]["eps"] if fin_recs_sorted else None
         )
         # 按 trade_date 降序取最新
-        val_recs = sorted(val["records"], key=lambda r: r.get("trade_date") or "", reverse=True)
-        price_recs = sorted(price["records"], key=lambda r: r.get("trade_date") or "", reverse=True)
+        val_recs = sorted((val or {}).get("records", []), key=lambda r: r.get("trade_date") or "", reverse=True)
+        price_recs = sorted((price or {}).get("records", []), key=lambda r: r.get("trade_date") or "", reverse=True)
         close = price_recs[0].get("close") if price_recs else None
         pb = next((r["pb"] for r in val_recs if r.get("pb")), None)
         bvps = close / pb if (close and pb) else None
@@ -103,7 +120,7 @@ class M4ValuationAgent(Agent):
         pe_history = [
             r["pe_ttm"] for r in val_recs if r.get("pe_ttm") and r["pe_ttm"] > 0
         ]
-        dividend = next((r["cash_div_tax"] for r in div["records"] if r.get("cash_div_tax")), None)
+        dividend = next((r["cash_div_tax"] for r in (div or {}).get("records", []) if r.get("cash_div_tax")), None)
 
         # 业务类型：优先 M1 输出，其次 assumptions
         m1 = ctx.inputs.get("M1_business_model")
@@ -134,6 +151,17 @@ class M4ValuationAgent(Agent):
             },
             evidence=result.evidence, default=result.coverage_score,
         )
+        evidence = fetch_notes + result.evidence
+        if fetch_notes:
+            evidence.append(DATA_SOURCE_HINT)
+        meta = {}
+        if fetch_notes:
+            meta = build_meta(
+                result.coverage_score / 100.0,
+                "low",
+                degraded=True,
+                reason_codes=[ReasonCode.DATA_UNAVAILABLE.value],
+            )
         return ModuleResult(
             module=self.spec.id,
             status=ModuleStatus.DONE,
@@ -145,5 +173,6 @@ class M4ValuationAgent(Agent):
                 "current_price": close,
                 "params": result.params,
             },
-            evidence=result.evidence,
+            evidence=evidence,
+            meta=meta,
         )

@@ -119,7 +119,7 @@ def test_m1_uses_llm_score_and_strips_score_from_qualitative(monkeypatch):
 
     monkeypatch.setattr(
         "value_agent.business_model.agent.CompanyReferences.fetch",
-        lambda self, code, limit=5: [],
+        lambda self, code, limit=5, slot=0: [],
     )
     llm = _QueuedLLM([
         '{"business_type": "growth", "business_model": "卖酒", "understandability": "可理解", "reasons": ["r"], "references": []}',
@@ -138,7 +138,7 @@ def test_m1_drops_references_when_tool_empty(monkeypatch):
 
     monkeypatch.setattr(
         "value_agent.business_model.agent.CompanyReferences.fetch",
-        lambda self, code, limit=5: [],
+        lambda self, code, limit=5, slot=0: [],
     )
     llm = _QueuedLLM([
         ('{"business_type": "growth", "business_model": "卖酒", "understandability": "可理解", "reasons": ["r"], '
@@ -158,7 +158,7 @@ def test_m1_references_use_tool_real_links(monkeypatch):
     ]
     monkeypatch.setattr(
         "value_agent.business_model.agent.CompanyReferences.fetch",
-        lambda self, code, limit=5: real_refs,
+        lambda self, code, limit=5, slot=0: real_refs,
     )
     llm = _QueuedLLM([
         ('{"business_type": "growth", "business_model": "卖酒", "understandability": "可理解", "reasons": ["r"], '
@@ -174,7 +174,7 @@ def test_m1_falls_back_to_rule_business_type_when_llm_missing_type(monkeypatch):
 
     monkeypatch.setattr(
         "value_agent.business_model.agent.CompanyReferences.fetch",
-        lambda self, code, limit=5: [],
+        lambda self, code, limit=5, slot=0: [],
     )
     llm = _QueuedLLM([
         '{"business_model": "卖酒", "understandability": "可理解", "reasons": ["r"]}',
@@ -190,7 +190,7 @@ def test_m1_prompt_requires_exclusive_type_judgment(monkeypatch):
 
     monkeypatch.setattr(
         "value_agent.business_model.agent.CompanyReferences.fetch",
-        lambda self, code, limit=5: [],
+        lambda self, code, limit=5, slot=0: [],
     )
     llm = _RecordingQueuedLLM([
         '{"business_type": "growth", "business_model": "卖酒", "understandability": "可理解", "reasons": ["r"]}',
@@ -232,3 +232,31 @@ def test_m10_veto_not_overridden_by_llm():
     assert res.outputs["blocked_by_veto"] is True
     assert res.outputs["decision_code"] == "avoid"
     assert res.outputs["conclusion"] == "回避（触发一票否决）"
+
+
+def test_m1_filters_references_by_llm_indices(monkeypatch):
+    """LLM 通过 reference_indices 筛选对 M1 有用的文章，系统按真实链接还原且不落 reference_indices。"""
+    from value_agent.business_model.agent import M1BusinessModelAgent
+
+    refs = [
+        {"title": "2024年年度报告", "url": "https://www.cninfo.com.cn/a=1"},
+        {"title": "茅台提价新闻", "url": "https://finance.eastmoney.com/a=2"},
+        {"title": "白酒行业研报", "url": "https://pdf.dfcfw.com/pdf/H3.pdf"},
+    ]
+    monkeypatch.setattr(
+        "value_agent.business_model.agent.CompanyReferences.fetch",
+        lambda self, code, limit=5, slot=0: refs,
+    )
+    llm = _RecordingQueuedLLM([
+        ('{"business_type": "growth", "business_model": "卖酒", "understandability": "可理解", '
+         '"reasons": ["r"], "reference_indices": [2, 3]}'),
+        '{"score": 88, "reason": "模式清晰"}',
+    ])
+    res = M1BusinessModelAgent().run(_ctx(llm=llm))
+    # 提示词里应包含参考资料清单
+    user_prompt = llm.calls[0][1]
+    assert "参考资料清单" in user_prompt
+    assert "1. 2024年年度报告" in user_prompt
+    # 过滤结果：只保留 2、3 号真实链接
+    assert [r["title"] for r in res.outputs["references"]] == ["茅台提价新闻", "白酒行业研报"]
+    assert "reference_indices" not in res.outputs
