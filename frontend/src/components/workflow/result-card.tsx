@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/card";
 import { AgentIcon } from "@/components/agent-icon";
 import { LlmResultView } from "@/components/workflow/llm-result-view";
+import { M4Outputs } from "@/components/workflow/m4-outputs";
 import {
   isMarkdownText,
   MarkdownValue,
@@ -188,7 +189,9 @@ export function ResultCard({
           </div>
         )}
 
-        {entries.length > 0 && (
+        {result.module === "M4_valuation" ? (
+          <M4Outputs outputs={result.outputs ?? {}} />
+        ) : entries.length > 0 ? (
           <div className="flex flex-col gap-3">
             {/* 1. 常规短字段：紧凑网格 */}
             {visibleOutputs.filter(([k, v]) => !isFullWidthValue(v, k) && k !== "signals" && k !== "risks" && k !== "risk_items").length > 0 && (
@@ -257,7 +260,7 @@ export function ResultCard({
               </div>
             )}
           </div>
-        )}
+        ) : null}
 
         {result.llm_explanation &&
           (isMarkdownText(result.llm_explanation) ? (
