@@ -91,8 +91,17 @@ def _evaluate_rule(rule: dict, price: float) -> MonitorEvent | None:
     return MonitorEvent(code, name or rule_name, rule_type, message, severity)
 
 
-def run_daily_monitor(sessions: list[Session], source: DataSource) -> list[MonitorEvent]:
-    """对已完成会话，用 M11 监控规则（或旧 M8 回退）评估触发条件。"""
+def run_daily_monitor(
+    sessions: list[Session],
+    source: DataSource,
+    *,
+    quarterly_review: bool = False,
+) -> list[MonitorEvent]:
+    """对已完成会话，用 M11 监控规则（或旧 M8 回退）评估触发条件。
+
+    quarterly_review（9.3 财报季自动复查）：True 时对 warn/critical 级非价格 watch
+    （景气/财务/风险/决策）补发「财报季复查」提醒事件，覆盖日常只展示在 memo 的复查项。
+    """
     events: list[MonitorEvent] = []
     for session in sessions:
         if session.status != SessionStatus.COMPLETED:
@@ -114,6 +123,15 @@ def run_daily_monitor(sessions: list[Session], source: DataSource) -> list[Monit
                 ev = _evaluate_rule(rule, price)
                 if ev is not None:
                     events.append(ev)
+                # 9.3：财报季复查——warn/critical 非价格 watch 生成复查提醒
+                if quarterly_review and rule.get("rule_type") not in _PRICE_RULES:
+                    sev = rule.get("severity", "info")
+                    if sev in ("warn", "critical"):
+                        events.append(MonitorEvent(
+                            session.company_code, name, rule.get("rule_type", "review"),
+                            f"【财报季复查】{rule.get('message') or rule.get('trigger') or ''}",
+                            sev,
+                        ))
         else:
             # 旧会话回退：无 M11 规则时用 M8 buy/sell（历史行为）
             m8 = session.module_results.get("M8_safety_margin")

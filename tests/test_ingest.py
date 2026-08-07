@@ -20,25 +20,27 @@ class _BadFinancialsSource(MockDataSource):
         return out
 
 
-def test_ingest_company_writes_all_six_tables(tmp_path):
+def test_ingest_company_writes_all_eight_tables(tmp_path):
     storage = SqliteMarketStorage(str(tmp_path / "market.db"))
     n = ingest_company(storage, MockDataSource(), "600519")
 
-    assert n == 1 + 10 + 2 + 2 + 2 + 1  # 基本信息1 + 财务10 + 行情2 + 估值2 + 分红2 + 治理事件1（6.1）
+    assert n == 1 + 10 + 2 + 2 + 2 + 1 + 20 + 20  # 基本信息1+财务10+行情2+估值2+分红2+治理1+北向20+两融20
     assert len(storage.records_before("company", "600519")) == 1
     assert len(storage.records_before("financials", "600519")) == 10
     assert len(storage.records_before("daily_price", "600519")) == 2
     assert len(storage.records_before("valuation_history", "600519")) == 2
     assert len(storage.records_before("dividends", "600519")) == 2
     assert len(storage.records_before("governance_events", "600519")) == 1
+    assert len(storage.records_before("northbound", "600519")) == 20
+    assert len(storage.records_before("margin", "600519")) == 20
 
 
 def test_ingest_company_filters_invalid_records(tmp_path):
     storage = SqliteMarketStorage(str(tmp_path / "market.db"))
     n = ingest_company(storage, _BadFinancialsSource(), "600519")
 
-    # 无效财务记录被剔除：财务只写入 10 条有效记录（含治理事件共 18）
-    assert n == 1 + 10 + 2 + 2 + 2 + 1
+    # 无效财务记录被剔除：财务只写入 10 条有效记录（含治理/北向/两融共 58）
+    assert n == 1 + 10 + 2 + 2 + 2 + 1 + 20 + 20
     assert len(storage.records_before("financials", "600519")) == 10
 
 

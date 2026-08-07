@@ -132,7 +132,7 @@ class M4ValuationAgent(Agent):
             except Exception as exc:  # noqa: BLE001
                 datasets[key] = None
                 fetch_notes.append(
-                    f"{label}获取失败（{type(exc).__name__}：{str(exc)[:60]}），该项按缺失处理"
+                    f"{label}获取失败（{type(exc).__name__}：{str(exc)[:160]}），该项按缺失处理"
                 )
 
         fin, val, price, div = (
@@ -159,7 +159,11 @@ class M4ValuationAgent(Agent):
         price_recs = sorted((price or {}).get("records", []), key=lambda r: r.get("trade_date") or "", reverse=True)
         close = price_recs[0].get("close") if price_recs else None
         pb = next((r["pb"] for r in val_recs if r.get("pb")), None)
-        bvps = close / pb if (close and pb) else None
+        # 1.1：优先用财务报表 BVPS（资产负债表明细派生），价格/PB 反推作兜底
+        bvps = annual_rec.get("bvps") if annual_rec else None
+        if bvps is None:
+            bvps = close / pb if (close and pb) else None
+        ncav_ps = annual_rec.get("ncav_ps") if annual_rec else None
         # 仅取正 PE：亏损期 PE 为负，会让中位数失真（相对估值无意义）
         pe_history = [
             r["pe_ttm"] for r in val_recs if r.get("pe_ttm") and r["pe_ttm"] > 0
@@ -228,6 +232,7 @@ class M4ValuationAgent(Agent):
             "eps": eps, "bvps": bvps, "pe_history": pe_history, "dividend": dividend,
             "business_type": business_type, "params": params,
             "ocfps": ocfps, "ocf_to_np": ocf_to_np, "debt_to_assets": debt_to_assets,
+            "ncav_ps": ncav_ps,
             "quality": quality, "m2_signals": m2_signals,
             "m3_cyclicality_flag": m3_cyclicality, "m3_prosperity_code": m3_prosperity,
             "m5_width": m5_width, "m6_score": m6_score,

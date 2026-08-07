@@ -16,6 +16,8 @@ _EVENT_RULES: dict[str, tuple[str, str, str, int]] = {
     "regulatory": ("REGULATORY_PENALTY", "监管处罚/问询", "high", 15),
     "auditor_changes": ("AUDITOR_CHANGE", "审计机构变更", "medium", 10),
     "acquisitions": ("CAPITAL_IMPAIRMENT", "并购回报不佳", "medium", 10),
+    # 6.2：股权集中度（前十大股东合计比例）——极高度集中给低 severity 风险码（信息 + LLM 定性）
+    "control": ("CONTROL_RISK", "股权集中度", "low", 5),
 }
 _EVENT_DEDUCTION_CAP = 40  # 事件扣分封顶，避免单一证据主导评分
 

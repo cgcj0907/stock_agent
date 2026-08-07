@@ -34,6 +34,13 @@ class MockDataSource(DataSource):
                     "ocfps": round(6.0 - i * 0.05, 2),
                     "eps": round(4.5 - i * 0.05, 2),
                     "ocf_to_np": round(1.2 - i * 0.01, 2),
+                    # 1.1/5.2/5.4/1.4 派生字段（mock 提供完整样例）
+                    "bvps": round(30.0 - i * 0.2, 2),
+                    "ncav_ps": round(12.0 - i * 0.1, 2),
+                    "rd_ratio": round(0.06 - i * 0.002, 4),
+                    "interest_debt_ratio": round(0.15 - i * 0.001, 4),
+                    "contract_liability_ratio": round(0.10 + i * 0.001, 4),
+                    "ocf_to_np_parent": round(1.15 - i * 0.01, 4),
                 }
             )
         return {"records": records, "source": self.name}
@@ -72,5 +79,43 @@ class MockDataSource(DataSource):
                 {"kind": "buybacks", "event_date": "20260115", "holder": "",
                  "ratio": None, "description": "回购进展：累计回购 1.2 亿元"},
             ],
+            "source": self.name,
+        }
+
+    def northbound(self, code: str) -> dict:
+        """7.1：北向持股 mock——近 20 个交易日持股比例递增（情绪偏热样例）。"""
+        import datetime
+
+        base = datetime.date(2026, 7, 1)
+        return {
+            "records": [
+                {"trade_date": (base + datetime.timedelta(days=i)).strftime("%Y%m%d"),
+                 "hold_shares": 1_000_000 + i * 20_000,
+                 "hold_ratio": round(0.03 + i * 0.002, 4)}
+                for i in range(1, 21)
+            ],
+            "source": self.name,
+        }
+
+    def margin(self, code: str) -> dict:
+        """7.2：两融余额 mock——近 20 个交易日融资余额递增。"""
+        import datetime
+
+        base = datetime.date(2026, 7, 1)
+        return {
+            "records": [
+                {"trade_date": (base + datetime.timedelta(days=i)).strftime("%Y%m%d"),
+                 "margin_balance": 500_000_000 + i * 5_000_000,
+                 "fin_balance": 480_000_000 + i * 5_000_000, "sec_balance": 20_000_000.0}
+                for i in range(1, 21)
+            ],
+            "source": self.name,
+        }
+
+    def market_activity(self) -> dict:
+        """7.5：大盘情绪 mock——上涨家数占比 0.42（偏冷）。"""
+        return {
+            "records": [{"trade_date": "20260807", "up_count": 2100, "down_count": 2900,
+                         "breadth": 0.42}],
             "source": self.name,
         }

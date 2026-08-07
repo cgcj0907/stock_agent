@@ -55,6 +55,14 @@ def ingest_company(storage: MarketStorage, source: DataSource, code: str, years:
         n += storage.upsert("governance_events", code, (gov or {}).get("records", []) or [])
     except Exception as exc:  # noqa: BLE001
         logger.warning("[ingest] %s governance_events 失败（跳过治理事件）：%s", code, exc)
+    # 7.1/7.2：北向持股 + 两融余额（best-effort，快照入库供 M7 分位）
+    for table, fetcher in (("northbound", lambda: source.northbound(code)),
+                           ("margin", lambda: source.margin(code))):
+        try:
+            if hasattr(source, table):
+                n += storage.upsert(table, code, fetcher().get("records", []) or [])
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[ingest] %s %s 失败（跳过）：%s", code, table, exc)
     logger.info("[ingest] %s 入库 %d 条", code, n)
     return n
 

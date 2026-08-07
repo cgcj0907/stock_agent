@@ -13,6 +13,13 @@ SCHEMA: dict[str, dict] = {
         "columns": [
             "code", "period", "roe", "grossprofit_margin", "netprofit_margin",
             "debt_to_assets", "ocfps", "eps", "ocf_to_np",
+            # 1.1/5.2/5.4/1.4（backlog 第二批）：资产负债表明细派生字段
+            "bvps",            # 每股净资产（NAV 基数）
+            "ncav_ps",         # 每股净流动资产 = (流动资产−总负债)/股本（NCAV 基数）
+            "rd_ratio",        # 研发费用率（研发费用/营业收入）
+            "interest_debt_ratio",    # 有息负债率（短期借款+长期借款+应付债券 / 总资产）
+            "contract_liability_ratio",  # 合同负债/总资产（订单型行业杠杆口径修正）
+            "ocf_to_np_parent",  # 1.4：归母口径 经营现金流净额/归母净利润
         ],
         "pk": ["code", "period"],
     },
@@ -27,6 +34,16 @@ SCHEMA: dict[str, dict] = {
     "dividends": {
         "columns": ["code", "period", "cash_div_tax", "div_proc"],
         "pk": ["code", "period"],
+    },
+    # 7.1（backlog）：北向资金个股持股（免费源 best-effort，未接入时表为空）
+    "northbound": {
+        "columns": ["code", "trade_date", "hold_shares", "hold_ratio"],
+        "pk": ["code", "trade_date"],
+    },
+    # 7.2（backlog）：个股两融余额（沪/深交易所披露，best-effort）
+    "margin": {
+        "columns": ["code", "trade_date", "margin_balance", "fin_balance", "sec_balance"],
+        "pk": ["code", "trade_date"],
     },
     # 6.1（backlog）：治理事件（质押/减持/监管/审计/并购/回购）落库，
     # M6 governance_events 数据源接入后可直接持久化；未接入时表为空不影响评分。
@@ -43,16 +60,22 @@ DATE_COLUMN: dict[str, str] = {
     "valuation_history": "trade_date",
     "dividends": "period",
     "governance_events": "event_date",
+    "northbound": "trade_date",
+    "margin": "trade_date",
 }
 
 # 数值列（DDL 生成时用 DOUBLE PRECISION，其余 TEXT）—— SCHEMA 是唯一事实来源
 NUMERIC_COLUMNS: dict[str, set[str]] = {
     "company": set(),
-    "financials": {"roe", "grossprofit_margin", "netprofit_margin", "debt_to_assets", "ocfps", "eps", "ocf_to_np"},
+    "financials": {"roe", "grossprofit_margin", "netprofit_margin", "debt_to_assets", "ocfps", "eps",
+                   "ocf_to_np", "bvps", "ncav_ps", "rd_ratio", "interest_debt_ratio",
+                   "contract_liability_ratio", "ocf_to_np_parent"},
     "daily_price": {"open", "close", "high", "low", "volume", "turnover"},
     "valuation_history": {"pe", "pe_ttm", "pb", "ps", "dv_ttm", "total_mv"},
     "dividends": {"cash_div_tax"},
     "governance_events": {"ratio"},
+    "northbound": {"hold_shares", "hold_ratio"},
+    "margin": {"margin_balance", "fin_balance", "sec_balance"},
 }
 
 

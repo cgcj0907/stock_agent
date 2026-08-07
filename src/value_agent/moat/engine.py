@@ -149,9 +149,11 @@ def _erosion_signals(
 
 
 def _identify_sources(
-    roe: list[float], gm: list[float], debt: list[float], bench: dict, margin_key: str
+    roe: list[float], gm: list[float], debt: list[float], bench: dict, margin_key: str,
+    rd_ratio: list[float] | None = None,
 ) -> list[SourceSignal]:
-    """五类来源中可计算的代理：高利润率→无形资产/定价权；低杠杆+稳 ROE→成本/规模。"""
+    """五类来源中可计算的代理：高利润率→无形资产/定价权；低杠杆+稳 ROE→成本/规模；
+    5.4：研发费用率 ≥5% → 技术壁垒代理（无形资产来源增强）。"""
     sources: list[SourceSignal] = []
     margin_median = bench.get("margin_median")
     if margin_key and margin_median is not None and gm:
@@ -177,6 +179,13 @@ def _identify_sources(
                 ),
                 strength="strong" if ratio <= 0.6 else "medium",
             ))
+    # 5.4：研发强度 ≥5% → 技术壁垒代理（专利/研发驱动的无形资产来源）
+    if rd_ratio and rd_ratio[0] >= 0.05:
+        sources.append(SourceSignal(
+            source="无形资产",
+            basis=f"研发费用率 {rd_ratio[0]:.1%} ≥ 5%（技术壁垒/研发投入代理）",
+            strength="strong" if rd_ratio[0] >= 0.10 else "medium",
+        ))
     return sources
 
 
@@ -197,7 +206,13 @@ def assess_moat(
     roe = [r["roe"] for r in annual if r.get("roe") is not None]
     gm = [r["grossprofit_margin"] for r in annual if r.get("grossprofit_margin") is not None]
     np = [r["netprofit_margin"] for r in annual if r.get("netprofit_margin") is not None]
-    debt = [r["debt_to_assets"] for r in annual if r.get("debt_to_assets") is not None]
+    # 5.2：有息负债率优先（不含合同负债，杠杆信号更真实）；debt_to_assets 兜底
+    debt = [
+        (r["interest_debt_ratio"] if r.get("interest_debt_ratio") is not None else r["debt_to_assets"])
+        for r in annual if r.get("interest_debt_ratio") is not None or r.get("debt_to_assets") is not None
+    ]
+    rd_ratio = [r["rd_ratio"] for r in annual if r.get("rd_ratio") is not None]
+    contract_ratio = [r["contract_liability_ratio"] for r in annual if r.get("contract_liability_ratio") is not None]
 
     if not recs:
         return MoatResult("无", 0.0, [], [], None, [], [], ["无财务数据"])
@@ -330,7 +345,14 @@ def assess_moat(
 
     debt_note = None
     if debt_compare is not None and bench.get("debt_median") is not None:
-        debt_note = _DEBT_NOTE
+        # 5.2：合同负债占比高 → 明确提示「报表负债率被客户预收抬高，有息口径更真实」
+        if contract_ratio and contract_ratio[0] >= 0.15:
+            debt_note = (
+                f"合同负债占比 {contract_ratio[0]:.0%}，报表负债率含客户预收；"
+                "已用有息负债率参与杠杆对比（订单型行业高负债≠高杠杆风险）"
+            )
+        else:
+            debt_note = _DEBT_NOTE
     peer = PeerContext(
         benchmark=bt, label=bench["label"],
         roe_company=roe_compare, roe_median=bench["roe_median"],
@@ -339,7 +361,7 @@ def assess_moat(
         debt_company=debt_latest, debt_median=bench.get("debt_median"),
         debt_note=debt_note,
     )
-    sources = _identify_sources(roe, gm, debt, bench, margin_key)
+    sources = _identify_sources(roe, gm, debt, bench, margin_key, rd_ratio=rd_ratio or None)
 
     evidence = [
         f"规则层=财务代理评级：{tier}（{score:.0f}/100），基准={bench['label']}（{bt}）",

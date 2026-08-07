@@ -25,6 +25,13 @@ class StubData:
                     "ocfps": 2.0,
                     "eps": 5.0,
                     "ocf_to_np": 1.2,
+                    # 1.1/5.2/5.4 派生字段（NAV/NCAV、有息负债、研发）
+                    "bvps": 30.0,
+                    "ncav_ps": 12.0,
+                    "rd_ratio": 0.06,
+                    "interest_debt_ratio": 0.15,
+                    "contract_liability_ratio": 0.10,
+                    "ocf_to_np_parent": 1.15,
                 }
             )
         return {"records": recs}

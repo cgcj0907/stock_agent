@@ -232,7 +232,7 @@ def cmd_monitor(args: argparse.Namespace) -> int:
     sessions = store.list()
     source = _default_source()
     print(f"[monitor] 数据源: {source.name} | 已完成会话 {sum(1 for s in sessions if s.status.value == 'completed')} 个")
-    events = run_daily_monitor(sessions, source)
+    events = run_daily_monitor(sessions, source, quarterly_review=bool(getattr(args, "quarterly", False)))
     for e in events:
         print(f"[monitor] [{e.severity}] {e.company_name}({e.company_code}) {e.message}")
     # I-2 记忆闭环：命中写回存储（此前只改内存，进程退出即丢，下次分析读不到）
@@ -315,6 +315,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("monitor", help="每日监控")
     p.add_argument("--daily", action="store_true")
+    p.add_argument("--quarterly", action="store_true",
+                   help="9.3：财报季模式——对 warn/critical 非价格 watch 补发复查提醒")
     p.set_defaults(func=cmd_monitor)
 
     p = sub.add_parser("serve", help="启动 FastAPI 服务")

@@ -652,3 +652,39 @@ def test_graham_formula_gated_by_current_pe():
         business_type="consumer_monopoly",
     )
     assert r2.methods["graham_formula"].value is not None
+
+
+# ---------- backlog 1.1：NAV/NCAV 清算价值 ----------
+
+def test_nav_and_ncav_methods():
+    """1.1：NAV = BVPS×变现折扣；NCAV = 每股净流动资产×保守折扣。"""
+    from value_agent.valuation.methods import nav, ncav
+
+    r = nav(30.0)
+    assert r.value == pytest.approx(24.0)  # 30 × 0.8
+    r2 = ncav(12.0)
+    assert r2.value == pytest.approx(9.0)  # 12 × 0.75
+    assert nav(None).value is None
+    assert ncav(-1.0).value is None
+
+
+def test_asset_based_routing_includes_nav_ncav():
+    """1.1：asset_based 路由启用 nav/ncav（且实现已注册）。"""
+    from value_agent.valuation.engine import IMPLEMENTED_METHODS, load_routing
+
+    assert {"nav", "ncav"} <= IMPLEMENTED_METHODS
+    assert {"nav", "ncav"} <= set(load_routing()["asset_based"])
+    assert "nav" in load_routing()["cyclical"]
+
+
+def test_run_valuation_executes_nav_ncav():
+    """1.1：传入 ncav_ps 后 asset_based 输出 nav/ncav 方法值。"""
+    from value_agent.valuation.engine import run_valuation
+
+    r = run_valuation(
+        eps=0.5, bvps=30.0, ncav_ps=12.0, pe_history=[15.0, 14.0, 16.0], dividend=0.0,
+        business_type="asset_based",
+    )
+    assert r.methods["nav"].value == pytest.approx(24.0)
+    assert r.methods["ncav"].value == pytest.approx(9.0)
+    assert r.intrinsic["mid"] is not None

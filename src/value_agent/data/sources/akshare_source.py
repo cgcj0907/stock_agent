@@ -11,9 +11,14 @@ import datetime
 import logging
 
 from .base import DataSource, to_float
-from .urls import source_url
+from .urls import market_prefix, source_url
 
 logger = logging.getLogger(__name__)
+
+
+def _sina_symbol(code: str) -> str:
+    """新浪/腾讯日线接口需要交易所前缀（sh/sz），如 600900 → sh600900。"""
+    return ("sh" if str(code).startswith(("6", "9", "5")) else "sz") + str(code).zfill(6)
 
 
 class AkShareDataSource(DataSource):
@@ -124,53 +129,16 @@ class AkShareDataSource(DataSource):
                     "ocf_to_np": ocf_to_np,
                 }
             )
+        # 1.1/5.2/5.4/1.4：用东财三大报表（资产负债表/利润表/现金流量表）补充派生字段。
+        # best-effort——任一报表失败只缺对应字段，不阻塞基础财务数据。
+        try:
+            _merge_financial_statements(code, records, self._ak)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[financials] %s 三大报表补充失败（%s），仅用新浪基础指标", code, type(exc).__name__)
         return {"records": records, "source": self.name, "url": source_url("financials", code)}
 
     def daily_prices(self, code: str, start: str | None = None, end: str | None = None) -> dict:
         return self._retry("daily_prices", lambda: self._daily_prices(code, start, end))
-
-    def _eastmoney_kline(self, code: str, start: str, end: str):
-        """用 curl_cffi（Chrome TLS 指纹伪装）+ 浏览器请求头直连东财 kline 接口。
-
-        akshare 的 stock_zh_a_hist 用裸 requests（标准 Python TLS 指纹、无 Referer），
-        容易被东财反爬识别并断连（ConnectionError/RemoteDisconnected，尤其云机房 IP）。
-        这里伪装成真实 Chrome 浏览器请求，显著降低被风控概率。
-        """
-        from curl_cffi import requests as cfrequests  # akshare 依赖，已在镜像内
-
-        market = 1 if code.startswith("6") else 0
-        url = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
-        params = {
-            "fields1": "f1,f2,f3,f4,f5,f6",
-            "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f116",
-            "ut": "7eea3edcaed734bea9cbfc24409ed989",
-            "klt": "101",  # daily
-            "fqt": "1",    # 前复权
-            "secid": f"{market}.{code}",
-            "beg": start,
-            "end": end,
-        }
-        headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-            ),
-            "Referer": "https://quote.eastmoney.com/",
-            "Accept": "application/json, text/plain, */*",
-            "Accept-Language": "zh-CN,zh;q=0.9",
-        }
-        resp = cfrequests.get(url, params=params, headers=headers, impersonate="chrome", timeout=15)
-        resp.raise_for_status()
-        data = (resp.json() or {}).get("data") or {}
-        klines = data.get("klines") or []
-        rows = [k.split(",") for k in klines]
-        import pandas as pd
-
-        return pd.DataFrame(
-            rows,
-            columns=["日期", "开盘", "收盘", "最高", "最低", "成交量", "成交额",
-                     "振幅", "涨跌幅", "涨跌额", "换手率"],
-        )
 
     def _daily_prices(self, code: str, start: str | None = None, end: str | None = None) -> dict:
         # 接口需显式日期范围（None 会返回空）
@@ -178,26 +146,65 @@ class AkShareDataSource(DataSource):
             start = (datetime.datetime.now(datetime.UTC).date() - datetime.timedelta(days=365 * 10)).strftime("%Y%m%d")
         if end is None:
             end = datetime.datetime.now(datetime.UTC).date().strftime("%Y%m%d")
-        try:
-            df = self._eastmoney_kline(code, start, end)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("[daily] %s curl_cffi 东财失败，回退 akshare：%s", code, exc)
-            df = self._ak.stock_zh_a_hist(
-                symbol=code, period="daily", start_date=start, end_date=end, adjust="qfq"
-            )
-        records = [
-            {
-                "trade_date": str(r["日期"]).replace("-", ""),
-                "open": to_float(r.get("开盘")),
-                "close": to_float(r.get("收盘")),
-                "high": to_float(r.get("最高")),
-                "low": to_float(r.get("最低")),
-                "volume": to_float(r.get("成交量")),  # 单位：手
-                "turnover": to_float(r.get("换手率")),  # %，M7 情绪指标
-            }
-            for _, r in df.iterrows()
+
+        df, used = self._fetch_daily(code, start, end)
+        if used == "eastmoney":
+            # 东财：成交量单位=手；换手率=百分数（0.44 → 0.44%）
+            records = [
+                {
+                    "trade_date": str(r["日期"]).replace("-", ""),
+                    "open": to_float(r.get("开盘")),
+                    "close": to_float(r.get("收盘")),
+                    "high": to_float(r.get("最高")),
+                    "low": to_float(r.get("最低")),
+                    "volume": to_float(r.get("成交量")),
+                    "turnover": to_float(r.get("换手率")),
+                }
+                for _, r in df.iterrows()
+            ]
+        else:
+            # 新浪/腾讯：date 列；成交量单位=股（→手 ÷100）；换手率=小数（0.0044 → 0.44%）
+            records = [
+                {
+                    "trade_date": str(r["date"]).replace("-", ""),
+                    "open": to_float(r.get("open")),
+                    "close": to_float(r.get("close")),
+                    "high": to_float(r.get("high")),
+                    "low": to_float(r.get("low")),
+                    "volume": to_float(r.get("volume"), 100.0),
+                    "turnover": to_float(r.get("turnover"), 0.01),
+                }
+                for _, r in df.iterrows()
+            ]
+        return {"records": records, "source": f"{self.name}({used})", "url": source_url("daily_price", code)}
+
+    def _fetch_daily(self, code: str, start: str, end: str):
+        """日线多源回退链：东财 akshare → 新浪 → 腾讯（独立主机）。
+
+        东财被反爬断连（RemoteDisconnected，云机房 IP 常见）时，新浪/腾讯是
+        独立主机，显著提高「东财封 IP」场景下的可用性。返回 (df, source_key)。
+        全部失败抛 ConnectionError（带各源失败摘要，便于上层证据/日志诊断）。
+        """
+        errors: list[str] = []
+        symbol = _sina_symbol(code)
+        candidates = [
+            ("eastmoney", lambda: self._ak.stock_zh_a_hist(
+                symbol=code, period="daily", start_date=start, end_date=end, adjust="qfq")),
+            ("sina", lambda: self._ak.stock_zh_a_daily(
+                symbol=symbol, start_date=start, end_date=end, adjust="qfq")),
+            ("tencent", lambda: self._ak.stock_zh_a_hist_tx(
+                symbol=symbol, start_date=start, end_date=end, adjust="qfq")),
         ]
-        return {"records": records, "source": self.name, "url": source_url("daily_price", code)}
+        for name, fn in candidates:
+            try:
+                df = fn()
+                if df is not None and not df.empty:
+                    return df, name
+                errors.append(f"{name}:empty")
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"{name}:{type(exc).__name__}")
+                logger.warning("[daily] %s 回退 %s 失败：%s", code, name, exc)
+        raise ConnectionError("日线全部数据源失败：" + "；".join(errors))
 
     def valuation_history(self, code: str) -> dict:
         return self._retry("valuation_history", lambda: self._valuation_history(code))
@@ -267,8 +274,122 @@ class AkShareDataSource(DataSource):
                 })
         except Exception as exc:  # noqa: BLE001
             logger.warning("[governance] %s 质押数据获取失败（%s），继续尝试其他事件", code, type(exc).__name__)
+        # 6.2：股权集中度（东财十大股东，best-effort）——高度集中给 CONTROL_RISK 风险码
+        try:
+            df10 = self._retry(
+                "top10", lambda: self._ak.stock_gdfx_top_10_em(symbol=code)
+            )
+            if df10 is not None and not df10.empty:
+                ratio_col = next((c for c in ("占总股本比例", "持股比例", "占总股本比例(%)")
+                                  if c in df10.columns), None)
+                if ratio_col is not None:
+                    ratios = []
+                    for _, r in df10.iterrows():
+                        v = to_float(r.get(ratio_col))
+                        if v is not None:
+                            ratios.append(v if v <= 1.0 else v / 100.0)
+                    if ratios:
+                        top10 = round(sum(ratios[:10]), 4)
+                        if top10 >= 0.70:
+                            records.append({
+                                "kind": "control",
+                                "event_date": datetime.datetime.now(datetime.UTC).date().strftime("%Y%m%d"),
+                                "holder": "",
+                                "ratio": top10,
+                                "description": f"前十大股东合计持股 {top10:.0%}，股权高度集中",
+                            })
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[governance] %s 十大股东获取失败（%s），跳过股权集中度", code, type(exc).__name__)
         # 回购/减持等公告类事件免费源口径不稳定，后续接入；当前无则中性计
         return {"records": records, "source": self.name}
+
+    def northbound(self, code: str) -> dict:
+        """7.1：北向资金个股持股（东财沪深港通，best-effort，失败返回空）。
+
+        返回 {records: [{trade_date, hold_shares, hold_ratio}]}——当前免费源只给最新快照，
+        历史序列口径不稳定；M7 对单点数据按中性处理（有历史才算分位）。
+        """
+        try:
+            df = self._retry(
+                "northbound",
+                lambda: self._ak.stock_hsgt_hold_stock_em(market="北向", indicator="今日排行"),
+            )
+            if df is None or df.empty:
+                return {"records": [], "source": self.name}
+            row = df[df["代码"].astype(str).str.zfill(6) == str(code).zfill(6)]
+            if row.empty:
+                return {"records": [], "source": self.name}
+            r = row.iloc[0]
+            today = datetime.datetime.now(datetime.UTC).date().strftime("%Y%m%d")
+            ratio = to_float(r.get("今日持股-占流通股比"))
+            return {"records": [{
+                "trade_date": today,
+                "hold_shares": to_float(r.get("今日持股-股数")),
+                "hold_ratio": (ratio / 100.0) if ratio is not None else None,
+            }], "source": self.name}
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[northbound] %s 北向持股获取失败（%s），按空处理", code, type(exc).__name__)
+            return {"records": [], "source": self.name}
+
+    def margin(self, code: str) -> dict:
+        """7.2：个股两融余额（沪/深交易所按日披露，best-effort，失败返回空）。"""
+        try:
+            today = datetime.datetime.now(datetime.UTC).date().strftime("%Y%m%d")
+            rows: list[dict] = []
+            fetchers = [
+                ("sse", lambda d: self._ak.stock_margin_detail_sse(date=d)),
+                ("szse", lambda d: self._ak.stock_margin_detail_szse(date=d)),
+            ]
+            for exchange, fn in fetchers:
+                try:
+                    df = self._retry(f"margin_{exchange}", lambda d=today, f=fn: f(d))
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("[margin] %s 交易所 %s 两融失败（%s）", code, exchange, type(exc).__name__)
+                    continue
+                if df is None or df.empty:
+                    continue
+                code_col = next((c for c in ("标的证券代码", "证券代码") if c in df.columns), None)
+                if code_col is None:
+                    continue
+                row = df[df[code_col].astype(str).str.zfill(6) == str(code).zfill(6)]
+                if row.empty:
+                    continue
+                r = row.iloc[0]
+                rows.append({
+                    "trade_date": today,
+                    "margin_balance": to_float(r.get("融资融券余额") or r.get("融资融券余额(元)")),
+                    "fin_balance": to_float(r.get("融资余额") or r.get("融资余额(元)")),
+                    "sec_balance": to_float(r.get("融券余额") or r.get("融券余额(元)")),
+                })
+            return {"records": rows, "source": self.name}
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[margin] %s 两融获取失败（%s），按空处理", code, type(exc).__name__)
+            return {"records": [], "source": self.name}
+
+    def market_activity(self) -> dict:
+        """7.5：大盘情绪——全市场上涨/下跌家数（乐咕乐股，best-effort）。
+
+        返回 {records: [{trade_date, up_count, down_count, breadth}]}，breadth = 上涨/(上涨+下跌)。
+        """
+        try:
+            df = self._retry("market_activity", lambda: self._ak.stock_market_activity_legu())
+            if df is None or df.empty:
+                return {"records": [], "source": self.name}
+            r = df.iloc[-1]
+            up = to_float(r.get("上涨"))
+            down = to_float(r.get("下跌"))
+            breadth = None
+            if up is not None and down is not None and (up + down) > 0:
+                breadth = round(up / (up + down), 4)
+            return {"records": [{
+                "trade_date": str(r.get("日期") or datetime.datetime.now(datetime.UTC).date().strftime("%Y%m%d")).replace("-", ""),
+                "up_count": up,
+                "down_count": down,
+                "breadth": breadth,
+            }], "source": self.name}
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[market_activity] 大盘情绪获取失败（%s），按空处理", type(exc).__name__)
+            return {"records": [], "source": self.name}
 
     def dividends(self, code: str) -> dict:
         return self._retry("dividends", lambda: self._dividends(code))
@@ -303,3 +424,106 @@ def _dividend_records_from_df(df) -> list[dict]:
         })
     records.sort(key=lambda r: r["period"], reverse=True)
     return records
+
+
+def _col(df, *names):
+    """按候选列名取 Series，返回首个存在的列（防东财改列名）。"""
+    for n in names:
+        if n in df.columns:
+            return df[n]
+    return None
+
+
+def _normalize_em_period(v) -> str:
+    """东财报告期 → YYYYMMDD。"""
+    s = str(v or "").replace("-", "")
+    return s[:8] if s.isdigit() and len(s) >= 8 else ""
+
+
+def _merge_financial_statements(code: str, records: list[dict], ak) -> None:
+    """1.1/1.4/5.2/5.4：用东财资产负债表/利润表/现金流量表给 financials 补派生字段。
+
+    - bvps = 归母股东权益 / 股本（NAV 基数）
+    - ncav_ps = (流动资产 − 总负债) / 股本（NCAV 基数）
+    - rd_ratio = 研发费用 / 营业总收入
+    - interest_debt_ratio = (短借+一年内到期+长借+应付债券) / 总资产
+    - contract_liability_ratio = 合同负债 / 总资产
+    - ocf_to_np_parent = 经营现金流净额 / 归母净利润（1.4 归母口径）
+    全部 best-effort：任一报表缺失/字段不匹配，跳过该字段（保持 None）。
+    """
+    sym = f"{market_prefix(code).upper()}{code}"
+    balance, income, cash = {}, {}, {}
+    try:
+        dfb = ak.stock_balance_sheet_by_report_em(symbol=sym)
+        for _, r in dfb.iterrows():
+            period = _normalize_em_period(r.get("报告期"))
+            if not period:
+                continue
+            balance[period] = {
+                "total_assets": to_float(r.get("资产总计") or r.get("资产合计")),
+                "current_assets": to_float(r.get("流动资产合计")),
+                "total_liabilities": to_float(r.get("负债合计")),
+                "equity_parent": to_float(r.get("归属于母公司股东权益合计")),
+                "short_loan": to_float(r.get("短期借款")),
+                "long_loan": to_float(r.get("长期借款")),
+                "bond": to_float(r.get("应付债券")),
+                "due_1y": to_float(r.get("一年内到期的非流动负债")),
+                "contract_liabilities": to_float(r.get("合同负债")),
+            }
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[financials] %s 资产负债表获取失败（%s）", code, type(exc).__name__)
+    try:
+        dfi = ak.stock_profit_sheet_by_report_em(symbol=sym)
+        for _, r in dfi.iterrows():
+            period = _normalize_em_period(r.get("报告期"))
+            if not period:
+                continue
+            income[period] = {
+                "revenue": to_float(r.get("营业总收入") or r.get("营业收入")),
+                "net_profit_parent": to_float(r.get("归属于母公司所有者的净利润") or r.get("净利润")),
+                "rd_expense": to_float(r.get("研发费用")),
+            }
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[financials] %s 利润表获取失败（%s）", code, type(exc).__name__)
+    try:
+        dfc = ak.stock_cash_flow_sheet_by_report_em(symbol=sym)
+        for _, r in dfc.iterrows():
+            period = _normalize_em_period(r.get("报告期"))
+            if not period:
+                continue
+            cash[period] = {
+                "ocf_net": to_float(r.get("经营活动产生的现金流量净额") or r.get("经营活动产生的现金流量净额(元)")),
+            }
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[financials] %s 现金流量表获取失败（%s）", code, type(exc).__name__)
+
+    for rec in records:
+        period = str(rec.get("period") or "")
+        if period not in balance and period not in income and period not in cash:
+            continue
+        b, i, c = balance.get(period, {}), income.get(period, {}), cash.get(period, {})
+        eps = rec.get("eps")
+        shares = None
+        # 股本 = 归母净利润 / 摊薄 EPS（期末股本口径），缺归母利润时用每股字段
+        if i.get("net_profit_parent") is not None and eps and eps > 0:
+            shares = i["net_profit_parent"] / eps
+        if shares and shares > 0:
+            if b.get("equity_parent") is not None:
+                rec["bvps"] = round(b["equity_parent"] / shares, 4)
+            if b.get("current_assets") is not None and b.get("total_liabilities") is not None:
+                rec["ncav_ps"] = round((b["current_assets"] - b["total_liabilities"]) / shares, 4)
+        # 有息负债率 / 合同负债占比（5.2）
+        total_assets = b.get("total_assets")
+        if total_assets and total_assets > 0:
+            interest = sum(x for x in (b.get("short_loan"), b.get("long_loan"),
+                                       b.get("bond"), b.get("due_1y")) if x is not None)
+            if interest > 0:
+                rec["interest_debt_ratio"] = round(interest / total_assets, 4)
+            if b.get("contract_liabilities") is not None:
+                rec["contract_liability_ratio"] = round(b["contract_liabilities"] / total_assets, 4)
+        # 研发费用率（5.4）
+        if i.get("rd_expense") is not None and i.get("revenue") and i["revenue"] > 0:
+            rec["rd_ratio"] = round(i["rd_expense"] / i["revenue"], 4)
+        # 归母口径 ocf_to_np（1.4）
+        if c.get("ocf_net") is not None and i.get("net_profit_parent") not in (None, 0):
+            rec["ocf_to_np_parent"] = round(c["ocf_net"] / i["net_profit_parent"], 4)

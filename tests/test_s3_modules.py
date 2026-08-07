@@ -1,4 +1,7 @@
 """S3 定性模块单元测试：M1 分类 / M5 护城河 / M6 治理（规则层）。"""
+
+import pytest
+
 from value_agent.business_model.engine import analyze_business_model, classify_business_type
 from value_agent.governance.engine import assess_governance
 from value_agent.moat.engine import assess_moat
@@ -199,3 +202,28 @@ def test_financial_subtype_detection():
     )
     assert r.business_type == "financial"
     assert r.financial_subtype == "bank"
+
+
+# ---------- backlog 5.2 / 5.4：有息负债率 + 研发强度 ----------
+
+def test_moat_prefers_interest_debt_ratio():
+    """5.2：有 interest_debt_ratio 时用它做杠杆对比（不含合同负债）；高合同负债给口径注记。"""
+    from value_agent.moat.engine import assess_moat
+
+    recs = [{"period": f"{2026 - i}1231", "roe": 15.0, "grossprofit_margin": 40.0,
+             "debt_to_assets": 0.7, "interest_debt_ratio": 0.2,
+             "contract_liability_ratio": 0.35} for i in range(6)]
+    r = assess_moat({"records": recs}, industry="白酒", business_type="consumer_monopoly")
+    assert r.peer is not None
+    assert r.peer.debt_company == pytest.approx(0.2)  # 用有息口径 0.2 而非报表 0.7
+    assert r.peer.debt_note and "合同负债占比 35%" in r.peer.debt_note
+
+
+def test_moat_rd_ratio_adds_tech_source():
+    """5.4：研发费用率 ≥5% → 无形资产来源（技术壁垒代理）。"""
+    from value_agent.moat.engine import assess_moat
+
+    recs = [{"period": f"{2026 - i}1231", "roe": 14.0, "grossprofit_margin": 35.0,
+             "debt_to_assets": 0.3, "rd_ratio": 0.08} for i in range(6)]
+    r = assess_moat({"records": recs}, industry="软件", business_type="growth")
+    assert any(s.source == "无形资产" and "研发费用率" in s.basis for s in r.sources)

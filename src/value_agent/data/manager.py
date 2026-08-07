@@ -308,3 +308,37 @@ class DataManager:
             "governance_events", code, f"gov:{code}",
             lambda: self._source.governance_events(code),
         )
+
+    def northbound(self, code: str) -> dict:
+        """7.1：北向持股，优先存储（历史序列可算分位），缺失时拉取快照。"""
+        recs = self._stored("northbound", code)
+        if recs is not None:
+            return {"records": recs, "source": f"storage({self._storage.name})"}
+        if not hasattr(self._source, "northbound"):
+            return {"records": [], "source": self._source.name}
+        return self._fetch(
+            "northbound", code, f"nb:{code}",
+            lambda: self._source.northbound(code),
+        )
+
+    def margin(self, code: str) -> dict:
+        """7.2：两融余额，优先存储，缺失时拉取快照。"""
+        recs = self._stored("margin", code)
+        if recs is not None:
+            return {"records": recs, "source": f"storage({self._storage.name})"}
+        if not hasattr(self._source, "margin"):
+            return {"records": [], "source": self._source.name}
+        return self._fetch(
+            "margin", code, f"margin:{code}",
+            lambda: self._source.margin(code),
+        )
+
+    def market_activity(self) -> dict:
+        """7.5：大盘情绪（市场级，不落库，实时拉取 best-effort）。"""
+        if not hasattr(self._source, "market_activity"):
+            return {"records": [], "source": self._source.name}
+        try:
+            return self._source.market_activity()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("market_activity 获取失败：%s", type(exc).__name__)
+            return {"records": [], "source": self._source.name}

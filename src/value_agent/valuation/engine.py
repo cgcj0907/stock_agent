@@ -32,6 +32,8 @@ from .methods import (
     ddm,
     graham_formula,
     graham_number,
+    nav,
+    ncav,
     pb_band,
     pb_roe,
     peg,
@@ -42,16 +44,16 @@ from .methods import (
 # 已实现方法（= methods.py 的函数名）；路由表里未实现的规划方法会被剔除，前端只展示可执行方法
 IMPLEMENTED_METHODS = frozenset(
     {"dcf", "dcf_three_stage", "tang", "graham_number", "graham_formula",
-     "ddm", "relative_median_pe", "peg", "pb_band", "pb_roe"}
+     "ddm", "relative_median_pe", "peg", "pb_band", "pb_roe", "nav", "ncav"}
 )
 
 # 兜底路由（与 config/valuation_routing.yaml 对齐；M1 落地后从输入取类型）
 DEFAULT_ROUTING: dict[str, list[str]] = {
     "consumer_monopoly": ["dcf", "tang", "graham_number", "graham_formula", "ddm", "relative_median_pe"],
     "growth": ["dcf", "dcf_three_stage", "peg", "relative_median_pe"],  # 费雪视角：三阶段 DCF + PEG
-    "cyclical": ["relative_median_pe", "pb_band", "graham_number"],  # 禁 DCF/唐朝（周期股）；PB 主用
+    "cyclical": ["relative_median_pe", "pb_band", "graham_number", "nav"],  # 禁 DCF/唐朝（周期股）；PB 主用 + NAV 资产兜底
     "financial": ["relative_median_pe", "ddm"],           # 禁 DCF（现金流法不适用）
-    "asset_based": ["graham_number", "graham_formula"],
+    "asset_based": ["nav", "ncav", "graham_number", "graham_formula"],  # 1.1：清算/净流动资产底线
     "stable_dividend": ["ddm", "tang", "relative_median_pe"],
 }
 DEFAULT_TYPE = "consumer_monopoly"
@@ -64,6 +66,8 @@ METHOD_WEIGHTS: dict[str, float] = {
     "ddm": 0.20,
     "graham_number": 0.15,     # 格雷厄姆/资产兜底一档
     "graham_formula": 0.15,
+    "nav": 0.20,               # NAV/NCAV（资产型/周期资产底线，1.1）
+    "ncav": 0.20,
     "relative_median_pe": 0.30,  # 相对 PE / PEG 一档
     "peg": 0.30,
     "pb_band": 0.30,           # PB 估值（周期/资产型；cyclical 里 TYPE_WEIGHTS 提到 0.50）
@@ -378,6 +382,7 @@ def run_valuation(
     eps_history: list[float] | None = None,   # 年度 EPS 序列（正常化 EPS 用，正数）
     pb_history: list[float] | None = None,    # PB 历史（pb_band 用，正数）
     roe: float | None = None,                 # 最新年报 ROE（pb_roe 用，银行）
+    ncav_ps: float | None = None,             # 1.1：每股净流动资产（NCAV 用）
     financial_subtype: str | None = None,     # 金融细类：bank | broker | insurance | other
 ) -> ValuationResult:
     """主入口：按业务类型路由方法 → kill_switch 裁剪 → 执行 → 质量乘数 → 加权汇总。"""
@@ -448,6 +453,10 @@ def run_valuation(
         methods["tang"] = tang(eps, g, rf, pe_cap=TANG_PE_CAP.get(business_type))
     if "graham_number" in allowed:
         methods["graham_number"] = graham_number(eps, bvps)
+    if "nav" in allowed:
+        methods["nav"] = nav(bvps)
+    if "ncav" in allowed:
+        methods["ncav"] = ncav(ncav_ps)
     if "graham_formula" in allowed:
         # 2.6：格雷厄姆公式仅当期 PE < 10 时启用（1970s 参数过时，仅深度价值辅助）
         current_pe = pe_history[-1] if pe_history else None

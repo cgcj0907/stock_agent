@@ -442,3 +442,21 @@ def test_notify_webhooks_pushes_events():
             os.environ.pop("WECHAT_WEBHOOK", None)
         else:
             os.environ["WECHAT_WEBHOOK"] = old_wechat
+
+
+def test_daily_runner_quarterly_review_emits_watch_alerts():
+    """9.3：财报季模式对 warn/critical 非价格 watch 补发复查提醒。"""
+    session = _session_with_rules([
+        {"rule_type": "prosperity_watch", "trigger": "景气评级=下行", "message": "行业景气下行",
+         "severity": "warn", "source_module": "M3_growth", "action": "watch"},
+        {"rule_type": "price_buy", "trigger": "现价 ≤ 42.5 元", "message": "跌破买入区间",
+         "severity": "info", "source_module": "M8_safety_margin", "action": "action",
+         "params": {"price": 42.5}},
+    ])
+    events = run_daily_monitor([session], _RulesSource(), quarterly_review=True)
+    # price_buy 触发 + prosperity_watch 财报季复查提醒
+    assert any("财报季复查" in e.message for e in events)
+    assert any(e.rule_type == "price_buy" for e in events)
+    # 非财报季模式不产生复查提醒
+    events2 = run_daily_monitor([session], _RulesSource())
+    assert not any("财报季复查" in e.message for e in events2)

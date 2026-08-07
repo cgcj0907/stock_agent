@@ -55,6 +55,17 @@
 > ⑩ 工程质量——整库 ruff 0 error、raw 截断、前端 labels/catalog 对齐、契约测试补 8.10/8.11/5.8。
 > 全量 **350 通过**（原 312 + 新增 38）。
 
+> ✅ 2026-08-07 **backlog 第三批（「数据其实拿得到」——资产负债表/北向/两融/大盘情绪落地）**：
+> ① 核实 AkShare 免费接口——1.1 NAV/NCAV、1.4 归母口径、5.2 有息/合同负债、5.4 研发费用、
+> 6.2 股权集中度、7.1 北向、7.2 两融、7.5 大盘涨跌家数、7.12 多情绪合成、9.3 财报季复查全部可拿；
+> ② `financials` 新增 bvps/ncav_ps/rd_ratio/interest_debt_ratio/contract_liability_ratio/ocf_to_np_parent，
+> `_merge_financial_statements` 合并东财三大报表；新增 `nav`/`ncav` 估值方法并接入 asset_based/cyclical 路由；
+> ③ 新增 `northbound`/`margin` 表 + ingest/DataManager，M7 聚合换手率+北向+两融+大盘情绪；
+> ④ M5 杠杆改有息口径、研发强度进来源识别；M6 股权集中度 CONTROL_RISK；
+> ⑤ `monitor --quarterly` 财报季复查提醒；
+> ⑥ 真正拿不到只剩：保险 EV、客户集中度/转换成本、专利数量、并购回报跟踪。
+> 全量 **359 通过**（+9）。
+
 ---
 
 > ✅ 2026-08-07 **M9 风险与否决补强（从「风险聚合器」走向「永久损失防线」）**：

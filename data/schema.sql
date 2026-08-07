@@ -21,6 +21,12 @@ CREATE TABLE IF NOT EXISTS financials (
     ocfps DOUBLE PRECISION,
     eps DOUBLE PRECISION,
     ocf_to_np DOUBLE PRECISION,
+    bvps DOUBLE PRECISION,
+    ncav_ps DOUBLE PRECISION,
+    rd_ratio DOUBLE PRECISION,
+    interest_debt_ratio DOUBLE PRECISION,
+    contract_liability_ratio DOUBLE PRECISION,
+    ocf_to_np_parent DOUBLE PRECISION,
     updated_at TIMESTAMPTZ DEFAULT now(),
     PRIMARY KEY (code, period)
 );
@@ -60,6 +66,25 @@ CREATE TABLE IF NOT EXISTS dividends (
     div_proc TEXT,
     updated_at TIMESTAMPTZ DEFAULT now(),
     PRIMARY KEY (code, period)
+);
+
+CREATE TABLE IF NOT EXISTS northbound (
+    code TEXT,
+    trade_date TEXT,
+    hold_shares DOUBLE PRECISION,
+    hold_ratio DOUBLE PRECISION,
+    updated_at TIMESTAMPTZ DEFAULT now(),
+    PRIMARY KEY (code, trade_date)
+);
+
+CREATE TABLE IF NOT EXISTS margin (
+    code TEXT,
+    trade_date TEXT,
+    margin_balance DOUBLE PRECISION,
+    fin_balance DOUBLE PRECISION,
+    sec_balance DOUBLE PRECISION,
+    updated_at TIMESTAMPTZ DEFAULT now(),
+    PRIMARY KEY (code, trade_date)
 );
 
 CREATE TABLE IF NOT EXISTS governance_events (

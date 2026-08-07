@@ -94,9 +94,10 @@ docker push registry.cn-chengdu.aliyuncs.com/zgy_20223090903005/value-agent:late
 | 3 | Docker Hub / PyPI 连不上（EOF/DNS） | 国内/香港网络 | daocloud 基础镜像 + 清华 PyPI 镜像 |
 | 4 | 请求报 `Date` 头 / `invalid authorization` | HTTP 触发器是签名认证 | 触发器认证方式改「无需认证」 |
 | 5 | 拉到了日线但 Supabase 没数据 | FC 回收实例掐掉 daemon 线程 | `DATA_WRITE_BACK=sync` |
-| 6 | 东财日线接口偶发断连 | 裸 requests TLS 指纹被反爬 | `curl_cffi` Chrome 伪装直连（`_eastmoney_kline`） |
+| 6 | 东财日线接口偶发断连 | 裸 requests TLS 指纹被反爬 | 曾用 `curl_cffi` Chrome 伪装直连（**2026-08-07 已移除**，改多源回退链） |
 | 7 | quick 工作流 404 | `config/` 没打进镜像 | Dockerfile `COPY config` |
 | 8 | `s deploy` 报缺 `aliyunfcdefaultrole` | RAM 角色未创建 | 手动控制台部署（不走 s），或先在 RAM 建角色 |
+| 9 | 日线仍偶发 `RemoteDisconnected` | 东财封 FC 出口 IP 时，akshare 回退打**同一个** `push2his.eastmoney.com` 域名 → 回退形同虚设 | `_daily_prices` 改多源回退链：东财 akshare → **新浪** → **腾讯**（独立主机），单位统一归一化（成交量→手、换手率→%） |
 
 ## 八、快速验证
 
@@ -110,6 +111,6 @@ curl https://value-agent-vjdugjsdaa.cn-chengdu.fcapp.run/health   # → {"status
 ## 九、相关文件
 
 - `deploy/Dockerfile`、`deploy/render.yaml`
-- `src/value_agent/data/manager.py`（读穿缓存/回写/增量刷新）、`sources/akshare_source.py`（curl_cffi 东财）、`pipelines/ingest.py`（预取）
+- `src/value_agent/data/manager.py`（读穿缓存/回写/增量刷新）、`sources/akshare_source.py`（日线多源回退链）、`pipelines/ingest.py`（预取）
 - `src/value_agent/cli.py`（`data fetch` / `data ping`）
 - 相关 commit：`cf9b5a6`（curl_cffi+sync 写入）、`b48aaf9/3240f8b/df0d76e/cb8d1ee`（Dockerfile 系列）、`c7622a1`（日线增量刷新）

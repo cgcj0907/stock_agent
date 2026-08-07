@@ -1,11 +1,35 @@
 """M7 价格与情绪智能体。"""
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 from value_agent.agents.base import Agent, AgentContext, AgentSpec, degraded_module_result
 from value_agent.core.scoring import llm_score
 from value_agent.sessions.models import ModuleResult, ModuleStatus
 
 from .engine import assess_market, sentiment_from_daily
+
+
+def _percentile_metric(records: list[dict], value_key: str, note: str, unit: str = "") -> dict | None:
+    """历史序列 → 最新值分位指标（7.1/7.2）：样本 ≥5 才给分位，否则 None（降级为中性）。"""
+    recs = sorted(
+        (r for r in records if r.get("trade_date") and r.get(value_key) is not None),
+        key=lambda r: str(r["trade_date"]), reverse=True,
+    )
+    if len(recs) < 5:
+        return None
+    hist = [float(r[value_key]) for r in recs]
+    latest = hist[0]
+    from .engine import _percentile, _winsorize
+
+    return {
+        "latest": latest,
+        "percentile": _percentile(latest, _winsorize(hist)),
+        "note": note,
+        "unit": unit,
+    }
 
 
 def _valuation_percentile(result) -> float | None:
@@ -62,13 +86,45 @@ class M7MarketAgent(Agent):
             business_type = m1.outputs.get("business_type") if m1 else None
             financial_subtype = m1.outputs.get("financial_subtype") if m1 else None
 
-            # 情绪指标（可选）：换手率来自日线；拉取失败只丢情绪，不降级整个模块
-            sentiment = None
+            # 情绪指标（7.12 多指标合成）：换手率（日线）+ 北向持股（7.1）+ 两融余额（7.2）
+            # + 大盘涨跌家数（7.5）；各自拉取失败只丢该指标，不降级整个模块
+            metrics: dict[str, dict] = {}
+            notes: list[str] = []
             try:
                 dp = ctx.data.daily_prices(ctx.session.company_code)
-                sentiment = sentiment_from_daily(dp.get("records", []))
-            except Exception:  # noqa: BLE001
-                sentiment = None
+                daily_sent = sentiment_from_daily(dp.get("records", []))
+                if daily_sent:
+                    metrics.update(daily_sent.get("metrics", {}))
+                    notes.extend(daily_sent.get("notes", []))
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("M7 换手率情绪获取失败：%s", type(exc).__name__)
+            try:
+                nb = ctx.data.northbound(ctx.session.company_code)
+                m = _percentile_metric(nb.get("records", []), "hold_ratio", "北向持股比例", "%")
+                if m is not None:
+                    metrics["northbound"] = m
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("M7 北向持股获取失败：%s", type(exc).__name__)
+            try:
+                mg = ctx.data.margin(ctx.session.company_code)
+                m = _percentile_metric(mg.get("records", []), "margin_balance", "融资融券余额", "元")
+                if m is not None:
+                    metrics["margin"] = m
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("M7 两融余额获取失败：%s", type(exc).__name__)
+            try:
+                ma = ctx.data.market_activity()
+                recs = ma.get("records", [])
+                if recs and recs[0].get("breadth") is not None:
+                    metrics["market_breadth"] = {
+                        "latest": recs[0]["breadth"],
+                        "percentile": float(recs[0]["breadth"]),  # 0~1 直接作为热度
+                        "note": "全市场上涨家数占比（大盘情绪）",
+                        "unit": "",
+                    }
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("M7 大盘情绪获取失败：%s", type(exc).__name__)
+            sentiment = {"metrics": metrics, "notes": notes} if metrics else None
 
             result = assess_market(
                 val, risk_free=risk_free,

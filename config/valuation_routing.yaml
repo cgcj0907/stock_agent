@@ -21,7 +21,7 @@ routing:
     primary_metric: pe
     note: "成长型：DCF(现金化利润) + PEG + 相对PE；增速上限 20%（M3 已夹逼）"
   cyclical:                 # 周期型
-    methods: [relative_median_pe, pb_band, graham_number]
+    methods: [relative_median_pe, pb_band, graham_number, nav]
     forbidden: [dcf, tang]
     primary_metric: pb
     note: "周期型：禁 DCF/唐朝；PB 估值主用（重资产盈利波动大），相对PE 用正常化 EPS 并封顶 25 倍，格雷厄姆数资产兜底"
@@ -31,10 +31,10 @@ routing:
     primary_metric: null
     note: "金融型：禁 DCF（现金流法不适用），用相对PE + DDM；银行/券商看 PB、保险看 PE（细类再覆盖）"
   asset_based:              # 资产型/困境
-    methods: [graham_number, graham_formula]
+    methods: [nav, ncav, graham_number, graham_formula]
     forbidden: [earnings_multiple]
     primary_metric: pb
-    note: "资产型：清算/资产兜底优先；NAV/NCAV 待数据字段稳定后（P2）接入"
+    note: "资产型：NAV/NCAV（1.1 已接入资产负债表明细）为清算/净流动资产底线，格雷厄姆交叉"
   stable_dividend:          # 高分红稳定型
     methods: [ddm, tang, relative_median_pe]
     forbidden: []

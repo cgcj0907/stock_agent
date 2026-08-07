@@ -328,3 +328,31 @@ def dcf_three_stage(
         params=params,
         note="三阶段：高速5y+减速5y+永续（参数保守化）",
     )
+
+
+def nav(bvps: float | None, discount: float = 0.80) -> MethodResult:
+    """NAV 清算价值（backlog 1.1）：每股净资产 × 变现折扣。
+
+    困境/重资产/地产公司的估值硬底线——账面净资产打折变现的底线价。
+    """
+    if bvps is None or bvps <= 0:
+        return MethodResult("nav", None, note="缺每股净资产（BVPS）")
+    return MethodResult(
+        "nav", round(bvps * discount, 2),
+        params={"bvps": round(bvps, 2), "liquidation_discount": discount},
+        note=f"NAV：每股净资产 {bvps:.2f} × 变现折扣 {discount:.0%}",
+    )
+
+
+def ncav(ncav_ps: float | None, discount: float = 0.75) -> MethodResult:
+    """NCAV 净流动资产价值（格雷厄姆，backlog 1.1）：每股净流动资产 × 保守折扣。
+
+    NCAV = (流动资产 − 总负债) / 股本；格雷厄姆认为买入价应显著低于该值。
+    """
+    if ncav_ps is None or ncav_ps <= 0:
+        return MethodResult("ncav", None, note="缺每股净流动资产（NCAV）")
+    return MethodResult(
+        "ncav", round(ncav_ps * discount, 2),
+        params={"ncav_ps": round(ncav_ps, 2), "discount": discount},
+        note=f"NCAV：每股净流动资产 {ncav_ps:.2f} × 保守折扣 {discount:.0%}",
+    )

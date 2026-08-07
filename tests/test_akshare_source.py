@@ -44,38 +44,6 @@ def test_company_info_cninfo_empty_returns_minimal(monkeypatch):
     assert info["industry"] == ""
 
 
-def test_eastmoney_kline_parsing(monkeypatch):
-    """curl_cffi 东财 kline 解析：klines 字符串 → DataFrame（日期/开收高低/成交量）。"""
-    from value_agent.data.sources.akshare_source import AkShareDataSource
-
-    class _Resp:
-        def raise_for_status(self) -> None:
-            pass
-
-        def json(self):
-            return {
-                "data": {
-                    "klines": [
-                        "2024-01-05,10,11,12,9,1000,2000,3,5,0.5,1.2",
-                        "2024-01-08,11,12,13,10,1200,2400,2,9,1,1.3",
-                    ]
-                }
-            }
-
-    def fake_get(url, params=None, headers=None, impersonate=None, timeout=None):
-        assert params["secid"] == "0.000858"
-        assert impersonate == "chrome"
-        assert "Referer" in headers and "User-Agent" in headers
-        return _Resp()
-
-    monkeypatch.setattr("curl_cffi.requests.get", fake_get)
-    src = AkShareDataSource()
-    df = src._eastmoney_kline("000858", "20240101", "20240131")
-    assert len(df) == 2
-    assert df.iloc[-1]["日期"] == "2024-01-08"
-    assert df.iloc[-1]["收盘"] == "12"
-
-
 def _fake_financials_df(with_ratio: bool = True) -> pd.DataFrame:
     """模拟新浪财务指标接口返回（displaytype=4 的列名，含/不含 ocf_to_np 比率列）。"""
     rows = [
@@ -137,3 +105,106 @@ def test_financials_ocf_to_np_fallback_ocfps_div_eps(monkeypatch):
     r_2024 = next(r for r in recs if r["period"] == "20241231")
     assert r_2023["ocf_to_np"] == pytest.approx(round(50.0 / 60.0, 4))  # ocfps/eps 兜底（保留4位）
     assert r_2024["ocf_to_np"] == 1.0
+
+
+# ---- 日线多源回退链（东财 akshare → 新浪 → 腾讯） ----
+
+def _em_df():
+    """东财日线 DataFrame（日期/开收高低/成交量(手)/换手率(%)）。"""
+    return pd.DataFrame(
+        [
+            {"日期": "2024-01-05", "开盘": 10.0, "收盘": 11.0, "最高": 12.0,
+             "最低": 9.0, "成交量": 1000.0, "成交额": 2e6, "换手率": 0.44},
+            {"日期": "2024-01-08", "开盘": 11.0, "收盘": 12.0, "最高": 13.0,
+             "最低": 10.0, "成交量": 1200.0, "成交额": 2.4e6, "换手率": 0.52},
+        ]
+    )
+
+
+def _sina_df():
+    """新浪日线 DataFrame（date/open/.../volume(股)/turnover(小数)）。"""
+    return pd.DataFrame(
+        [
+            {"date": "2024-01-05", "open": 10.0, "high": 12.0, "low": 9.0,
+             "close": 11.0, "volume": 100000.0, "amount": 2e6, "turnover": 0.0044},
+            {"date": "2024-01-08", "open": 11.0, "high": 13.0, "low": 10.0,
+             "close": 12.0, "volume": 120000.0, "amount": 2.4e6, "turnover": 0.0052},
+        ]
+    )
+
+
+def _tx_df():
+    """腾讯日线 DataFrame（date/open/close/high/low/volume/turnover/amount）。"""
+    return pd.DataFrame(
+        [
+            {"date": "2024-01-05", "open": 10.0, "close": 11.0, "high": 12.0,
+             "low": 9.0, "volume": 100000.0, "turnover": 0.0044, "amount": 2e6},
+            {"date": "2024-01-08", "open": 11.0, "close": 12.0, "high": 13.0,
+             "low": 10.0, "volume": 120000.0, "turnover": 0.0052, "amount": 2.4e6},
+        ]
+    )
+
+
+def test_daily_prices_prefers_eastmoney(monkeypatch):
+    """东财（akshare）可用时优先，成交量=手、换手率=% 原样保留。"""
+    ds = AkShareDataSource()
+    monkeypatch.setattr(ds._ak, "stock_zh_a_hist", lambda **kw: _em_df())
+    # 不应走到新浪/腾讯
+    monkeypatch.setattr(ds._ak, "stock_zh_a_daily",
+                        lambda **kw: (_ for _ in ()).throw(AssertionError("不应回退新浪")))
+    monkeypatch.setattr(ds._ak, "stock_zh_a_hist_tx",
+                        lambda **kw: (_ for _ in ()).throw(AssertionError("不应回退腾讯")))
+    out = ds.daily_prices("600900", "20240101", "20240131")
+    assert out["source"] == "akshare(eastmoney)"
+    assert out["records"][0]["trade_date"] == "20240105"
+    assert out["records"][0]["volume"] == 1000.0
+    assert out["records"][0]["turnover"] == 0.44
+
+
+def test_daily_prices_falls_back_to_sina(monkeypatch):
+    """东财断连 → 回退新浪（独立主机），单位归一化：成交量股→手、换手率小数→%。"""
+    ds = AkShareDataSource()
+    monkeypatch.setattr(
+        ds._ak, "stock_zh_a_hist",
+        lambda **kw: (_ for _ in ()).throw(ConnectionError("RemoteDisconnected")),
+    )
+    monkeypatch.setattr(ds._ak, "stock_zh_a_daily", lambda **kw: _sina_df())
+    out = ds.daily_prices("600900", "20240101", "20240131")
+    assert out["source"] == "akshare(sina)"
+    assert out["records"][0]["trade_date"] == "20240105"
+    assert out["records"][0]["volume"] == 1000.0          # 100000 股 → 1000 手
+    assert out["records"][0]["turnover"] == pytest.approx(0.44)  # 0.0044 → 0.44%
+
+
+def test_daily_prices_falls_back_to_tencent(monkeypatch):
+    """东财 + 新浪全挂 → 回退腾讯。"""
+    ds = AkShareDataSource()
+    monkeypatch.setattr(
+        ds._ak, "stock_zh_a_hist",
+        lambda **kw: (_ for _ in ()).throw(ConnectionError("RemoteDisconnected")),
+    )
+    monkeypatch.setattr(
+        ds._ak, "stock_zh_a_daily",
+        lambda **kw: (_ for _ in ()).throw(ConnectionError("RemoteDisconnected")),
+    )
+    monkeypatch.setattr(ds._ak, "stock_zh_a_hist_tx", lambda **kw: _tx_df())
+    out = ds.daily_prices("600900", "20240101", "20240131")
+    assert out["source"] == "akshare(tencent)"
+    assert out["records"][1]["volume"] == 1200.0
+    assert out["records"][1]["turnover"] == pytest.approx(0.52)
+
+
+def test_daily_prices_all_sources_fail_raises_summary(monkeypatch):
+    """三源全挂 → ConnectionError，且摘要含各源失败信息（供上层证据/日志诊断）。"""
+    ds = AkShareDataSource()
+    for attr in ("stock_zh_a_hist", "stock_zh_a_daily", "stock_zh_a_hist_tx"):
+        monkeypatch.setattr(
+            ds._ak, attr,
+            lambda **kw: (_ for _ in ()).throw(ConnectionError("RemoteDisconnected")),
+        )
+    with pytest.raises(ConnectionError) as ei:
+        ds.daily_prices("600900", "20240101", "20240131")
+    msg = str(ei.value)
+    assert "eastmoney" in msg
+    assert "sina" in msg
+    assert "tencent" in msg

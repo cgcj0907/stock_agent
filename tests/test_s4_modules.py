@@ -667,3 +667,16 @@ def test_risk_max_loss_scenario_includes_intrinsic_value():
     assert ml.get("estimated_downside_amount") is not None
     assert ml.get("suggested_position_cap") is not None
     assert ml.get("current_price") == 80
+
+
+def test_governance_control_event_high_concentration():
+    """6.2：前十大股东高度集中 → CONTROL_RISK 低 severity 风险码。"""
+    from value_agent.governance.engine import assess_governance
+
+    base = {"records": [{"period": f"{y}1231", "cash_div_tax": 2.0} for y in range(2024, 2014, -1)]}
+    r = assess_governance(base, events={"records": [
+        {"kind": "control", "event_date": "20260101", "holder": "", "ratio": 0.82,
+         "description": "前十大股东合计持股 82%，股权高度集中"},
+    ]})
+    assert any(c["code"] == "CONTROL_RISK" for c in r.risk_codes)
+    assert any("股权集中度" in c["description"] for c in r.risk_codes if c["code"] == "CONTROL_RISK")

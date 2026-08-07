@@ -42,6 +42,18 @@ class DataSource(ABC):
     def dividends(self, code: str) -> dict:
         """分红历史：{records: [{year, per_share, total}]}。"""
 
+    def northbound(self, code: str) -> dict:
+        """北向资金个股持股（7.1）：{records: [{trade_date, hold_shares, hold_ratio}]}，默认无数据。"""
+        return {"records": [], "source": self.name}
+
+    def margin(self, code: str) -> dict:
+        """个股两融余额（7.2）：{records: [{trade_date, margin_balance, fin_balance, sec_balance}]}，默认无数据。"""
+        return {"records": [], "source": self.name}
+
+    def market_activity(self) -> dict:
+        """大盘情绪（7.5）：{records: [{trade_date, up_count, down_count, breadth}]}，默认无数据。"""
+        return {"records": [], "source": self.name}
+
     def governance_events(self, code: str) -> dict:
         """治理事件（M6 非分红证据）：{records: [...]}，默认无数据。
 
