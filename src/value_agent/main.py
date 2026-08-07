@@ -19,10 +19,10 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from value_agent.agents import AgentRegistry
+from value_agent.agents.builtin import register_builtin_agents
 from value_agent.core.config import _load_dotenv
 from value_agent.core.llm import get_llm, llm_from_config
 from value_agent.data.manager import DataManager
-from value_agent.agents.builtin import register_builtin_agents
 from value_agent.report.memo import build_memo
 from value_agent.sessions import (
     ModuleName,
@@ -108,7 +108,8 @@ def list_workflows() -> dict:
         try:
             wf = load_workflow_from_yaml(f"config/workflows/{name}.yaml")
             flows.append({"id": wf.id, "name": wf.name, "steps": wf.step_ids()})
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("工作流 %s 加载失败：%s", name, type(exc).__name__)
             continue
     return {"workflows": flows}
 
@@ -277,7 +278,7 @@ def chat(session_id: str, req: ChatRequest) -> dict:
     if llm is not None:
         try:
             reply = llm.chat(system, user)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.exception("对话 LLM 调用失败")
             reply = f"（LLM 调用失败：{type(exc).__name__}，请检查 LLM 配置后重试）"
     else:
@@ -306,7 +307,7 @@ def chat_stream(session_id: str, req: ChatRequest) -> StreamingResponse:
     llm = _chat_llm(session, req)
     system, user = _chat_prompt(session, content)
 
-    q: "queue.Queue[dict | None]" = queue.Queue()
+    q: queue.Queue[dict | None] = queue.Queue()
 
     def worker() -> None:
         try:
@@ -317,7 +318,7 @@ def chat_stream(session_id: str, req: ChatRequest) -> StreamingResponse:
                         if kind == "content":
                             parts.append(chunk)
                         q.put({"type": "chat_chunk", "kind": kind, "chunk": chunk})
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:
                     logger.exception("对话 LLM 流式调用失败")
                     parts.append(f"（LLM 调用失败：{type(exc).__name__}，请检查 LLM 配置后重试）")
             else:
@@ -327,7 +328,7 @@ def chat_stream(session_id: str, req: ChatRequest) -> StreamingResponse:
             reply = "".join(parts)
             _manager.add_message(session, "assistant", reply)
             q.put({"type": "done", "content": reply})
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.exception("对话流式执行失败")
             q.put({"type": "error", "message": str(exc)})
         finally:
@@ -430,7 +431,7 @@ def stream_events(session_id: str):
     """
     session = _load_session(session_id)
     flow = _load_workflow(session)
-    q: "queue.Queue[dict | None]" = queue.Queue()
+    q: queue.Queue[dict | None] = queue.Queue()
 
     def _push_step(sess, step, result) -> None:  # type: ignore[no-untyped-def]
         q.put(
@@ -465,7 +466,7 @@ def stream_events(session_id: str):
             q.put({"type": "done", "status": session.status.value})
         except WorkflowValidationError as exc:
             q.put({"type": "error", "message": str(exc)})
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.exception("工作流执行失败")
             q.put({"type": "error", "message": str(exc)})
         finally:

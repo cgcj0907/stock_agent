@@ -197,7 +197,13 @@ class M4ValuationAgent(Agent):
         if m3 and m3.outputs:
             m3_handoff = m3.outputs.get("handoff") or {}
             if m3.outputs.get("growth_estimate") is not None and "growth_rate" not in ctx.assumptions:
-                params["growth_rate"] = m3.outputs["growth_estimate"]
+                # 4.4：M3 给出增速情景区间时，DCF 采用保守档（降低乐观外推）
+                scenarios = m3_handoff.get("growth_scenarios") or {}
+                conservative = scenarios.get("conservative")
+                params["growth_rate"] = (
+                    conservative if conservative is not None
+                    else m3.outputs["growth_estimate"]
+                )
             if m3_handoff.get("growth_confidence"):
                 params["growth_confidence"] = m3_handoff["growth_confidence"]
 

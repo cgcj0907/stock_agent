@@ -5,7 +5,7 @@
 设计见 docs/02-agent-architecture.md。
 """
 from .base import Agent, AgentContext, AgentSpec
-from .registry import AgentRegistry
 from .builtin import register_builtin_agents
+from .registry import AgentRegistry
 
-__all__ = ["Agent", "AgentContext", "AgentSpec", "AgentRegistry", "register_builtin_agents"]
+__all__ = ["Agent", "AgentContext", "AgentRegistry", "AgentSpec", "register_builtin_agents"]

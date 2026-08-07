@@ -41,21 +41,47 @@ class StubData:
         }
 
     def valuation_history(self, code: str) -> dict:
+        # 10 条、都在近 10 年窗口内（2016-12-31 ~ 2025-12-31），M7 分位口径稳定
         return {
             "records": [
                 {
-                    "trade_date": f"{y}-06-30",
+                    "trade_date": f"{y}-12-31",
                     "pe_ttm": 25.0,
                     "pb": 5.0,
                     "dv_ttm": 2.0,
                 }
-                for y in range(2024, 2014, -1)
+                for y in range(2025, 2015, -1)
             ]
         }
 
-    def daily_prices(self, code: str) -> dict:
+    def governance_events(self, code: str) -> dict:
+        # M6 非分红证据：1 条回购（+分），无质押/减持
         return {
-            "records": [{"trade_date": "2024-06-30", "close": 100.0}]
+            "records": [
+                {"kind": "buybacks", "event_date": "20260115", "holder": "",
+                 "ratio": None, "description": "回购进展：累计回购 1.2 亿元"},
+            ],
+        }
+
+    def daily_prices(self, code: str) -> dict:
+        # 12 条带换手率（情绪指标）：最新换手率偏低 → M7 情绪偏冷；最新收盘 101.5 供 M4 现价
+        dates = ["20250804", "20250901", "20251008", "20251103", "20251201",
+                 "20260105", "20260202", "20260302", "20260401", "20260506",
+                 "20260601", "20260803"]
+        turnovers = [3.5, 3.2, 3.0, 2.8, 2.6, 2.4, 2.2, 2.0, 1.9, 1.8, 1.6, 1.5]
+        return {
+            "records": [
+                {
+                    "trade_date": d,
+                    "open": 99.5 + i * 0.1,
+                    "close": 100.0 + i * 0.15,
+                    "high": 101.0 + i * 0.1,
+                    "low": 98.5 + i * 0.1,
+                    "volume": 1_000_000 + i * 20_000,
+                    "turnover": t,
+                }
+                for i, (d, t) in enumerate(zip(dates, turnovers))
+            ],
         }
 
 

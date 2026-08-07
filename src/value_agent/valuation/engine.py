@@ -28,6 +28,7 @@ from .methods import (
     MethodResult,
     cash_earnings_proxy,
     dcf,
+    dcf_three_stage,
     ddm,
     graham_formula,
     graham_number,
@@ -40,13 +41,14 @@ from .methods import (
 
 # 已实现方法（= methods.py 的函数名）；路由表里未实现的规划方法会被剔除，前端只展示可执行方法
 IMPLEMENTED_METHODS = frozenset(
-    {"dcf", "tang", "graham_number", "graham_formula", "ddm", "relative_median_pe", "peg", "pb_band", "pb_roe"}
+    {"dcf", "dcf_three_stage", "tang", "graham_number", "graham_formula",
+     "ddm", "relative_median_pe", "peg", "pb_band", "pb_roe"}
 )
 
 # 兜底路由（与 config/valuation_routing.yaml 对齐；M1 落地后从输入取类型）
 DEFAULT_ROUTING: dict[str, list[str]] = {
     "consumer_monopoly": ["dcf", "tang", "graham_number", "graham_formula", "ddm", "relative_median_pe"],
-    "growth": ["dcf", "peg", "relative_median_pe"],  # 费雪视角：真成长股补 PEG
+    "growth": ["dcf", "dcf_three_stage", "peg", "relative_median_pe"],  # 费雪视角：三阶段 DCF + PEG
     "cyclical": ["relative_median_pe", "pb_band", "graham_number"],  # 禁 DCF/唐朝（周期股）；PB 主用
     "financial": ["relative_median_pe", "ddm"],           # 禁 DCF（现金流法不适用）
     "asset_based": ["graham_number", "graham_formula"],
@@ -57,6 +59,7 @@ DEFAULT_TYPE = "consumer_monopoly"
 # 方法权重（规则权重，先写死；P2 再回测反推）。权重无需归一，加权中位数只看相对大小
 METHOD_WEIGHTS: dict[str, float] = {
     "dcf": 0.35,               # 现金流折现为主
+    "dcf_three_stage": 0.30,   # 三阶段 DCF（成长股，2.1 参数保守化）
     "tang": 0.20,              # 唐朝/DDM 一档
     "ddm": 0.20,
     "graham_number": 0.15,     # 格雷厄姆/资产兜底一档
@@ -91,6 +94,13 @@ TYPE_WEIGHTS: dict[str, dict[str, float]] = {
 # 周期股正常化保护参数
 CYCLICAL_PE_CAP = 25.0   # 正常化口径下合理 PE 上限（防止低谷年份 PE 顶高估值）
 CYCLICAL_EPS_YEARS = 5   # 正常化 EPS = 近 N 年 EPS 中位数
+
+# 2.3：次新股最少样本门槛——PE 历史 < 250 交易日或年报 < 3 期 → 相对估值/增速置信度降级
+NEW_STOCK_PE_MIN = 250        # 交易日
+NEW_STOCK_ANNUAL_MIN = 3      # 年报期数
+
+# 2.6：格雷厄姆公式（1970s 4.4/Y 参数）仅当期 PE < 10 时启用
+GRAHAM_FORMULA_MAX_PE = 10.0
 
 # 唐朝法合理 PE 上限（按生意类型）：公用事业/类债资产用低 PE（regulated return），勿套 25 倍
 TANG_PE_CAP: dict[str, float] = {"stable_dividend": 18.0}
@@ -298,6 +308,8 @@ def method_confidence(
     c = BASE_CONFIDENCE.get(name, 0.6)
     if name in ("relative_median_pe", "peg"):
         c += 0.15 if pe_n >= 8 else 0.08 if pe_n >= 3 else -0.10
+    if name in ("relative_median_pe", "peg") and pe_n and pe_n < NEW_STOCK_PE_MIN:
+        c -= 0.15  # 2.3：次新股 PE 样本不足 → 相对估值置信度降级
     if name == "dcf" and cash_proxy:
         c += 0.05
     if name in ("dcf", "peg") and growth_conf == "low":
@@ -405,27 +417,50 @@ def run_valuation(
 
     # 2b) 正常化 EPS：近 N 年 EPS 中位数（稳健，抗单年异常），供 relative_median_pe 正常化。
     #     适用：周期股 + 券商（金融外壳、周期内核，盈利随市场大幅波动）
+    #     2.5：非周期股「近 1 年 EPS 显著低于多年中位（<50%）」的微利股同样启用正常化保护
     need_normalized = business_type == "cyclical" or (
         business_type == "financial" and financial_subtype in NORMALIZED_SUBTYPES
     )
+    if not need_normalized and eps is not None and eps_history and len(eps_history) >= 5:
+        hist_pos = [e for e in eps_history if e is not None and e > 0]
+        if len(hist_pos) >= 5 and eps < 0.5 * statistics.median(hist_pos):
+            need_normalized = True
     normalized_eps: float | None = None
     if need_normalized and eps_history:
         recent = [e for e in eps_history if e is not None and e > 0][-CYCLICAL_EPS_YEARS:]
         if recent:
             normalized_eps = round(statistics.median(recent), 4)
+    micro_protect = (
+        need_normalized
+        and business_type not in ("cyclical",)
+        and not (business_type == "financial" and financial_subtype in NORMALIZED_SUBTYPES)
+    )
 
     # 3) 执行方法
     methods: dict[str, MethodResult] = {}
     if "dcf" in allowed:
         methods["dcf"] = dcf(eps, g, r, tg, cash_eps=cash_eps if cash_proxy_used else None)
+    if "dcf_three_stage" in allowed:
+        methods["dcf_three_stage"] = dcf_three_stage(
+            eps, g, r, tg, cash_eps=cash_eps if cash_proxy_used else None
+        )
     if "tang" in allowed:
         methods["tang"] = tang(eps, g, rf, pe_cap=TANG_PE_CAP.get(business_type))
     if "graham_number" in allowed:
         methods["graham_number"] = graham_number(eps, bvps)
     if "graham_formula" in allowed:
-        methods["graham_formula"] = graham_formula(eps, g, rf)
+        # 2.6：格雷厄姆公式仅当期 PE < 10 时启用（1970s 参数过时，仅深度价值辅助）
+        current_pe = pe_history[-1] if pe_history else None
+        if current_pe is not None and current_pe >= GRAHAM_FORMULA_MAX_PE:
+            methods["graham_formula"] = MethodResult(
+                "graham_formula", None,
+                note=f"当期 PE {current_pe:.1f} ≥ {GRAHAM_FORMULA_MAX_PE:.0f}，格雷厄姆公式（4.4/Y 过时参数）跳过",
+            )
+        else:
+            methods["graham_formula"] = graham_formula(eps, g, rf)
     if "ddm" in allowed:
-        methods["ddm"] = ddm(dividend, g, r)
+        # 2.4：传 EPS 供 DDM 校验分红覆盖率（分红率 >100% → 可持续性存疑）
+        methods["ddm"] = ddm(dividend, g, r, eps=eps)
     if "relative_median_pe" in allowed:
         # 周期股/券商：正常化 EPS + PE 封顶（无 EPS 历史时至少对当期 EPS 封顶，避免 101 倍失真）
         methods["relative_median_pe"] = relative_median_pe(
@@ -459,6 +494,22 @@ def run_valuation(
     final_mult = q_mult * ks.overall_multiplier
 
     evidence = [f"生意类型：{business_type}；适用方法：{', '.join(allowed)}；参数：{p}"]
+    if micro_protect:
+        evidence.append(
+            "⚠️ 微利保护（2.5）：当期 EPS 显著低于多年中位，relative_median_pe 改用正常化 EPS"
+        )
+    if pe_history and len(pe_history) < NEW_STOCK_PE_MIN:
+        evidence.append(
+            f"⚠️ 次新股门槛（2.3）：PE 历史仅 {len(pe_history)} 交易日 < {NEW_STOCK_PE_MIN}，"
+            f"相对估值参考性降低"
+        )
+    if eps_history and len([e for e in eps_history if e is not None]) < NEW_STOCK_ANNUAL_MIN:
+        evidence.append(
+            f"⚠️ 次新股门槛（2.3）：年报仅 {len([e for e in eps_history if e is not None])} 期 < {NEW_STOCK_ANNUAL_MIN}，"
+            f"增速与正常化口径参考性降低"
+        )
+    if "need_normalized_micro" in locals() or need_normalized and business_type not in ("cyclical",):
+        pass  # 微利正常化提示由下方统一输出
     if loss_mode:
         evidence.append("⚠️ 当期 EPS ≤ 0（亏损/微利）：盈利类方法不适用，仅用 PB 资产估值")
     if business_type == "financial" and financial_subtype:

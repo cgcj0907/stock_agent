@@ -1,9 +1,9 @@
 """数据勾稽校验测试：合法/非法记录。"""
 from value_agent.data.validate import (
+    valid_records,
     validate_daily_prices,
     validate_financials,
     validate_valuation_history,
-    valid_records,
 )
 
 

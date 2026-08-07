@@ -55,6 +55,7 @@ def test_llm_qualitative_backfills_handoff(monkeypatch):
     llm = _FakeLLM(
         '{"moat_sources": ["无形资产", "网络效应"], "width": "宽", "durability": "high", '
         '"trend": "stable", "erosion_risks": ["新进入者低价竞争"], '
+        '"competition_evidence": ["品牌力强、提价能力强", "市占率长期领先"], '
         '"evidence": ["品牌力强，提价能力强"], "reference_indices": []}'
     )
     res = _run(monkeypatch, llm)
@@ -111,8 +112,91 @@ def test_no_llm_uses_rule_proxy_only(monkeypatch):
     assert any("未配置 LLM" in e for e in res.evidence)
 
 
+def test_llm_conflict_without_competitive_evidence_falls_back(monkeypatch):
+    """LLM 宽度与规则冲突但只给了市场情绪类理由 → 宽度不采纳，回退规则层（仍回填 sources/erosion）。"""
+    llm = _FakeLLM(
+        '{"moat_sources": ["成本优势"], "width": "宽", "durability": "medium", '
+        '"erosion_risks": ["行业竞争加剧"], '
+        '"competition_evidence": [], '
+        '"evidence": ["主力资金净流入、股价上涨"], "reference_indices": []}'
+    )
+    res = _run(monkeypatch, llm)
+    assert res.outputs["width"] == "中"              # 规则代理（未采纳 LLM 的宽）
+    assert res.outputs["width_source"] == "rule_proxy"
+    assert res.outputs["width_conflict"] is False
+    # 定性内容仍回填（sources/erosion），只是不参与宽度
+    assert res.outputs["llm_qualitative"]["moat_sources"] == ["成本优势"]
+    assert res.outputs["handoff"]["moat_durability"] == "medium"
+    assert res.outputs["handoff"]["erosion_risks"] == ["行业竞争加剧"]
+    assert any("未给出竞争优势类证据" in e for e in res.evidence)
+
+
+def test_filter_competitive_refs_drops_sentiment_news():
+    """参考池过滤：资金面/情绪类新闻（净流入/特大单/主力资金）不能作为护城河证据。"""
+    from value_agent.moat.agent import _filter_competitive_refs
+
+    refs = [
+        {"title": "5.63亿主力资金净流入，中船系概念涨2.85%", "url": "http://a"},
+        {"title": "32股特大单净流入资金超2亿元", "url": "http://b"},
+        {"title": "中国船舶：在手订单排至2028年，LNG船占比提升", "url": "http://c"},
+        {"title": "船舶行业景气持续，造船产能供不应求", "url": "http://d"},
+    ]
+    kept = _filter_competitive_refs(refs)
+    assert [r["title"] for r in kept] == [
+        "中国船舶：在手订单排至2028年，LNG船占比提升",
+        "船舶行业景气持续，造船产能供不应求",
+    ]
+
+
 def test_m1_business_type_soft_read(monkeypatch):
     """M1 已运行（business_type=financial）→ 规则层改用金融基准（净利率口径）。"""
     res = _run(monkeypatch, None, business_type="financial")
     assert res.outputs["rule_proxy"]["peer"]["benchmark"] == "financial"
     assert res.outputs["rule_proxy"]["peer"]["margin_key"] == "netprofit_margin"
+
+
+# ---------- backlog 5.x：证据校验 / 情绪词表 / 跨周期窗口 ----------
+
+def test_competition_evidence_rejects_sentiment_and_non_category():
+    """5.10：竞争优势证据必须带类别关键词（订单/份额/成本/技术/客户…），情绪/股价表述剔除。"""
+    from value_agent.moat.agent import _validate_competition_evidence
+
+    good = _validate_competition_evidence([
+        "在手订单饱满，市占率提升",
+        "股价连续上涨，主力资金净流入",   # 情绪 → 剔除
+        "机构评级买入",                    # 无类别关键词 → 剔除
+        "专利壁垒与客户转换成本高",
+    ])
+    assert "在手订单饱满，市占率提升" in good
+    assert "专利壁垒与客户转换成本高" in good
+    assert all("资金" not in x and "机构" not in x for x in good)
+
+
+def test_sentiment_title_regex_covers_new_phrases():
+    """5.11：参考池过滤词表补充（蹭概念/涨停潮/吸筹等）。"""
+    from value_agent.moat.agent import _SENTIMENT_TITLE_RE
+
+    for title in ("公司蹭概念炒作", "板块涨停潮来袭", "主力吸筹迹象明显", "游资拉升异动"):
+        assert _SENTIMENT_TITLE_RE.search(title), title
+    assert not _SENTIMENT_TITLE_RE.search("公司发布年度订单数据")
+
+
+def test_moat_cross_cycle_margin_debt_window():
+    """5.7：周期行业利润率/杠杆也取近 8 年跨周期均值参与相对评分。"""
+    from value_agent.moat.engine import assess_moat
+
+    # 最新期毛利率/杠杆处于极端值，但 8 年均值温和
+    gms = [45, 40, 38, 36, 34, 32, 30, 28, 26, 24]
+    debts = [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.9, 0.9]
+    recs = [
+        {"period": f"{2026 - i}1231", "roe": 10.0, "grossprofit_margin": gm,
+         "debt_to_assets": d}
+        for i, (gm, d) in enumerate(zip(gms, debts))
+    ]
+    r = assess_moat({"records": recs}, industry="钢铁", business_type="cyclical")
+    assert r.peer is not None
+    assert any("跨周期均值" in s for s in r.signals)
+    # 最新毛利率 24 vs 8 年均值 ~34.6 → 用均值（≥34.6 分位段）
+    assert r.peer.margin_company is not None and r.peer.margin_company > 30
+    # 最新杠杆 0.9 vs 8 年均值 ~0.55 → 用均值
+    assert r.peer.debt_company is not None and r.peer.debt_company < 0.7

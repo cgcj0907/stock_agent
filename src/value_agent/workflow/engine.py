@@ -6,10 +6,11 @@ agent id（session.module_results 以 agent id 为键）。
 from __future__ import annotations
 
 import logging
-from typing import Callable
+from collections.abc import Callable
 
 from value_agent.agents.base import AgentContext
 from value_agent.agents.registry import AgentRegistry
+from value_agent.sessions.manager import SessionManager
 from value_agent.sessions.models import (
     ModuleResult,
     ModuleStatus,
@@ -17,7 +18,6 @@ from value_agent.sessions.models import (
     SessionStatus,
     _now,
 )
-from value_agent.sessions.manager import SessionManager
 from value_agent.sessions.state_machine import transition
 
 from .models import Workflow, WorkflowStep
@@ -31,7 +31,7 @@ _RESTRICTED_GLOBALS = {"__builtins__": {}}
 def _eval_condition(expr: str, scope: dict) -> bool:
     """受限求值条件表达式，异常一律视为不满足。"""
     try:
-        return bool(eval(expr, _RESTRICTED_GLOBALS, scope))  # noqa: S307
+        return bool(eval(expr, _RESTRICTED_GLOBALS, scope))
     except Exception:  # noqa: BLE001
         logger.warning("condition 求值失败: %s", expr)
         return False
@@ -73,14 +73,14 @@ class WorkflowEngine:
         def _persist_step() -> None:
             try:
                 self._manager.persist(session)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 logger.exception("步骤进度落库失败（不影响执行）")
 
         def _emit_step(cb, step, result) -> None:
             if cb is not None and result is not None:
                 try:
                     cb(session, step, result)
-                except Exception:  # noqa: BLE001
+                except Exception:
                     logger.exception("步骤回调失败（不影响执行）")
 
         workflow.validate(available_agents=set(self._registry.ids()))
@@ -210,7 +210,7 @@ class WorkflowEngine:
                 return
             try:
                 on_llm_chunk(session, step, kind, chunk)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 logger.exception("llm chunk 回调失败（不影响执行）")
 
         ctx = AgentContext(
@@ -228,18 +228,18 @@ class WorkflowEngine:
         session.module_results[agent_id] = result
         try:
             self._manager.persist(session)
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.exception("步骤开始进度落库失败（不影响执行）")
         if on_step_start is not None:
             try:
                 on_step_start(session, step, result)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 logger.exception("步骤开始回调失败（不影响执行）")
         try:
             result = agent.run(ctx)
             if result.status == ModuleStatus.PENDING:
                 result.status = ModuleStatus.DONE
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.exception("步骤 %s 执行失败", step.id)
             result.status = ModuleStatus.FAILED
             result.outputs = {"error": str(exc)}

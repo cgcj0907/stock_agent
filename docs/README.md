@@ -14,7 +14,7 @@
 | 8 | [08-frontend-plan.md](08-frontend-plan.md) | **前端规划**：Next.js + Vercel 前端设计与实施计划（素材库/设计系统/路由/数据模型/里程碑） | 写前端前必读 |
 | 9 | [09-module-contracts.md](09-module-contracts.md) | **统一模块契约**（方案 1：强约束标准版）：输入输出规范 / outputs 五段式骨架 / 逐模块 schema / 统一 Prompt / 统一降级态 | 模块间 handoff 与新增智能体时读 |
 | 10 | [10-fc-deployment.md](10-fc-deployment.md) | **阿里云 FC 部署**：镜像/Dockerfile/控制台配置/数据层机制/已知坑 | 部署与排查时读 |
-| 11 | [11-valuation-backlog.md](11-valuation-backlog.md) | **估值体系改进待办**：未实施项清单（数据门槛/优先级/方案） | 排期估值优化时读 |
+| 11 | [11-valuation-backlog.md](11-valuation-backlog.md) | **估值与成长体系改进待办**：未实施项清单（数据门槛/优先级/方案） | 排期估值/成长优化时读 |
 | 6 | [templates/module-spec.md](templates/module-spec.md) | **模块规格模板**：新增/完善模块时填写 | 开发某个模块时 |
 | 7 | [progress.md](progress.md) | **开发进度追踪**：勾选已完成任务，记录日期 | 每个里程碑结束时更新 |
 

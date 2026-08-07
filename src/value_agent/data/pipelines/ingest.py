@@ -49,6 +49,12 @@ def ingest_company(storage: MarketStorage, source: DataSource, code: str, years:
     n += _upsert_valid(storage, "daily_price", code, _with_retry(lambda: source.daily_prices(code)["records"]))
     n += _upsert_valid(storage, "valuation_history", code, _with_retry(lambda: source.valuation_history(code)["records"]))
     n += _upsert_valid(storage, "dividends", code, _with_retry(lambda: source.dividends(code)["records"]))
+    # 6.1：治理事件（best-effort，失败返回空；表未接入时不影响评分）
+    try:
+        gov = source.governance_events(code) if hasattr(source, "governance_events") else {}
+        n += storage.upsert("governance_events", code, (gov or {}).get("records", []) or [])
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[ingest] %s governance_events 失败（跳过治理事件）：%s", code, exc)
     logger.info("[ingest] %s 入库 %d 条", code, n)
     return n
 

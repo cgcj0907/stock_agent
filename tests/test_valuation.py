@@ -579,3 +579,76 @@ def test_ddm_min_spread_guard():
     assert ddm(0.8, 0.06, 0.08).value is not None
     # r=7%, g=6% → 价差 1% < 2% → 跳过（防 DDM 爆炸）
     assert ddm(0.8, 0.06, 0.07).value is None
+
+
+# ---------- backlog 2.x：三阶段 DCF / 次新股门槛 / 分红覆盖 / 微利保护 / 格雷厄姆 PE 门控 ----------
+
+def test_dcf_three_stage_conservative_than_two_stage():
+    """2.1：三阶段 DCF（高速5y+减速5y+永续）比两阶段更保守。"""
+    from value_agent.valuation.methods import dcf, dcf_three_stage
+
+    two = dcf(5.0, 0.15, 0.10, 0.025, years=10).value
+    three = dcf_three_stage(5.0, 0.15, 0.10, 0.025).value
+    assert three is not None and two is not None
+    assert three < two
+    assert dcf_three_stage(5.0, 0.15, 0.10, 0.025).params["decel_g"] == pytest.approx(0.075)
+
+
+def test_growth_routing_includes_three_stage():
+    """2.1：growth 路由启用 dcf_three_stage（且实现已注册）。"""
+    from value_agent.valuation.engine import IMPLEMENTED_METHODS, load_routing
+
+    assert "dcf_three_stage" in IMPLEMENTED_METHODS
+    assert "dcf_three_stage" in load_routing()["growth"]
+
+
+def test_new_stock_low_confidence_and_evidence():
+    """2.3：PE 样本不足 250 交易日 → 相对估值置信度降级 + evidence 提示。"""
+    from value_agent.valuation.engine import method_confidence
+
+    low = method_confidence("relative_median_pe", pe_n=100)
+    high = method_confidence("relative_median_pe", pe_n=300)
+    assert low < high
+
+
+def test_ddm_payout_unsustainable_note():
+    """2.4：分红率 >100% → DDM 标注可持续性存疑。"""
+    from value_agent.valuation.methods import ddm
+
+    r = ddm(3.0, 0.05, 0.10, eps=2.0)  # 分红率 150%
+    assert "可持续性存疑" in r.note
+    assert r.params.get("payout") == pytest.approx(1.5)
+    r2 = ddm(0.5, 0.05, 0.10, eps=5.0)  # 分红率 10%
+    assert "低估" in r2.note
+
+
+def test_micro_profit_normalization_for_non_cyclical():
+    """2.5：非周期微利股（当期 EPS < 多年中位 50%）→ relative_median_pe 用正常化 EPS。"""
+    from value_agent.valuation.engine import run_valuation
+
+    eps_hist = [5.0, 4.8, 5.2, 4.9, 5.1, 0.5]  # 最新 0.5 显著低于中位 ~5.0
+    r = run_valuation(
+        eps=0.5, bvps=20.0, pe_history=[12.0, 11.0, 13.0, 12.5], dividend=1.0,
+        business_type="consumer_monopoly", eps_history=eps_hist,
+    )
+    assert any("微利保护" in e for e in r.evidence)
+    rel = r.methods.get("relative_median_pe")
+    assert rel is not None and rel.params.get("eps_base") == "normalized"
+
+
+def test_graham_formula_gated_by_current_pe():
+    """2.6：当期 PE ≥ 10 → 格雷厄姆公式跳过（过时参数仅深度价值辅助）。"""
+    from value_agent.valuation.engine import run_valuation
+
+    r = run_valuation(
+        eps=4.0, bvps=30.0, pe_history=[15.0, 14.0, 16.0], dividend=1.0,
+        business_type="consumer_monopoly",
+    )
+    gf = r.methods.get("graham_formula")
+    assert gf is not None and gf.value is None
+    assert "跳过" in gf.note
+    r2 = run_valuation(
+        eps=4.0, bvps=30.0, pe_history=[8.0, 9.0, 7.5], dividend=1.0,
+        business_type="consumer_monopoly",
+    )
+    assert r2.methods["graham_formula"].value is not None

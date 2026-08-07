@@ -22,7 +22,11 @@ class M3GrowthAgent(Agent):
             raise RuntimeError("M3 需要数据访问（ctx.data）")
         try:
             fin = ctx.data.financials(ctx.session.company_code)
-            result = assess_growth(fin, default_growth=ctx.assumptions.get("growth_rate", 0.10))
+            result = assess_growth(
+                fin,
+                default_growth=ctx.assumptions.get("growth_rate", 0.10),
+                wacc=float(ctx.assumptions.get("wacc", 0.10)),  # 4.6：WACC 参数化
+            )
         except Exception as exc:  # noqa: BLE001
             return degraded_module_result(
                 self.spec.id,
@@ -35,6 +39,7 @@ class M3GrowthAgent(Agent):
                         "growth_confidence": "low",
                         "cyclicality_flag": False,
                         "prosperity_code": "flat",
+                        "growth_scenarios": {"conservative": None, "neutral": None, "optimistic": None},
                     },
                 },
             )
@@ -59,6 +64,8 @@ class M3GrowthAgent(Agent):
                     "growth_confidence": result.growth_confidence,
                     "cyclicality_flag": result.cyclicality_flag,
                     "prosperity_code": result.prosperity_code,
+                    # 4.4：增速情景区间（M4 DCF 用保守档）
+                    "growth_scenarios": result.scenarios,
                 },
             },
             evidence=result.evidence,

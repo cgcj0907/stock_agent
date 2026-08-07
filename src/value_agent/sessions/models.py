@@ -4,11 +4,11 @@ from __future__ import annotations
 import enum
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _parse_dt(value: str | None) -> datetime | None:
@@ -98,7 +98,7 @@ class ModuleResult:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "ModuleResult":
+    def from_dict(cls, d: dict) -> ModuleResult:
         return cls(
             module=d["module"],
             status=ModuleStatus(d.get("status", "pending")),
@@ -130,7 +130,7 @@ class Message:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "Message":
+    def from_dict(cls, d: dict) -> Message:
         return cls(
             role=d["role"],
             content=d["content"],
@@ -187,7 +187,7 @@ class Session:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "Session":
+    def from_dict(cls, d: dict) -> Session:
         session = cls(
             company_code=d["company_code"],
             company_name=d.get("company_name", ""),

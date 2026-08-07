@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 from value_agent.sessions.models import ModuleResult, ModuleStatus
 
@@ -30,7 +31,7 @@ class AgentSpec:
 class AgentContext:
     """Agent 运行时上下文：只读输入 + 会话 + 数据/LLM 访问入口。"""
 
-    session: "Session"
+    session: Session
     assumptions: dict
     inputs: dict[str, ModuleResult]  # 依赖 agent 的结果（按 agent id 索引）
     data: Any = None  # 数据访问层（后续接入 data/）
@@ -63,7 +64,7 @@ class AgentContext:
             if self.on_llm_chunk is not None:
                 try:
                     self.on_llm_chunk(self.step_id or "", kind, delta)
-                except Exception:  # noqa: BLE001
+                except Exception:
                     logger.warning("llm chunk 回调失败（不影响分析）", exc_info=True)
             if kind == "content":
                 parts.append(delta)

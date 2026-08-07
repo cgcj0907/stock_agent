@@ -6,6 +6,7 @@ AkShare 各接口底层来自不同公开页面，这里把「数据集 → 文�
 from __future__ import annotations
 
 import datetime
+from datetime import UTC
 
 
 def market_prefix(code: str) -> str:
@@ -26,7 +27,7 @@ def eastmoney_quote_url(code: str) -> str:
 
 def sina_financial_indicators_url(code: str) -> str:
     """新浪财经财务指标页（对应 stock_financial_analysis_indicator）。"""
-    year = datetime.date.today().year
+    year = datetime.datetime.now(UTC).date().year
     return (
         "https://money.finance.sina.com.cn/corp/go.php/"
         f"vFD_FinancialGuideLine/stockid/{code}/ctrl/{year}/displaytype/4.phtml"

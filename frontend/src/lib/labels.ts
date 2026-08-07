@@ -91,6 +91,9 @@ export const FIELD_LABELS: Record<string, string> = {
   debt_company: "公司杠杆",
   debt_median: "行业中位杠杆",
   erosion_signals: "规则层侵蚀信号",
+  cycle_notes: "周期属性备注",
+  debt_note: "杠杆口径说明",
+  competition_evidence: "竞争优势证据",
   durability: "持久性",
   trend: "趋势",
   // M6 治理
@@ -100,6 +103,8 @@ export const FIELD_LABELS: Record<string, string> = {
   pe_percentile: "PE 分位",
   pb_percentile: "PB 分位",
   position: "估值位置",
+  sentiment_heat: "情绪热度",
+  sentiment_signals: "情绪信号",
   // M8 安全边际
   price: "现价",
   discount: "折扣率",
@@ -150,6 +155,38 @@ export const FIELD_LABELS: Record<string, string> = {
   permanent_loss_paths: "永久损失路径",
   verdict: "反方结论",
   references: "参考文章",
+  // M6 治理（2026-08-07 契约字段）
+  governance_score: "治理评分",
+  governance_risk_codes: "治理风险码",
+  governance_risks: "治理风险",
+  capital_allocation_flag: "资本配置档位",
+  shareholder_alignment: "股东利益一致性",
+  shareholder_alignment_grade: "股东一致性档位",
+  disclosure_quality: "信息披露质量",
+  disclosure_quality_grade: "披露质量档位",
+  // M8 安全边际
+  mos_state: "安全边际状态",
+  buy_tranches: "分批建仓档位",
+  sell_reference: "卖出参考",
+  // M9 风险
+  vetoes: "一票否决",
+  veto_flags: "否决标记",
+  max_severity: "最大严重度",
+  max_loss_scenario: "压力情景",
+  monitor_candidates: "监控候选",
+  expected_loss: "期望损失",
+  estimated_downside_pct: "估算最大回撤",
+  estimated_downside_amount: "回撤金额",
+  suggested_position_cap: "建议仓位上限",
+  // M10 决策
+  decision_code: "决策码",
+  blocked_by_veto: "被否决",
+  decision_reasons: "决策理由",
+  // M11 监控
+  message: "说明",
+  rule_type: "规则类型",
+  action: "动作",
+  source_module: "来源模块",
 };
 
 export function fieldLabel(key: string): string {

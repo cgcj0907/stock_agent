@@ -36,7 +36,7 @@ class AgentRegistry:
     def ids(self) -> list[str]:
         return sorted(self._agents)
 
-    def extend(self, other: "AgentRegistry", *, overwrite: bool = False) -> None:
+    def extend(self, other: AgentRegistry, *, overwrite: bool = False) -> None:
         """合并另一个注册表（用于叠加自定义智能体）。"""
         for agent in other._agents.values():
             self.register(agent, overwrite=overwrite)

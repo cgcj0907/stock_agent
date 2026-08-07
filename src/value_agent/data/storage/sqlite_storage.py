@@ -23,6 +23,12 @@ class SqliteMarketStorage(MarketStorage):
         self._conn = sqlite3.connect(path)
         for table in SCHEMA:
             self._conn.execute(_ddl(table))
+        # 存量库迁移：老 daily_price 表没有 turnover 列（情绪指标），补上（幂等；
+        # SQLite 老版本不支持 ADD COLUMN IF NOT EXISTS，用 PRAGMA 判断）
+        if "turnover" not in {
+            row[1] for row in self._conn.execute("PRAGMA table_info(daily_price)")
+        }:
+            self._conn.execute("ALTER TABLE daily_price ADD COLUMN turnover REAL")
         self._conn.commit()
 
     def upsert(self, table: str, code: str, records: list[dict]) -> int:

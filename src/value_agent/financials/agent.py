@@ -31,6 +31,7 @@ class M2FinancialQualityAgent(Agent):
                     "metrics": {},
                     "signals": [],
                     "summary": {"说明": "财务数据不可用"},
+                    "handoff": {"quality_score": None, "risk_signal_codes": []},
                 },
             )
         score = llm_score(
@@ -52,6 +53,12 @@ class M2FinancialQualityAgent(Agent):
                 "metrics": result.metrics,
                 "signals": [sig.to_dict() for sig in result.signals],
                 "summary": result.details,
+                # 下游契约（docs/09-module-contracts.md §4 M2）：M9 用 handoff.quality_score /
+                # risk_signal_codes，不再读不存在的 outputs["score"]（旧断点：生产恒不触发）
+                "handoff": {
+                    "quality_score": score,
+                    "risk_signal_codes": [sig.code for sig in result.signals],
+                },
             },
             evidence=result.evidence,
         )

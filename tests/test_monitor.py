@@ -1,7 +1,7 @@
 """M11 监控测试：规则生成 + 每日运行器触发。"""
 
 from value_agent.monitor.engine import build_monitor_plan
-from value_agent.monitor.runner import run_daily_monitor
+from value_agent.monitor.runner import MonitorEvent, notify_webhooks, run_daily_monitor
 from value_agent.sessions.models import ModuleResult, ModuleStatus, Session, SessionStatus
 
 
@@ -17,8 +17,16 @@ def test_monitor_plan_generates_rules():
             "prosperity": "下行",
             "handoff": {"prosperity_code": "down"},
         }),
-        "M2_financial_quality": _mod("M2_financial_quality", {"signals": ["ROE 突变"]}),
-        "M9_risk": _mod("M9_risk", {"risk_items": ["护城河不足"]}),
+        "M2_financial_quality": _mod("M2_financial_quality", {"signals": [
+            {"code": "ROE_SPIKE", "severity": "high", "metric": "roe", "message": "ROE 突变"},
+        ]}),
+        "M9_risk": _mod("M9_risk", {
+            "risk_items": [
+                {"id": "R-001", "trigger": "width=narrow", "impact": "护城河不足",
+                 "severity": "high", "source_module": "M5_moat"},
+            ],
+            "monitor_candidates": ["R-001"],
+        }),
     }
     plan = build_monitor_plan(results)
     types = [r.rule_type for r in plan.rules]
@@ -33,7 +41,7 @@ def test_monitor_plan_generates_rules():
     assert buy.source_module == "M8_safety_margin"
     assert buy.action == "action"
     risk = next(r for r in plan.rules if r.rule_type == "risk_watch")
-    assert risk.source_module == "M9_risk"
+    assert risk.source_module == "M5_moat"  # 风险项真实来源模块
 
 
 def test_monitor_plan_high_valuation_adds_sell():
@@ -67,6 +75,65 @@ def test_daily_runner_records_monitor_hits():
     assert hit["rule_type"] == "price_buy"
     assert hit["severity"] == "info"
     assert "occurred_at" in hit
+
+
+
+def test_monitor_plan_consumes_monitor_candidates():
+    """契约：M11 只把 M9 的 monitor_candidates（high/critical）转成 risk_watch，medium 不转。"""
+    results = {
+        "M9_risk": _mod("M9_risk", {
+            "risk_items": [
+                {"id": "R-001", "trigger": "t_high", "impact": "高严重度风险", "severity": "high",
+                 "source_module": "M5_moat"},
+                {"id": "R-002", "trigger": "t_medium", "impact": "中严重度风险", "severity": "medium",
+                 "source_module": "M3_growth"},
+            ],
+            "monitor_candidates": ["R-001"],
+        }),
+    }
+    plan = build_monitor_plan(results)
+    risk_watch = [r for r in plan.rules if r.rule_type == "risk_watch"]
+    assert [r.trigger for r in risk_watch] == ["t_high"]
+
+
+def test_monitor_plan_falls_back_to_all_items_without_candidates():
+    """无 monitor_candidates → 回退全量**结构化** risk_items；字符串形态不再兼容（9.6 收口）。"""
+    results = {
+        "M9_risk": _mod("M9_risk", {
+            "risk_items": [
+                {"id": "R-001", "trigger": "t1", "impact": "护城河不足", "severity": "high",
+                 "source_module": "M5_moat"},
+                "旧字符串形态",  # 9.6：忽略非对象
+            ],
+        }),
+    }
+    plan = build_monitor_plan(results)
+    risk_watch = [r for r in plan.rules if r.rule_type == "risk_watch"]
+    assert len(risk_watch) == 1 and risk_watch[0].source_module == "M5_moat"
+
+
+def test_monitor_plan_dedup_m2_sourced_risk_items():
+    """M2 信号已由 M2 直接转 fundamental_watch，M9 聚合的同源 risk_item 不再重复转 risk_watch。"""
+    results = {
+        "M2_financial_quality": _mod("M2_financial_quality", {
+            "signals": [{"code": "LOSS_YEAR", "severity": "high", "metric": "roe",
+                         "message": "存在亏损年份"}],
+        }),
+        "M9_risk": _mod("M9_risk", {
+            "risk_items": [
+                {"id": "R-001", "trigger": "LOSS_YEAR", "impact": "存在亏损年份", "severity": "high",
+                 "source_module": "M2_financial_quality"},
+                {"id": "R-002", "trigger": "erosion_risk", "impact": "护城河被侵蚀", "severity": "high",
+                 "source_module": "M5_moat"},
+            ],
+            "monitor_candidates": ["R-001", "R-002"],
+        }),
+    }
+    plan = build_monitor_plan(results)
+    fundamental = [r for r in plan.rules if r.rule_type == "fundamental_watch"]
+    risk_watch = [r for r in plan.rules if r.rule_type == "risk_watch"]
+    assert len(fundamental) == 1
+    assert [r.trigger for r in risk_watch] == ["erosion_risk"]
 
 
 def test_monitor_plan_replays_prior_warn_hits():
@@ -107,3 +174,271 @@ def test_daily_runner_skips_pending_sessions():
     session = _session_with_m8(buy=42.5, sell=179.69)
     session.status = SessionStatus.CREATED
     assert run_daily_monitor([session], _CheapSource()) == []
+
+
+# ---------- M11 消费 M10 决策（契约 §4 M11：依赖 M10_decision） ----------
+
+def test_monitor_plan_consumes_m10_buy_decision():
+    """M10 决策=buy → 生成 decision_watch 规则（来源 M10_decision）。"""
+    results = {
+        "M10_decision": _mod("M10_decision", {
+            "decision_code": "buy",
+            "blocked_by_veto": False,
+            "position": 0.1,
+            "handoff": {"decision_code": "buy", "blocked_by_veto": False, "position": 0.1},
+        }),
+    }
+    plan = build_monitor_plan(results)
+    dec = [r for r in plan.rules if r.rule_type == "decision_watch"]
+    assert len(dec) == 1
+    assert dec[0].source_module == "M10_decision"
+    assert "buy" in dec[0].trigger
+    assert dec[0].action == "watch"
+
+
+def test_monitor_plan_m10_veto_adds_avoid_watch():
+    """M10 一票否决/avoid → decision_watch 规则标记解除前不建仓。"""
+    results = {
+        "M10_decision": _mod("M10_decision", {
+            "decision_code": "avoid",
+            "blocked_by_veto": True,
+            "handoff": {"decision_code": "avoid", "blocked_by_veto": True, "position": 0.0},
+        }),
+    }
+    plan = build_monitor_plan(results)
+    dec = [r for r in plan.rules if r.rule_type == "decision_watch"]
+    assert len(dec) == 1
+    assert "avoid" in dec[0].trigger
+    assert dec[0].severity == "warn"
+
+
+def test_monitor_plan_ignores_missing_m10():
+    """M10 未运行（如监控历史会话缺 M10）→ 不生成 decision_watch，不报错。"""
+    results = {"M8_safety_margin": _mod("M8_safety_margin", {"buy_price": 10, "sell_price": 100})}
+    plan = build_monitor_plan(results)
+    assert not any(r.rule_type == "decision_watch" for r in plan.rules)
+    assert any(r.rule_type == "price_buy" for r in plan.rules)
+
+
+def test_daily_runner_hits_persist_roundtrip(tmp_path):
+    """I-2 记忆闭环：cmd_monitor 必须把命中写回存储；重载后仍在（此前只改内存即丢）。"""
+    from value_agent.sessions.store import SqliteStore
+
+    store = SqliteStore(str(tmp_path / "sessions.db"))
+    session = _session_with_m8(buy=42.5, sell=179.69)
+    store.save(session)
+
+    loaded = store.list()
+    assert not loaded[0].monitor_hits
+    events = run_daily_monitor(loaded, _CheapSource())
+    assert len(events) == 1
+    for s in loaded:  # cmd_monitor 的写回行为：复用同一份列表
+        if s.monitor_hits:
+            store.save(s)
+
+    again = store.list()
+    assert len(again[0].monitor_hits) == 1
+    assert again[0].monitor_hits[0]["rule_type"] == "price_buy"
+
+
+def test_memory_loop_end_to_end(tmp_path):
+    """I-2 端到端：每日命中 → 持久化 → 新会话继承 → M11 回放为回顾规则。"""
+    from value_agent.sessions import SessionManager
+    from value_agent.sessions.store import SqliteStore
+
+    class _ExpensiveSource:
+        def daily_prices(self, code, start=None, end=None):
+            return {"records": [{"trade_date": "20260804", "close": 200.0}]}
+
+    store = SqliteStore(str(tmp_path / "sessions.db"))
+    store.save(_session_with_m8(buy=42.5, sell=179.69))
+
+    # 第 1 天：price_sell（warn）命中并持久化
+    loaded = store.list()
+    events = run_daily_monitor(loaded, _ExpensiveSource())
+    assert len(events) == 1 and events[0].rule_type == "price_sell"
+    for s in loaded:
+        if s.monitor_hits:
+            store.save(s)
+
+    # 第 2 天：新分析会话继承命中（cmd_analyze 行为）
+    manager = SessionManager(store)
+    fresh = manager.create_session("600519", "测试", monitor_hits=manager.prior_monitor_hits("600519"))
+    assert len(fresh.monitor_hits) == 1 and fresh.monitor_hits[0]["severity"] == "warn"
+
+    # M11 把 warn 命中回放为 prior_hit_review 回顾规则
+    plan = build_monitor_plan(
+        {"M8_safety_margin": _mod("M8_safety_margin", {"buy_price": 42.5, "sell_price": 179.69})},
+        prior_hits=fresh.monitor_hits,
+    )
+    reviews = [r for r in plan.rules if r.rule_type == "prior_hit_review"]
+    assert len(reviews) == 1
+    assert "price_sell" in reviews[0].trigger
+
+
+# ---------- 9.x：message 字段 / severity 透传 / 质量加权评分 / runner 消费规则 ----------
+
+def _m11_outputs(rules: list[dict]) -> dict:
+    return {"monitor_rules": rules, "rule_count": len(rules)}
+
+
+def test_monitor_rule_uses_message_field():
+    """9.4：契约字段 message（替代旧 description），并带结构化 params。"""
+    results = {
+        "M8_safety_margin": _mod("M8_safety_margin", {"buy_price": 42.5, "sell_price": 179.69}),
+    }
+    plan = build_monitor_plan(results)
+    buy = next(r for r in plan.rules if r.rule_type == "price_buy")
+    assert buy.message == "跌破买入区间，可分批建仓"
+    assert not hasattr(buy, "description")
+    assert buy.params.get("price") == 42.5  # runner 消费的结构化阈值
+
+
+def test_monitor_plan_m2_severity_passthrough():
+    """9.7：M2 critical 信号不再被拍平成 warn。"""
+    results = {
+        "M2_financial_quality": _mod("M2_financial_quality", {
+            "signals": [
+                {"code": "FRAUD", "severity": "critical", "metric": "roe", "message": "造假信号"},
+                {"code": "LOW", "severity": "medium", "metric": "roe", "message": "一般信号"},
+            ],
+        }),
+    }
+    plan = build_monitor_plan(results)
+    fundamental = [r for r in plan.rules if r.rule_type == "fundamental_watch"]
+    sev_by_msg = {r.message: r.severity for r in fundamental}
+    assert sev_by_msg["造假信号"] == "critical"
+    assert sev_by_msg["一般信号"] == "warn"
+
+
+def test_monitor_plan_quality_weighted_score():
+    """9.8：评分按覆盖维度 + severity 权重，而非规则条数计数。"""
+    results = {
+        "M8_safety_margin": _mod("M8_safety_margin", {"buy_price": 10, "sell_price": 100}),
+        "M7_market": _mod("M7_market", {"position": "合理"}),
+        "M3_growth": _mod("M3_growth", {"handoff": {"prosperity_code": "down"}}),
+        "M2_financial_quality": _mod("M2_financial_quality", {"signals": [
+            {"code": "X", "severity": "high", "metric": "m", "message": "m"},
+        ]}),
+    }
+    plan = build_monitor_plan(results)
+    # 覆盖 price + prosperity + fundamental 三维 → 40 + 30 + warn 加成
+    assert plan.score >= 70 and plan.score <= 100
+    assert any("覆盖维度" in e for e in plan.evidence)
+
+
+def test_monitor_plan_mos_expensive_adds_watch():
+    """M8-6.4：mos_state=expensive → 补「估值偏高，暂停买入」watch 规则。"""
+    results = {
+        "M8_safety_margin": _mod("M8_safety_margin", {
+            "buy_price": 42.5, "sell_price": 179.69,
+            "handoff": {"mos_state": "expensive"},
+        }),
+    }
+    plan = build_monitor_plan(results)
+    mos = [r for r in plan.rules if r.rule_type == "mos_watch"]
+    assert len(mos) == 1 and mos[0].severity == "warn"
+    assert "暂停买入" in mos[0].message
+
+
+def test_monitor_plan_sentiment_watch():
+    """7.14：情绪热度过热 → sentiment_watch 规则。"""
+    results = {
+        "M7_market": _mod("M7_market", {"position": "合理", "sentiment_heat": 0.85}),
+    }
+    plan = build_monitor_plan(results)
+    senti = [r for r in plan.rules if r.rule_type == "sentiment_watch"]
+    assert len(senti) == 1 and senti[0].severity == "warn"
+    assert "过热" in senti[0].message
+
+
+class _RulesSource:
+    """最新价 15.0。"""
+
+    def daily_prices(self, code, start=None, end=None):
+        return {"records": [{"trade_date": "20260804", "close": 15.0}]}
+
+
+def _session_with_rules(rules: list[dict], code="600519") -> Session:
+    s = Session(company_code=code, company_name="测试")
+    s.status = SessionStatus.COMPLETED
+    s.module_results["M11_monitor"] = _mod("M11_monitor", _m11_outputs(rules))
+    return s
+
+
+def test_daily_runner_consumes_monitor_rules():
+    """9.1：runner 消费 M11 生成的 monitor_rules（price_buy 用 params.price 阈值）。"""
+    session = _session_with_rules([
+        {"rule_type": "price_buy", "trigger": "现价 ≤ 42.5 元", "message": "跌破买入区间",
+         "severity": "info", "source_module": "M8_safety_margin", "action": "action",
+         "params": {"price": 42.5}},
+    ])
+    events = run_daily_monitor([session], _RulesSource())
+    assert len(events) == 1
+    assert events[0].rule_type == "price_buy"
+    assert "15.0" in events[0].message
+
+
+def test_daily_runner_decision_watch_veto_event():
+    """8.4：decision_watch（blocked_by_veto）进 runner 事件 → 「解除前不建仓」提醒。"""
+    session = _session_with_rules([
+        {"rule_type": "decision_watch", "trigger": "M10 决策=avoid", "message": "决策回避：一票否决生效，解除前不建仓",
+         "severity": "warn", "source_module": "M10_decision", "action": "watch",
+         "params": {"blocked_by_veto": True}},
+    ])
+    events = run_daily_monitor([session], _RulesSource())
+    assert len(events) == 1
+    assert events[0].rule_type == "decision_watch"
+    assert "解除前不建仓" in events[0].message
+
+
+def test_daily_runner_critical_watch_alert():
+    """9.2：非价格 critical 级 watch → 独立告警事件（可执行路径）。"""
+    session = _session_with_rules([
+        {"rule_type": "risk_watch", "trigger": "erosion_risk", "message": "护城河被侵蚀",
+         "severity": "critical", "source_module": "M5_moat", "action": "watch"},
+    ])
+    events = run_daily_monitor([session], _RulesSource())
+    assert len(events) == 1
+    assert events[0].rule_type == "risk_watch"
+    assert events[0].severity == "critical"
+
+
+def test_daily_runner_falls_back_to_m8_without_rules():
+    """旧会话无 M11 规则 → 回退 M8 buy/sell（历史行为）。"""
+    session = _session_with_m8(buy=42.5, sell=179.69)
+    events = run_daily_monitor([session], _RulesSource())
+    assert len(events) == 1 and events[0].rule_type == "price_buy"
+
+
+def test_notify_webhooks_pushes_events():
+    """9.10：notify_webhooks 推送飞书/企微（httpx MockTransport），失败兜底不抛错。"""
+    import httpx
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.host in ("feishu.example", "wechat.example")
+        return httpx.Response(200, json={"ok": True})
+
+    transport = httpx.MockTransport(handler)
+    orig_post = httpx.post
+    httpx.post = lambda url, **kw: transport.handle_request(
+        httpx.Request("POST", url, json=kw.get("json"), headers={"content-type": "application/json"})
+    )
+    import os
+    old_feishu, old_wechat = os.environ.get("FEISHU_WEBHOOK"), os.environ.get("WECHAT_WEBHOOK")
+    os.environ["FEISHU_WEBHOOK"] = "https://feishu.example/hook"
+    os.environ["WECHAT_WEBHOOK"] = "https://wechat.example/hook"
+    try:
+        ev = MonitorEvent("600519", "测试", "price_buy", "现价低", "info")
+        notify_webhooks([ev])  # 不应抛错
+        notify_webhooks([])    # 空事件不推送
+    finally:
+        httpx.post = orig_post
+        if old_feishu is None:
+            os.environ.pop("FEISHU_WEBHOOK", None)
+        else:
+            os.environ["FEISHU_WEBHOOK"] = old_feishu
+        if old_wechat is None:
+            os.environ.pop("WECHAT_WEBHOOK", None)
+        else:
+            os.environ["WECHAT_WEBHOOK"] = old_wechat

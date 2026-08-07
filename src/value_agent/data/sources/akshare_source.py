@@ -193,6 +193,7 @@ class AkShareDataSource(DataSource):
                 "high": to_float(r.get("最高")),
                 "low": to_float(r.get("最低")),
                 "volume": to_float(r.get("成交量")),  # 单位：手
+                "turnover": to_float(r.get("换手率")),  # %，M7 情绪指标
             }
             for _, r in df.iterrows()
         ]
@@ -235,6 +236,39 @@ class AkShareDataSource(DataSource):
             for d, v in sorted(merged.items())
         ]
         return {"records": records, "source": self.name, "url": source_url("valuation_history", code)}
+
+    def governance_events(self, code: str) -> dict:
+        """治理事件（M6 非分红证据，backlog 6.1）：best-effort 拉取，失败返回空（中性计）。
+
+        当前免费源口径不稳定（东财 F10 质押/减持/回购），逐项 try；任何一项可用即返回，
+        全部失败返回空 records——M6 引擎对空事件按中性计，不臆测、不降级。
+        """
+        records: list[dict] = []
+        try:
+            # 股权质押（东财：stock_gpzy_pledge_ratio_em 需日期参数，先取最新交易日）
+            today = datetime.datetime.now(datetime.UTC).date().strftime("%Y-%m-%d")
+            df = self._retry(
+                "pledge_ratio",
+                lambda: self._ak.stock_gpzy_pledge_ratio_em(symbol=code, date=today),
+            )
+            if df is not None and not df.empty:
+                row = df.iloc[-1]
+                ratio = None
+                try:
+                    ratio = float(str(row.get("质押比例") or "").replace("%", "")) / 100
+                except (TypeError, ValueError):
+                    pass
+                records.append({
+                    "kind": "pledges",
+                    "event_date": str(row.get("日期") or "").replace("-", ""),
+                    "holder": str(row.get("股东名称") or ""),
+                    "ratio": ratio,
+                    "description": f"股权质押比例 {ratio:.0%}" if ratio is not None else "存在股权质押",
+                })
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[governance] %s 质押数据获取失败（%s），继续尝试其他事件", code, type(exc).__name__)
+        # 回购/减持等公告类事件免费源口径不稳定，后续接入；当前无则中性计
+        return {"records": records, "source": self.name}
 
     def dividends(self, code: str) -> dict:
         return self._retry("dividends", lambda: self._dividends(code))

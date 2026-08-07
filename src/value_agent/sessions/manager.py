@@ -4,7 +4,7 @@
 """
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
 from .models import (
     Message,
@@ -17,6 +17,17 @@ from .models import (
 )
 from .state_machine import transition
 from .store import SessionStore
+
+
+def _dedupe_monitor_hits(hits: list[dict], max_items: int = 20) -> list[dict]:
+    """I-2 跨会话记忆继承：按 (rule_type, severity) 收敛保留最近一次命中，
+    并限制条数，避免重复命中在下次分析时刷屏（历史命中只做回顾，不做计数）。"""
+    latest: dict[tuple[str, str], dict] = {}
+    for hit in hits:
+        key = (hit.get("rule_type", ""), hit.get("severity", ""))
+        latest[key] = hit  # 命中按时间升序，后出现的覆盖
+    return list(latest.values())[-max_items:]
+
 
 # 内置流水线执行顺序（默认工作流基于此生成）
 PIPELINE_ORDER: list[ModuleName] = [
@@ -36,6 +47,7 @@ PIPELINE_ORDER: list[ModuleName] = [
 # 重算依赖：模块 -> 直接依赖模块（改依赖需重跑下游）
 MODULE_DEPENDENCIES: dict[ModuleName, set[ModuleName]] = {
     ModuleName.M3: {ModuleName.M2},
+    ModuleName.M7: {ModuleName.M1},  # 生意类型 → 主估值指标（周期/银行看 PB）
     ModuleName.M4: {
         ModuleName.M1,
         ModuleName.M2,
@@ -43,14 +55,13 @@ MODULE_DEPENDENCIES: dict[ModuleName, set[ModuleName]] = {
         ModuleName.M5,
         ModuleName.M6,
     },
-    ModuleName.M8: {ModuleName.M4, ModuleName.M7},
-    ModuleName.M9: {
-        ModuleName.M2,
-        ModuleName.M3,
-        ModuleName.M5,
-        ModuleName.M6,
-        ModuleName.M7,
-        ModuleName.M8,
+    ModuleName.M5: {ModuleName.M1},  # 5.8：M5 软读 M1 business_type → 显式声明依赖（先 M1 后 M5）
+    ModuleName.M8: {  # 6.1：确定性分级消费 M5 moat_width + M2/M3 风险代理
+        ModuleName.M2, ModuleName.M3, ModuleName.M4, ModuleName.M5, ModuleName.M7,
+    },
+    ModuleName.M9: {  # 8.5：压力情景接入 M4 内在价值区间（intrinsic_range + current_price）
+        ModuleName.M2, ModuleName.M3, ModuleName.M4, ModuleName.M5,
+        ModuleName.M6, ModuleName.M7, ModuleName.M8,
     },
     ModuleName.M10: {  # 维度评分消费全部上游 score + M9 veto
         ModuleName.M1, ModuleName.M2, ModuleName.M3, ModuleName.M4,
@@ -82,7 +93,7 @@ def _affected_modules(modules: Iterable[ModuleName]) -> set[ModuleName]:
             continue
         affected.add(m)
         for dep in reverse.get(m, set()):  # 下游（结果失效需级联重算）
-            queue.append(dep)
+            queue.append(dep)  # noqa: PERF402 (BFS 队列追加，非列表拷贝)
     return affected
 
 
@@ -108,6 +119,7 @@ class SessionManager:
         workflow_steps: list[dict] | None = None,
         llm_config: dict | None = None,
         model_version: str = "0.1.0",
+        monitor_hits: list[dict] | None = None,
     ) -> Session:
         session = Session(
             company_code=company_code,
@@ -118,11 +130,35 @@ class SessionManager:
             workflow_steps=workflow_steps,
             llm_config=llm_config,
             model_version=model_version,
+            monitor_hits=list(monitor_hits or []),
         )
         for module in PIPELINE_ORDER:
             session.module_results[module.value] = ModuleResult(module=module.value)
         self._store.save(session)
         return session
+
+    def latest_completed(self, company_code: str) -> Session | None:
+        """同标的最近一次已完成会话（I-2 跨会话记忆继承来源）。
+
+        供新分析继承 monitor_hits：保证监控命中能跨分析会话延续。
+        """
+        completed = [
+            s for s in self._store.list()
+            if s.company_code == company_code and s.status == SessionStatus.COMPLETED
+        ]
+        if not completed:
+            return None
+        return max(completed, key=lambda s: s.updated_at)
+
+    def prior_monitor_hits(self, company_code: str, max_items: int = 20) -> list[dict]:
+        """I-2 跨会话记忆继承：同标的最近一次已完成会话的命中（去重收敛后）。
+
+        新分析会话用它作为 prior_hits 注入 M11，保证监控命中跨分析延续。
+        """
+        prev = self.latest_completed(company_code)
+        if prev is None:
+            return []
+        return _dedupe_monitor_hits(prev.monitor_hits, max_items=max_items)
 
     # ---- 追问 / 重算 ----
     def add_message(

@@ -15,10 +15,94 @@
 | S5 M10 决策报告 | ✅ 评分卡+备忘录完成（M10/M11 占位） |
 | S6 M11 + 回测 | ✅ 完成 2026-08-04 |
 
+> ✅ 2026-08-07 **M10 决策输出修复（从「综合评分器」走向「可信最终决策器」）**：
+> ① 修高优先级漏洞——`M10DecisionAgent.run()` 原先用 `apply_band(total, vetoed)` 重算结论，
+> 不带 `mos_state` 约束，导致 M8 安全边际门禁（expensive → 禁止 buy）在真实 Agent 输出里被冲掉；
+> 现在 LLM 校准后的最终总分仍走 `run_decision(total_override=...)` 同一决策函数，
+> 否决 / M8 门禁等硬约束统一基于最终总分生效（含回归测试：LLM 抬分到 90 也不得覆盖门禁）；
+> ② 补契约字段——输出 `qualitative.decision_reasons[]` + `handoff.decision_code/blocked_by_veto/position`
+> （§4 M10），顶层字段保留向后兼容（memo/快照/前端不受影响）；
+> ③ M11 真正消费 M10——按 `handoff.decision_code/blocked_by_veto/position` 生成 `decision_watch` 规则
+> （avoid/veto → warn 跟踪解除；buy/watch → info 跟踪验证），M10 不再只是展示层；
+> ④ M10/M11 改走 `ctx.inputs`（只读 spec.inputs 声明的模块），不再直接读全量
+> `session.module_results`，局部重跑 / 分支工作流边界干净；
+> ⑤ 顺带补回 M9 `handoff.veto_flags` 消费（经 `vetoes[]` 解析 reason，兼容旧 `outputs.veto`，
+> 此前工作区实现缺失、靠陈旧 pyc 掩盖）；新增 11 个测试（M10 agent 门禁/契约/边界 ×6、
+> M11 消费 M10 ×3、scoring 契约输入 ×2），相关 76 通过。
+
 > 📋 已讨论但**尚未实施**的估值改进见 [11-valuation-backlog.md](11-valuation-backlog.md)
-> （NAV/清算价值、Owner Earnings 完全体、三阶段 DCF、回测权重、次新股门槛、保险 EV 等）。
+> （NAV/清算价值、Owner Earnings 完全体、回测权重、保险 EV 等数据源/回测驱动项；
+> 第二批已实施清单见该文件文末「已实施（第二批）」）。
+
+> ✅ 2026-08-07 **backlog 第二批（估值/护城河/治理/市场/风险/决策/监控）**：
+> ① 估值——三阶段 DCF（growth 启用、保守化）、次新股最少样本门槛（PE<250 交易日）、
+> DDM 分红覆盖校验、微利股正常化保护下沉、格雷厄姆公式 PE<10 门控；
+> ② M3——增速情景区间（保守档喂 DCF）、WACC 参数化、CAGR 多年几何均值、ROE/负债率与 EPS 解耦；
+> ③ M5——宽度合成规则参数化（config）、跨周期 ROE/利润率/杠杆固定 8 年窗口、M5→M1 依赖显式化、
+> 竞争证据内容校验（类别词+情绪过滤）、情绪词表扩充；
+> ④ M6——质押/减持比例分级、高危码 veto_candidate、降级态中性 50+DATA_UNAVAILABLE、
+> 结构化档位字段、治理定性进 memo、`governance_events` 表落库（SCHEMA/ingest/AkShare 质押 best-effort）；
+> ⑤ M8——要求折扣按确定性分级（moat×风险修正，[0.2,0.6]）、分批建仓档位、卖出纪律收敛（×1.1+分位>90%）、
+> M11 消费 mos_state、正常态 meta.reason_codes；
+> ⑥ M7——主指标读路由配置、自然年窗口、winsorize、情绪参数进 config、高估+过热加扣、
+> 换手率长短分位、M11 情绪规则、M9 消费情绪（升级/接飞刀）；
+> ⑦ M9——期望损失 P×L 排序、压力情景接 M4 内在价值（绝对回撤+仓位上限）、红队 veto_candidate 闭环、
+> M9/M10 治理维度解耦、风险项去重、风险清单进 memo；
+> ⑧ M10——LLM 校准 ±15 幅度保护、仓位联动安全边际/风险、LLM 定性理由、core_facts 分组、
+> 决策快照含 reasons/handoff、权重/档位读 config；
+> ⑨ M11——runner 消费 monitor_rules、非价格 watch 可执行、description→message、severity 透传、
+> 质量加权评分、cmd_monitor 会话存储与生产一致、webhook 单测；
+> ⑩ 工程质量——整库 ruff 0 error、raw 截断、前端 labels/catalog 对齐、契约测试补 8.10/8.11/5.8。
+> 全量 **350 通过**（原 312 + 新增 38）。
 
 ---
+
+> ✅ 2026-08-07 **M9 风险与否决补强（从「风险聚合器」走向「永久损失防线」）**：
+> ① 修 M2 分数断点——M2 输出 `handoff.quality_score / risk_signal_codes`（契约 §4 M2），
+> M9 改读 handoff 并回退 `ModuleResult.score`（旧读不存在的 `outputs["score"]`，M2<30 否决生产恒不触发；
+> 测试改真实输出形状 + 降级回退回归）；
+> ② 补设计否决规则——造假信号命中（M2 多项红旗 ≥2）、审计非标（M6 `AUDIT_QUALIFIED` 白名单）、
+> 质押率 > 80%（M6 规则层风险码透传 `ratio`）、行业明确下行 + 高杠杆（M3 prosperity=down × M2 负债率 ≥60%）；
+> ③ 风险清单按严重度排序 + 严重度加权评分（critical 40 / high 25 / medium 10 / low 4），
+> 新增 `max_loss_scenario` 压力情景（景气腰斩 + 估值腰斩，基于 M8 折扣率估算最大回撤）；
+> ④ 契约收口——M9 输出 `handoff.veto_flags / max_severity / monitor_candidates`，
+> M10 改读 `veto_flags`（经 vetoes[] 解析 reason，兼容旧 `outputs.veto`）；
+> ⑤ M11 只消费 `monitor_candidates` 转监控规则（字段缺失回退全量），并去重 M2 同源信号双份规则；
+> ⑥ 新增 15 个测试，全量 299 通过。
+
+> ✅ 2026-08-07 **M6 治理与资本配置修复（不再是纯分红代理）**：
+> ① 规则层补非分红证据——数据源 `governance_events`（质押/减持/监管处罚/审计变更/并购回报/回购）
+> 进入评分并映射结构化 `risk_codes`（事件未接入时中性计，不臆测）；
+> ② LLM 定性 schema 对齐契约（shareholder_alignment / capital_allocation / governance_risks[] /
+> disclosure_quality），合法 `governance_risks` 回填 `handoff.governance_risk_codes` + `signals`（M9 消费闭环）；
+> ③ 修 M9 断点——改读 `handoff.governance_score`（旧读 `outputs["score"]`，该键不存在导致
+> 生产分支恒不触发，测试靠手工塞 `"score"` 掩盖）+ 消费 `governance_risk_codes`（severity 进 Risk Registry、high 进监控候选）；
+> ④ `handoff.governance_score` = 最终分数（含 LLM 评分校准），M4/M9/M10 同口径；
+> ⑤ 新增 11 个测试（M6 引擎 ×4、M6 agent ×5、M9 消费 ×2），全量 284 通过。
+
+> ✅ 2026-08-07 **M8 契约断点补齐（reason_codes 枚举 + 高估态真实输出 + M10 消费 mos_state）**：
+> ① `ReasonCode` 补 `PRICE_ABOVE_INTRINSIC`（此前文档 §4 M8 有、枚举缺失，validate_meta 会拒收）；
+> ② M8 引擎/智能体按状态输出 reason_codes——现价高于内在价值上沿 → `PRICE_ABOVE_INTRINSIC`，
+> 数据不足 → `INPUT_MISSING`，正常态空数组，`handoff.reason_codes` 不再恒为 `[]`；
+> ③ M10 真实消费 `mos_state`：`expensive` 时禁止 buy（评分再高也只给 watch/关注，仓位 5%），
+> 落地契约「M10 消费 mos_state」声明（此前仅展示层消费）；④ 新增 8 个测试
+> （契约枚举 ×1、M8 引擎 reason_codes ×3、M8 智能体 ×2、M10 门禁 ×2），全绿。
+
+> ✅ 2026-08-07 **M7 价格与情绪补全（情绪落地 + 行业主指标 + 10 年口径）**：① **换手率情绪真正进结论**——
+> 东财日线新增 `turnover`（换手率）字段并落库（SCHEMA/迁移/schema.sql 同步），M7 把最新换手率
+> 历史分位作为情绪热度，过热 −5 分 / 过冷 +5 分（只调置信度、不改价格位置），handoff 新增
+> `sentiment_heat`；② **按生意类型选主指标**——M7 改为依赖 M1：周期/资产型、银行/券商主看 PB
+> （不再被高 PE 用 max() 误伤），消费/成长/保险主看 PE，缺失回退 max(PE,PB)；③ **10 年口径 +
+> 剔除异常期**——窗口只留近 10 年，分位参考序列剔除首尾 1% 极端值（样本 ≥100 时生效）；
+> ④ 修复旧测试用非法日期（20250199）导致样本被严格校验过滤的问题，改用真实连续交易日。
+> 新增 13 个测试（引擎窗口/主指标/情绪叠加 ×10 + 智能体接线/降级 ×3），262 全绿 + 前端 tsc 通过。
+
+> ✅ 2026-08-07 **M7 价格与情绪闭环（契约落地）**：① **M8 真正消费 `margin_adjustment`**——
+> 此前该 handoff 只生产不消费，现在叠加到要求折扣上（过热 +0.05 / 样本不足 +0.10 / 低估 −0.05），
+> 买入区间随市场温度收放，evidence 明示「要求折扣 base → effective」；② **M7 PB-only 回退**——
+> PE 样本不足但 PB 完整时不再误判「样本不足」，改用 PB 分位判定价格位置（银行/保险/资产型公司），
+> PE 缺失时盈利收益率标注「不可计算（PE 样本不足）」；③ 新增 10 个测试
+> （M8 引擎叠加 ×3、M8 智能体消费 M7 handoff ×4、M7 PB-only/PE-only 回退 ×3），249 全绿。
 
 > ✅ 2026-08-07 **M4 特殊类型估值（Tier 1：亏损股/金融细类/公用事业）**：① 亏损股（EPS≤0）
 > 强制只用 PB 资产锚，不再整块估值空白；② 金融按细分行业路由——**银行 PB-ROE**（新增 `pb_roe`
@@ -136,6 +220,7 @@
       侵蚀信号；LLM 定性回填 handoff durability/erosion_risks；宽度冲突处理；M9 真正消费
       erosion_risks）2026-08-07
 - [x] M6 治理与资本配置（分红持续性代理评分）2026-08-04
+- [x] M6 治理与资本配置 v2（治理事件非分红证据 + 结构化风险码 + LLM 风险回填 + 分数口径统一）2026-08-07
 - [ ] 配置 LLM_API_KEY 后验证 LLM 定性层输出
 - 完成日期：
 

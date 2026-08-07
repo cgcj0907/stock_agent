@@ -1,7 +1,7 @@
 """point-in-time 数据快照：回测防前视偏差（docs/01-design.md §9.1）。"""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from value_agent.data.storage.base import MarketStorage
 
@@ -19,7 +19,7 @@ def create_snapshot(
     snapshot = {
         "code": code,
         "as_of": as_of,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
         "tables": {},
     }
     for table in _TABLES:

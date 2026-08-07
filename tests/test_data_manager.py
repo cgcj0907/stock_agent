@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import time
-from typing import Callable
+from collections.abc import Callable
 
 from value_agent.data.manager import DataManager
 from value_agent.data.sources.mock_source import MockDataSource

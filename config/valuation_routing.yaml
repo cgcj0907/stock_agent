@@ -6,28 +6,37 @@
 #    前端只展示真正可执行的方法（避免"理念正确但取不到数"）。
 # 2. 此文件是路由唯一事实来源，代码 DEFAULT_ROUTING 仅为兜底，
 #    tests/test_valuation.py 锁定两者一致（防漂移）。
+# 3. primary_metric（2026-08-07，backlog 7.6）：M7 价格与情绪的主估值指标，
+#    代码 market/engine.py 读此配置，tests/test_market_agent.py 锁定一致。
+#    可选：pe | pb | null（null = 退化为 max(PE,PB) 保守口径）。
 routing:
   consumer_monopoly:        # 消费垄断/稳定增长
     methods: [dcf, tang, graham_number, graham_formula, ddm, relative_median_pe]
     forbidden: [current_pe_only]
+    primary_metric: pe
     note: "消费垄断：DCF(现金化利润) 为主，唐朝/格雷厄姆/DDM/相对PE 交叉验证"
   growth:                   # 成长型
-    methods: [dcf, peg, relative_median_pe]
+    methods: [dcf, dcf_three_stage, peg, relative_median_pe]
     forbidden: [linear_extrapolation]
+    primary_metric: pe
     note: "成长型：DCF(现金化利润) + PEG + 相对PE；增速上限 20%（M3 已夹逼）"
   cyclical:                 # 周期型
     methods: [relative_median_pe, pb_band, graham_number]
     forbidden: [dcf, tang]
+    primary_metric: pb
     note: "周期型：禁 DCF/唐朝；PB 估值主用（重资产盈利波动大），相对PE 用正常化 EPS 并封顶 25 倍，格雷厄姆数资产兜底"
   financial:                # 金融型
     methods: [relative_median_pe, ddm]
     forbidden: [dcf]
-    note: "金融型：禁 DCF（现金流法不适用），用相对PE + DDM"
+    primary_metric: null
+    note: "金融型：禁 DCF（现金流法不适用），用相对PE + DDM；银行/券商看 PB、保险看 PE（细类再覆盖）"
   asset_based:              # 资产型/困境
     methods: [graham_number, graham_formula]
     forbidden: [earnings_multiple]
+    primary_metric: pb
     note: "资产型：清算/资产兜底优先；NAV/NCAV 待数据字段稳定后（P2）接入"
   stable_dividend:          # 高分红稳定型
     methods: [ddm, tang, relative_median_pe]
     forbidden: []
+    primary_metric: pe
     note: "高分红稳定：DDM 为主，唐朝/相对PE 交叉"

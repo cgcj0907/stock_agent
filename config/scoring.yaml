@@ -16,3 +16,16 @@ veto:
   - non_standard_audit      # 审计意见非标准
   - fraud_signal_hit        # 造假信号命中
   - pledge_ratio_gt_80      # 质押率 > 80%
+
+# M7 市场情绪叠加参数（backlog 7.9）：阈值与幅度可调
+market_sentiment:
+  hot_threshold: 0.66      # 情绪综合热度 ≥ 0.66 → 贪婪（过热）
+  cold_threshold: 0.33     # 情绪综合热度 ≤ 0.33 → 恐惧（过冷）
+  overlay_hot: -5          # 过热评分调整（分）
+  overlay_cold: 5          # 过冷评分调整（分）
+
+# M5 护城河宽度合成门槛（backlog 5.5）：LLM 冲突升级需竞争优势证据条数等
+moat:
+  min_competition_evidence: 1      # LLM 宽度与规则层冲突时，升级需 ≥N 条竞争优势证据
+  downgrade_requires_evidence: false  # 降级是否同样要求证据（默认否，避免卡死修正）
+  allow_without_refs: true         # 无参考资料时是否放行 LLM 宽度

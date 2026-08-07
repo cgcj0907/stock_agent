@@ -17,7 +17,7 @@ SCHEMA: dict[str, dict] = {
         "pk": ["code", "period"],
     },
     "daily_price": {
-        "columns": ["code", "trade_date", "open", "close", "high", "low", "volume"],
+        "columns": ["code", "trade_date", "open", "close", "high", "low", "volume", "turnover"],
         "pk": ["code", "trade_date"],
     },
     "valuation_history": {
@@ -28,6 +28,12 @@ SCHEMA: dict[str, dict] = {
         "columns": ["code", "period", "cash_div_tax", "div_proc"],
         "pk": ["code", "period"],
     },
+    # 6.1（backlog）：治理事件（质押/减持/监管/审计/并购/回购）落库，
+    # M6 governance_events 数据源接入后可直接持久化；未接入时表为空不影响评分。
+    "governance_events": {
+        "columns": ["code", "event_date", "kind", "holder", "ratio", "description"],
+        "pk": ["code", "event_date", "kind"],
+    },
 }
 
 # 各表用于"最新日期"的列（YYYYMMDD 字符串，字典序即时间序）
@@ -36,15 +42,17 @@ DATE_COLUMN: dict[str, str] = {
     "daily_price": "trade_date",
     "valuation_history": "trade_date",
     "dividends": "period",
+    "governance_events": "event_date",
 }
 
 # 数值列（DDL 生成时用 DOUBLE PRECISION，其余 TEXT）—— SCHEMA 是唯一事实来源
 NUMERIC_COLUMNS: dict[str, set[str]] = {
     "company": set(),
     "financials": {"roe", "grossprofit_margin", "netprofit_margin", "debt_to_assets", "ocfps", "eps", "ocf_to_np"},
-    "daily_price": {"open", "close", "high", "low", "volume"},
+    "daily_price": {"open", "close", "high", "low", "volume", "turnover"},
     "valuation_history": {"pe", "pe_ttm", "pb", "ps", "dv_ttm", "total_mv"},
     "dividends": {"cash_div_tax"},
+    "governance_events": {"ratio"},
 }
 
 

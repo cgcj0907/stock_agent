@@ -7,10 +7,10 @@ steps:
   - {id: M2, agent: M2_financial_quality}
   - {id: M3, agent: M3_growth, deps: [M2]}
   - {id: M4, agent: M4_valuation, deps: [M1, M2, M3, M5, M6]}
-  - {id: M5, agent: M5_moat}
+  - {id: M5, agent: M5_moat, deps: [M1]}
   - {id: M6, agent: M6_governance}
-  - {id: M7, agent: M7_market}
-  - {id: M8, agent: M8_safety_margin, deps: [M4, M7]}
-  - {id: M9, agent: M9_risk, deps: [M2, M3, M5, M6, M7, M8]}
+  - {id: M7, agent: M7_market, deps: [M1]}
+  - {id: M8, agent: M8_safety_margin, deps: [M2, M3, M4, M5, M7]}
+  - {id: M9, agent: M9_risk, deps: [M2, M3, M4, M5, M6, M7, M8]}
   - {id: M10, agent: M10_decision, deps: [M1, M2, M3, M4, M5, M6, M7, M8, M9]}
   - {id: M11, agent: M11_monitor, deps: [M2, M3, M7, M8, M9, M10]}

@@ -24,6 +24,7 @@ from value_agent.core.contracts import (
     validate_meta,
     validate_signal,
 )
+from value_agent.sessions import ModuleName
 from value_agent.sessions.manager import MODULE_DEPENDENCIES
 from value_agent.sessions.models import ModuleResult, ModuleStatus
 from value_agent.workflow import load_workflow_from_yaml
@@ -57,6 +58,9 @@ def test_reason_codes_cover_common_degradation_paths():
     assert ReasonCode.DATA_UNAVAILABLE.value == "DATA_UNAVAILABLE"
     assert ReasonCode.INPUT_MISSING.value == "INPUT_MISSING"
     assert ReasonCode.LLM_UNAVAILABLE.value == "LLM_UNAVAILABLE"
+    # §4 M8：现价高于内在价值上沿的 reason code（此前文档有、枚举缺失）
+    assert ReasonCode.PRICE_ABOVE_INTRINSIC.value == "PRICE_ABOVE_INTRINSIC"
+    assert is_valid_meta(build_meta(0.8, "high", reason_codes=["PRICE_ABOVE_INTRINSIC"]))
 
 
 # ---- RiskSignal ----
@@ -163,6 +167,9 @@ def test_decision_snapshot_recorded(stub_data):
     assert snap["decision_code"] in ("buy", "watch", "avoid")
     assert {"session_id", "company_code", "created_at", "total", "position",
             "blocked_by_veto", "dimensions", "inputs", "meta"} <= set(snap)
+    # 8.6：快照纳入 decision_reasons + handoff（审计可回放「为什么是这个结论」）
+    assert snap.get("decision_reasons") is not None
+    assert snap.get("handoff", {}).get("decision_code") == snap["decision_code"]
     assert "M4_valuation" in snap["inputs"]
     assert "M8_safety_margin" in snap["inputs"]
     assert "M9_risk" in snap["inputs"]
@@ -205,7 +212,7 @@ def test_agent_inputs_match_expected_consumption():
     """关键模块 inputs 与引擎实际消费集合一致（批次 D 核对结果，防回归）。
 
     注：M3 只读 ctx.data（M2 顺序依赖由 MODULE_DEPENDENCIES 保证）；
-    M10/M11 通过 session.module_results 消费的模块必须完整声明。
+    M10/M11 通过 ctx.inputs 消费的模块必须完整声明（不直接读全量 session.module_results）。
     """
     registry = register_builtin_agents(AgentRegistry())
     expected = {
@@ -213,6 +220,15 @@ def test_agent_inputs_match_expected_consumption():
         "M4_valuation": {
             "M1_business_model", "M2_financial_quality", "M3_growth",
             "M5_moat", "M6_governance",
+        },
+        "M5_moat": {"M1_business_model"},  # 5.8：显式声明依赖 M1
+        "M8_safety_margin": {  # 6.1：确定性分级消费 M2/M3/M5
+            "M2_financial_quality", "M3_growth", "M4_valuation",
+            "M5_moat", "M7_market",
+        },
+        "M9_risk": {  # 8.5：压力情景接入 M4
+            "M2_financial_quality", "M3_growth", "M4_valuation", "M5_moat",
+            "M6_governance", "M7_market", "M8_safety_margin",
         },
         "M10_decision": {
             "M1_business_model", "M2_financial_quality", "M3_growth",
@@ -256,6 +272,9 @@ def test_default_run_emits_handoff_contracts(stub_data):
         assert not missing, f"{agent_id} handoff 缺少字段: {sorted(missing)}"
     m9 = session.module_results["M9_risk"].outputs
     assert "vetoes" in m9 and "monitor_candidates" in m9
+    m9_handoff = m9.get("handoff") or {}
+    missing = {"veto_flags", "max_severity", "monitor_candidates"} - set(m9_handoff)
+    assert not missing, f"M9 handoff 缺少字段: {sorted(missing)}"
     m11 = session.module_results["M11_monitor"].outputs
     if m11.get("monitor_rules"):
         rule = m11["monitor_rules"][0]
@@ -273,3 +292,72 @@ def test_agent_inputs_within_workflow_deps():
             f"{agent_id} 声明消费 {sorted(extra)}，但默认工作流未提供"
             "（AgentSpec.inputs 与 workflow deps 未对齐）"
         )
+
+
+# ---------- backlog 5.8 / 8.10 / 8.11 ----------
+
+def test_m5_depends_on_m1():
+    """5.8：M5→M1 依赖显式化（MODULE_DEPENDENCIES + YAML deps 都含 M1）。"""
+    assert ModuleName.M1 in MODULE_DEPENDENCIES[ModuleName.M5]
+    deps_by_agent = _yaml_deps_by_agent()
+    assert "M1_business_model" in deps_by_agent["M5_moat"]
+
+
+def test_m10_agent_veto_flags_real_shape(stub_data):
+    """8.10：agent 层 handoff.veto_flags 回归——LLM 不得覆盖一票否决（真实输出形状）。"""
+    from value_agent.agents.base import AgentContext
+    from value_agent.agents.builtin import register_builtin_agents
+    from value_agent.agents.registry import AgentRegistry
+    from value_agent.decision.agent import M10DecisionAgent
+    from value_agent.sessions import InMemoryStore, SessionManager
+    from value_agent.workflow import WorkflowEngine, default_workflow
+
+    reg = register_builtin_agents(AgentRegistry())
+    engine = WorkflowEngine(reg, SessionManager(InMemoryStore()), data=stub_data)
+    session = SessionManager(InMemoryStore()).create_session("600519", "贵州茅台")
+    engine.run(session, default_workflow())
+    m9 = session.module_results["M9_risk"]
+    # 手工制造否决（真实形状：handoff.veto_flags + vetoes[]）
+    m9.outputs["vetoes"] = [{"id": "V-001", "reason": "审计非标", "severity": "critical"}]
+    m9.outputs["handoff"] = {**m9.outputs.get("handoff", {}), "veto_flags": ["V-001"]}
+    ctx = AgentContext(session=session, assumptions={}, inputs={
+        aid: session.module_results[aid]
+        for aid in M10DecisionAgent.spec.inputs if aid in session.module_results
+    }, llm=None)
+    out = M10DecisionAgent().run(ctx).outputs
+    assert out["decision_code"] == "avoid"
+    assert out["blocked_by_veto"] is True
+    assert out["position"] == 0.0
+    assert "审计非标" in out["vetoed"]
+
+
+def test_workflow_level_contract_consistency(stub_data):
+    """8.11：O-5 工作流级断言——M10 handoff 与顶层一致；M11 decision_watch 来源=M10_decision。"""
+    from value_agent.agents.builtin import register_builtin_agents
+    from value_agent.agents.registry import AgentRegistry
+    from value_agent.sessions import InMemoryStore, SessionManager
+    from value_agent.workflow import WorkflowEngine, default_workflow
+
+    reg = register_builtin_agents(AgentRegistry())
+    engine = WorkflowEngine(reg, SessionManager(InMemoryStore()), data=stub_data)
+    session = SessionManager(InMemoryStore()).create_session("600519", "贵州茅台")
+    engine.run(session, default_workflow())
+
+    m10 = session.module_results["M10_decision"].outputs
+    handoff10 = m10.get("handoff") or {}
+    assert handoff10.get("decision_code") == m10.get("decision_code")
+    assert handoff10.get("blocked_by_veto") == m10.get("blocked_by_veto")
+    assert handoff10.get("position") == m10.get("position")
+    # 8.7：core_facts 与顶层一致
+    cf = m10.get("core_facts") or {}
+    assert cf.get("decision") == m10.get("decision_code")
+    assert cf.get("total") == m10.get("total")
+
+    m11 = session.module_results["M11_monitor"].outputs
+    for rule in m11.get("monitor_rules") or []:
+        if rule.get("rule_type") == "decision_watch":
+            assert rule.get("source_module") == "M10_decision"
+            break
+    else:
+        # 决策非 avoid/buy 时也可能无 decision_watch；存在则必须来源正确
+        assert m11.get("rule_count", 0) >= 0

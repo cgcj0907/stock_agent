@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 
@@ -19,7 +20,7 @@ class ValidationReport:
 
 
 def _is_num(v) -> bool:
-    return isinstance(v, (int, float)) and v == v  # NaN 排除
+    return isinstance(v, (int, float)) and not math.isnan(v)  # NaN 排除
 
 
 def _check_date(value) -> bool:

@@ -2,6 +2,7 @@
 
 设计见 docs/02-session-management.md。
 """
+from .manager import MODULE_DEPENDENCIES, PIPELINE_ORDER, SessionManager
 from .models import (
     Message,
     ModuleName,
@@ -13,23 +14,22 @@ from .models import (
 from .state_machine import InvalidTransitionError, transition
 from .store import InMemoryStore, SessionStore, SqliteStore, create_session_store
 from .supabase_store import SupabaseStore
-from .manager import MODULE_DEPENDENCIES, PIPELINE_ORDER, SessionManager
 
 __all__ = [
+    "MODULE_DEPENDENCIES",
+    "PIPELINE_ORDER",
+    "InMemoryStore",
+    "InvalidTransitionError",
     "Message",
     "ModuleName",
     "ModuleResult",
     "ModuleStatus",
     "Session",
+    "SessionManager",
     "SessionStatus",
-    "InvalidTransitionError",
-    "transition",
-    "InMemoryStore",
+    "SessionStore",
     "SqliteStore",
     "SupabaseStore",
-    "SessionStore",
     "create_session_store",
-    "MODULE_DEPENDENCIES",
-    "PIPELINE_ORDER",
-    "SessionManager",
+    "transition",
 ]

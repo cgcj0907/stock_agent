@@ -136,8 +136,12 @@ def graham_formula(eps: float, g: float, risk_free: float) -> MethodResult:
 DDM_MIN_SPREAD = 0.02
 
 
-def ddm(div: float, g: float, r: float) -> MethodResult:
-    """DDM：P = D₁/(r−g)。要求 r−g ≥ 2pct（价差过小 DDM 不稳定，跳过）。"""
+def ddm(div: float, g: float, r: float, eps: float | None = None) -> MethodResult:
+    """DDM：P = D₁/(r−g)。要求 r−g ≥ 2pct（价差过小 DDM 不稳定，跳过）。
+
+    2.4：传 EPS 做分红覆盖校验——分红率 >100%（派息超过盈利）时标注可持续性存疑，
+    价值仅作参考（低分红比例公司 DDM 会低估价值，高分红比例不可持续则高估）。
+    """
     if div is None or div <= 0:
         return MethodResult("ddm", None, note="无分红数据")
     if r <= g:
@@ -147,7 +151,18 @@ def ddm(div: float, g: float, r: float) -> MethodResult:
             "ddm", None,
             note=f"折现率-增速价差 {r - g:.1%} < {DDM_MIN_SPREAD:.0%}，DDM 不稳定，跳过",
         )
-    return MethodResult("ddm", round(div * (1 + g) / (r - g), 2), params={"div": div, "spread": round(r - g, 4)})
+    note = ""
+    payout = None
+    if eps is not None and eps > 0:
+        payout = round(div / eps, 3)
+        if payout > 1.0:
+            note = f"⚠️ 分红率 {payout:.0%} >100%（派息超过盈利），可持续性存疑，价值仅参考"
+        elif payout < 0.3:
+            note = f"分红率 {payout:.0%} 偏低，DDM 可能低估公司价值（配合盈利类方法交叉）"
+    params: dict = {"div": div, "spread": round(r - g, 4)}
+    if payout is not None:
+        params["payout"] = payout
+    return MethodResult("ddm", round(div * (1 + g) / (r - g), 2), params=params, note=note)
 
 
 def relative_median_pe(
@@ -260,4 +275,56 @@ def peg(eps: float, g: float, pe_history: list[float]) -> MethodResult:
             f"当前中位 PE {median_pe:.1f} 高于 PEG 合理水平（PEG={peg_ratio}）"
             if peg_ratio > 1.5 else ""
         ),
+    )
+
+
+def dcf_three_stage(
+    eps: float,
+    g: float,
+    r: float,
+    terminal_g: float,
+    high_years: int = 5,
+    decel_years: int = 5,
+    cash_eps: float | None = None,
+    decel_factor: float = 0.5,
+) -> MethodResult:
+    """三阶段 DCF（backlog 2.1，费雪视角成长股）：高速 5y + 减速 5y + 永续。
+
+    高增长阶段按 g 增长，减速阶段按 g×decel_factor 线性衰减到永续增速，随后永续折现。
+    参数保守化：高速档用 M3 增速 g（已夹逼 ≤20%），减速档默认 g×0.5，
+    与两阶段 DCF 交叉验证，避免成长股单一口径外推。
+    """
+    base = cash_eps if cash_eps is not None else eps
+    if base is None or base <= 0 or r <= terminal_g:
+        if base is not None and base <= 0:
+            return MethodResult("dcf_three_stage", None, note="现金化利润代理 ≤0，三阶段 DCF 不适用")
+        return MethodResult("dcf_three_stage", None, note="折现率 r ≤ 永续增速，三阶段 DCF 不适用")
+    decel_g = max(g * decel_factor, terminal_g)
+    if decel_g >= r:
+        return MethodResult("dcf_three_stage", None,
+                            note=f"减速增速 {decel_g:.1%} ≥ 折现率 {r:.1%}，三阶段 DCF 不稳定，跳过")
+    pv = 0.0
+    fcf = base
+    for t in range(1, high_years + 1):
+        fcf *= 1 + g
+        pv += fcf / (1 + r) ** t
+    for t in range(high_years + 1, high_years + decel_years + 1):
+        # 减速阶段：从 g 线性衰减到 decel_g
+        frac = (t - high_years) / decel_years
+        growth_t = g + (decel_g - g) * frac
+        fcf *= 1 + growth_t
+        pv += fcf / (1 + r) ** t
+    tv = fcf * (1 + terminal_g) / (r - terminal_g)
+    total = pv + tv / (1 + r) ** (high_years + decel_years)
+    params = {
+        "g": g, "r": r, "terminal_g": terminal_g,
+        "high_years": high_years, "decel_years": decel_years,
+        "decel_g": round(decel_g, 4),
+    }
+    if cash_eps is not None:
+        params.update({"profit_base": "cash_proxy", "cash_eps": round(cash_eps, 2), "eps": round(eps, 2)})
+    return MethodResult(
+        "dcf_three_stage", round(total, 2),
+        params=params,
+        note="三阶段：高速5y+减速5y+永续（参数保守化）",
     )

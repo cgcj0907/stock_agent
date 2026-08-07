@@ -1,4 +1,6 @@
-"""M11 跟踪监控智能体：生成监控规则（每日由 monitor --daily 执行）。"""
+"""M11 跟踪监控智能体：生成监控规则（每日由 monitor --daily 执行）。
+
+消费 M2/M3/M7/M8/M9 信号 + M10 决策（decision_watch 规则），走 ctx.inputs。"""
 from __future__ import annotations
 
 from value_agent.agents.base import Agent, AgentContext, AgentSpec
@@ -21,7 +23,9 @@ class M11MonitorAgent(Agent):
 
     def run(self, ctx: AgentContext) -> ModuleResult:
         prior_hits = list(getattr(ctx.session, "monitor_hits", []) or [])
-        plan = build_monitor_plan(ctx.session.module_results, prior_hits=prior_hits)
+        # 只消费 spec.inputs 声明的模块（含 M10_decision），不直接读全量 session 结果
+        inputs = {aid: ctx.inputs[aid] for aid in self.spec.inputs if aid in ctx.inputs}
+        plan = build_monitor_plan(inputs, prior_hits=prior_hits)
         evidence = list(plan.evidence)
         if prior_hits:
             evidence.append(f"跨会话记忆：历史监控命中 {len(prior_hits)} 次（warn/critical 回放为回顾规则）")

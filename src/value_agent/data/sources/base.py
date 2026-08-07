@@ -41,3 +41,14 @@ class DataSource(ABC):
     @abstractmethod
     def dividends(self, code: str) -> dict:
         """分红历史：{records: [{year, per_share, total}]}。"""
+
+    def governance_events(self, code: str) -> dict:
+        """治理事件（M6 非分红证据）：{records: [...]}，默认无数据。
+
+        数据源可实现覆盖，records 元素建议字段：
+        {kind: pledges|reductions|regulatory|auditor_changes|acquisitions|buybacks,
+         holder, period/date, ratio, reason}。
+        M6 引擎（governance/engine.py::assess_governance）按事件类别扣分/加分，
+        并映射为结构化治理风险码。未实现时返回空，治理按中性计，不臆测。
+        """
+        return {"records": [], "source": self.name}

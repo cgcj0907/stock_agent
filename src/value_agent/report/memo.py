@@ -57,6 +57,19 @@ def build_memo(session: Session) -> str:
             )
         if m10.outputs.get("vetoed"):
             lines.append(f"- ⚠️ 否决项：{m10.outputs['vetoed']}")
+        # 8.5：决策理由（qualitative.decision_reasons）+ handoff 展示
+        qual = m10.outputs.get("qualitative") or {}
+        reasons = qual.get("decision_reasons") or []
+        if reasons:
+            lines += ["", "### 决策理由（M10）", ""]
+            for r_ in reasons:
+                lines.append(f"- {r_}")
+        handoff10 = m10.outputs.get("handoff") or {}
+        if handoff10:
+            lines += ["", "### 决策契约（M10 handoff）", ""]
+            lines.append(f"- decision_code：`{handoff10.get('decision_code')}`；"
+                         f"blocked_by_veto：`{handoff10.get('blocked_by_veto')}`；"
+                         f"position：`{handoff10.get('position')}`")
     else:
         lines.append("- 结论：M10 未产出（评分卡未执行）")
 
@@ -67,6 +80,37 @@ def build_memo(session: Session) -> str:
             f"| {r.module} | {r.status.value} | "
             f"{r.score if r.score is not None else '—'} | {len(r.evidence)} |"
         )
+
+    # M6 治理摘要（6.9：LLM 治理判断与风险码「只存不用」→ 进备忘录）
+    m6 = results.get("M6_governance")
+    if m6 and m6.outputs.get("handoff"):
+        handoff6 = m6.outputs["handoff"]
+        g_score = handoff6.get("governance_score")
+        if g_score is not None:
+            lines += [
+                "",
+                "## 治理与资本配置（M6）",
+                "",
+                (
+                    f"- 治理评分：{g_score}（分红 {m6.outputs.get('dividend_years', 0)} 期，"
+                    f"最新分红率 {m6.outputs.get('payout_latest')}）"
+                ),
+            ]
+            codes = handoff6.get("governance_risk_codes") or []
+            if codes:
+                lines.append(f"- ⚠️ 治理风险码：{'；'.join(str(c.get('code')) for c in codes if isinstance(c, dict))}")
+            cap_flag = handoff6.get("capital_allocation_flag")
+            if cap_flag:
+                lines.append(f"- 资本配置代理档位：{cap_flag}")
+            qual6 = m6.outputs.get("llm_qualitative")
+            if isinstance(qual6, dict):
+                for key, label in (("shareholder_alignment", "股东利益一致性"),
+                                   ("capital_allocation", "资本配置判断"),
+                                   ("disclosure_quality", "信息披露质量"),
+                                   ("conclusion", "LLM 结论")):
+                    v = qual6.get(key)
+                    if v:
+                        lines.append(f"- {label}：{v}")
 
     # M2 财务质量要点
     m2 = results.get("M2_financial_quality")
@@ -119,11 +163,37 @@ def build_memo(session: Session) -> str:
             if calib.get("risk_notes"):
                 lines.append(f"- 行业风险：{'；'.join(calib['risk_notes'])}")
 
+    # M9 风险摘要（8.9：Top 风险 + 否决 + 压力情景 + 红队结论）
+    m9 = results.get("M9_risk")
+    if m9 and m9.outputs.get("risk_items") is not None:
+        lines += ["", "## 风险与否决（M9）", ""]
+        risk_items = m9.outputs.get("risk_items") or []
+        if risk_items:
+            lines.append(f"- Top 风险（{len(risk_items)} 项）：")
+            for it in risk_items[:5]:
+                if isinstance(it, dict):
+                    lines.append(f"  - [{it.get('severity')}] {it.get('impact')}（触发 {it.get('trigger')}）")
+        vetoes = m9.outputs.get("vetoes") or []
+        if vetoes:
+            lines.append(f"- 🚫 一票否决：{'；'.join(str(v.get('reason')) for v in vetoes if isinstance(v, dict))}")
+        max_loss = m9.outputs.get("max_loss_scenario") or {}
+        if max_loss.get("estimated_downside_pct") is not None:
+            lines.append(f"- 压力情景：{max_loss.get('scenario')}，估算最大回撤 {max_loss.get('estimated_downside_pct')}%")
+        red = m9.outputs.get("llm_red_team")
+        if isinstance(red, dict):
+            if red.get("key_assumptions"):
+                lines.append(f"- 红队关键假设：{'；'.join(red['key_assumptions'])}")
+            if red.get("permanent_loss_paths"):
+                lines.append(f"- 红队永久损失路径：{'；'.join(red['permanent_loss_paths'])}")
+            if red.get("verdict"):
+                lines.append(f"- 红队结论：{red['verdict']}")
+
     m11 = results.get("M11_monitor")
     if m11 and m11.outputs.get("monitor_rules"):
         lines += ["", "## 监控规则（M11）", ""]
         for rule in m11.outputs["monitor_rules"]:
-            lines.append(f"- [{rule['severity']}] {rule['description']}（触发：{rule['trigger']}）")
+            msg = rule.get("message") or rule.get("description") or ""
+            lines.append(f"- [{rule['severity']}] {msg}（触发：{rule['trigger']}）")
 
     lines += ["", "## 假设（assumptions）", "", "```json", _json(session.assumptions), "```",
               "", "## 备忘录质量自检（self_check）", "", "```json", _json(_self_check(session)), "```",
@@ -165,6 +235,8 @@ def build_decision_snapshot(session: Session) -> dict:
         "blocked_by_veto": m10.outputs.get("blocked_by_veto"),
         "vetoed": m10.outputs.get("vetoed"),
         "dimensions": m10.outputs.get("dimensions"),
+        "decision_reasons": (m10.outputs.get("qualitative") or {}).get("decision_reasons", []),
+        "handoff": m10.outputs.get("handoff", {}),
         "inputs": {
             "M1_business_model": _handoff("M1_business_model", ["valuation_route", "understandability_level"]),
             "M3_growth": _handoff("M3_growth", ["recommended_growth_rate", "growth_confidence", "cyclicality_flag", "prosperity_code"]),
@@ -172,7 +244,7 @@ def build_decision_snapshot(session: Session) -> dict:
                 "intrinsic_value": (m4.outputs.get("intrinsic_value") if m4 else None),
                 "current_price": (m4.outputs.get("current_price") if m4 else None),
             },
-            "M7_market": _handoff("M7_market", ["market_state", "valuation_percentile", "margin_adjustment"]),
+            "M7_market": _handoff("M7_market", ["market_state", "valuation_percentile", "margin_adjustment", "sentiment_heat"]),
             "M8_safety_margin": _handoff("M8_safety_margin", ["mos_state", "buy_zone", "sell_zone"]),
             "M9_risk": {
                 "veto_count": len(m9.outputs.get("vetoes") or []) if m9 else 0,

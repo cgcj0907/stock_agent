@@ -145,3 +145,52 @@ def test_add_message_updates_session_object(manager, session):
     # 重新加载也应一致（已持久化）
     reloaded = manager.load(session.id)
     assert len(reloaded.messages) == 2
+
+
+# ---------- I-2 跨会话监控记忆继承 ----------
+
+def _complete(session: Session) -> Session:
+    transition(session, SessionStatus.IN_PROGRESS)
+    transition(session, SessionStatus.COMPLETED)
+    return session
+
+
+def test_prior_monitor_hits_inherits_latest_completed(manager):
+    """只继承同标的最远一次已完成会话，并按 (rule_type, severity) 收敛。"""
+    older = manager.create_session("600519")
+    older.monitor_hits = [{"rule_type": "price_buy", "message": "旧命中", "severity": "info"}]
+    _complete(older)
+
+    latest = manager.create_session("600519")
+    latest.monitor_hits = [
+        {"rule_type": "price_sell", "message": "新命中", "severity": "warn"},
+        {"rule_type": "price_buy", "message": "重复买点", "severity": "info"},
+        {"rule_type": "price_buy", "message": "重复买点2", "severity": "info"},
+    ]
+    _complete(latest)
+
+    inherited = manager.prior_monitor_hits("600519")
+    keys = {(h["rule_type"], h["severity"]) for h in inherited}
+    assert keys == {("price_sell", "warn"), ("price_buy", "info")}
+    buy_hits = [h for h in inherited if h["rule_type"] == "price_buy"]
+    assert len(buy_hits) == 1
+    assert buy_hits[0]["message"] == "重复买点2"  # 收敛后保留最后一次命中
+
+    fresh = manager.create_session("600519", monitor_hits=manager.prior_monitor_hits("600519"))
+    assert {h["rule_type"] for h in fresh.monitor_hits} == {"price_buy", "price_sell"}
+
+
+def test_prior_monitor_hits_ignores_non_completed(manager):
+    pending = manager.create_session("600519")
+    pending.monitor_hits = [{"rule_type": "price_buy", "message": "x", "severity": "info"}]
+    assert manager.prior_monitor_hits("600519") == []  # created 未完成，不作为继承来源
+
+
+def test_prior_monitor_hits_caps_items(manager):
+    s = manager.create_session("600519")
+    s.monitor_hits = [
+        {"rule_type": f"t{i}", "message": f"m{i}", "severity": "info"} for i in range(30)
+    ]
+    _complete(s)
+    assert len(manager.prior_monitor_hits("600519")) == 20          # 默认上限
+    assert len(manager.prior_monitor_hits("600519", max_items=5)) == 5

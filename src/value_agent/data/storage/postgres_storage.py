@@ -35,6 +35,10 @@ class PostgresMarketStorage(MarketStorage):
         with self._conn.cursor() as cur:
             for table in SCHEMA:
                 cur.execute(_ddl(table))
+            # 存量库迁移：老 daily_price 表没有 turnover 列（情绪指标），补上（幂等）
+            cur.execute(
+                "ALTER TABLE daily_price ADD COLUMN IF NOT EXISTS turnover DOUBLE PRECISION"
+            )
 
     def upsert(self, table: str, code: str, records: list[dict]) -> int:
         cols = [c for c in SCHEMA[table]["columns"] if c != "code"]

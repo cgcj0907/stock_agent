@@ -20,24 +20,25 @@ class _BadFinancialsSource(MockDataSource):
         return out
 
 
-def test_ingest_company_writes_all_five_tables(tmp_path):
+def test_ingest_company_writes_all_six_tables(tmp_path):
     storage = SqliteMarketStorage(str(tmp_path / "market.db"))
     n = ingest_company(storage, MockDataSource(), "600519")
 
-    assert n == 1 + 10 + 2 + 2 + 2  # 基本信息1 + 财务10 + 行情2 + 估值2 + 分红2
+    assert n == 1 + 10 + 2 + 2 + 2 + 1  # 基本信息1 + 财务10 + 行情2 + 估值2 + 分红2 + 治理事件1（6.1）
     assert len(storage.records_before("company", "600519")) == 1
     assert len(storage.records_before("financials", "600519")) == 10
     assert len(storage.records_before("daily_price", "600519")) == 2
     assert len(storage.records_before("valuation_history", "600519")) == 2
     assert len(storage.records_before("dividends", "600519")) == 2
+    assert len(storage.records_before("governance_events", "600519")) == 1
 
 
 def test_ingest_company_filters_invalid_records(tmp_path):
     storage = SqliteMarketStorage(str(tmp_path / "market.db"))
     n = ingest_company(storage, _BadFinancialsSource(), "600519")
 
-    # 无效财务记录被剔除：财务只写入 10 条有效记录（总计数同样为 17）
-    assert n == 1 + 10 + 2 + 2 + 2
+    # 无效财务记录被剔除：财务只写入 10 条有效记录（含治理事件共 18）
+    assert n == 1 + 10 + 2 + 2 + 2 + 1
     assert len(storage.records_before("financials", "600519")) == 10
 
 
@@ -73,3 +74,22 @@ def test_daily_update_skips_when_nothing_new(tmp_path):
     stats = daily_update(storage, MockDataSource(), ["600519"])
 
     assert stats == {"daily_price": 0, "valuation_history": 0, "skipped": 1}
+
+
+def test_governance_events_table_roundtrip(tmp_path):
+    """6.1：治理事件表读写（SCHEMA 自动建表 + upsert + records_before）。"""
+    storage = SqliteMarketStorage(str(tmp_path / "market.db"))
+    n = storage.upsert("governance_events", "600519", [
+        {"event_date": "20260115", "kind": "pledges", "holder": "大股东", "ratio": 0.6,
+         "description": "质押 60%"},
+    ])
+    assert n == 1
+    recs = storage.records_before("governance_events", "600519")
+    assert len(recs) == 1 and recs[0]["kind"] == "pledges" and recs[0]["ratio"] == 0.6
+    # 同 (code, event_date, kind) 幂等覆盖
+    storage.upsert("governance_events", "600519", [
+        {"event_date": "20260115", "kind": "pledges", "holder": "大股东", "ratio": 0.8,
+         "description": "质押 80%"},
+    ])
+    assert len(storage.records_before("governance_events", "600519")) == 1
+    assert storage.records_before("governance_events", "600519")[0]["ratio"] == 0.8

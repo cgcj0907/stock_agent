@@ -1,8 +1,9 @@
 """默认工作流：与理论模块顺序一致的标准分析流。"""
 from __future__ import annotations
 
-from .models import Workflow, WorkflowStep
 from value_agent.sessions.manager import MODULE_DEPENDENCIES, PIPELINE_ORDER
+
+from .models import Workflow, WorkflowStep
 
 _STEP_NAMES = {
     "M1_business_model": "商业模式认知",

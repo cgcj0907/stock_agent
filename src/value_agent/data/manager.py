@@ -296,3 +296,15 @@ class DataManager:
             ),
             "dividends", code,
         )
+
+    def governance_events(self, code: str) -> dict:
+        """治理事件（6.1）：优先存储，缺失时从数据源拉取（best-effort）。"""
+        recs = self._stored("governance_events", code)
+        if recs is not None:
+            return {"records": recs, "source": f"storage({self._storage.name})"}
+        if not hasattr(self._source, "governance_events"):
+            return {"records": [], "source": self._source.name}
+        return self._fetch(
+            "governance_events", code, f"gov:{code}",
+            lambda: self._source.governance_events(code),
+        )

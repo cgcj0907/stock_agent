@@ -8,7 +8,7 @@ from value_agent.financials.quality import latest_annual
 FINANCIAL_KEYWORDS = ["银行", "保险", "证券", "金融", "信托"]
 CYCLICAL_KEYWORDS = [
     "有色", "钢铁", "煤炭", "化工", "石油", "航运", "水运", "海运", "运输",
-    "房地产", "港口", "建材", "水泥", "机械", "汽车",
+    "房地产", "港口", "建材", "水泥", "机械", "汽车", "船舶", "造船",
 ]
 ASSET_KEYWORDS = ["高速公路"]
 # 公用事业/类债资产：稳定现金流 + 低成长 + 分红，应走高分红稳定（DDM），而非 DCF/唐朝 25 倍

@@ -60,6 +60,28 @@ def test_moat_peer_context_and_sources():
     assert any(s.strength == "strong" for s in r.sources)
 
 
+def test_ship_building_classified_cyclical():
+    """船舶/造船是典型强周期行业：显式命中周期关键词，不再依赖低盈利兜底。"""
+    assert classify_business_type("船舶制造", 20.0, 30.0, 0.5) == "cyclical"
+    assert classify_business_type("造船", 20.0, 30.0, 0.5) == "cyclical"
+
+
+def test_moat_cyclical_uses_through_cycle_roe():
+    """5.6：周期行业 ROE 用近 8 年跨周期均值去周期位置；波动/下滑进 cycle_notes 而非侵蚀信号。"""
+    # 最新期(2026)=1（周期低谷），历史最高 18 → 近 8 年跨周期均值 7.1（固定窗口，不随总年数漂移）
+    roes = [1, 2, 4, 6, 8, 10, 12, 14, 16, 18]
+    recs = [{"period": f"{2026 - i}1231", "roe": r, "grossprofit_margin": 18,
+             "debt_to_assets": 0.6} for i, r in enumerate(roes)]
+    r = assess_moat({"records": recs}, industry="船舶制造", business_type="cyclical")
+    assert r.peer is not None
+    assert round(r.peer.roe_company, 1) == 7.1          # 近 8 年跨周期均值而非最新 1.0
+    assert any("跨周期均值" in s for s in r.signals)
+    assert r.cycle_notes, "周期行业 ROE 波动/下滑应记入周期属性备注"
+    assert not r.erosion_signals, "周期行业 ROE 波动不应进侵蚀信号（避免污染 M9）"
+    assert r.peer.debt_note, "杠杆口径应注明 debt_to_assets 含合同负债"
+    assert any("周期属性备注" in e for e in r.evidence)
+
+
 def test_moat_missing_data_degrades():
     """无数据 → 代理档位「无」、0 分、明确证据。"""
     r = assess_moat({"records": []})
@@ -92,6 +114,67 @@ def test_governance_increasing_payouts_scores_higher():
     assert r.dividend_years == 2
     assert r.score >= 60
     assert "递增" in r.note
+
+
+def test_governance_rule_events_lower_score_and_emit_risk_codes():
+    """规则层非分红证据：监管处罚/质押/减持等治理事件扣分，并映射结构化风险码（M9 消费）。"""
+    div = {"records": [
+        {"period": "20251231", "cash_div_tax": 2.2},
+        {"period": "20241231", "cash_div_tax": 2.0},
+    ]}
+    events = {
+        "regulatory": [{"kind": "处罚", "date": "2025-06", "reason": "信披违规"}],
+        "pledges": [{"holder": "控股股东", "ratio": 0.3}],
+        "buybacks": [],
+    }
+    r = assess_governance(div, events=events)
+    # 基础 65（40+10+15）- 监管15 - 质押15 = 35
+    assert r.score == 35.0
+    codes = {c["code"] for c in r.risk_codes}
+    assert "REGULATORY_PENALTY" in codes and "SHARE_PLEDGE" in codes
+    reg = next(c for c in r.risk_codes if c["code"] == "REGULATORY_PENALTY")
+    assert reg["severity"] == "high" and "信披违规" in reg["description"]
+    assert any("治理事件" in e for e in r.evidence)
+
+
+def test_governance_buybacks_raise_score():
+    """持续回购是正面非分红证据：加分且不产生风险码。"""
+    div = {"records": [
+        {"period": "20251231", "cash_div_tax": 2.2},
+        {"period": "20241231", "cash_div_tax": 2.0},
+    ]}
+    events = {"buybacks": [
+        {"period": "20241231", "amount": 10.0},
+        {"period": "20251231", "amount": 12.0},
+    ]}
+    r = assess_governance(div, events=events)
+    assert r.score == 75.0  # 65 + 10
+    assert r.risk_codes == []
+    assert any("持续回购" in e for e in r.evidence)
+
+
+def test_governance_events_wired_but_empty_is_neutral():
+    """事件数据源已接入但无事件 → 中性处理，不再标「待接入」。"""
+    div = {"records": [
+        {"period": "20251231", "cash_div_tax": 2.2},
+        {"period": "20241231", "cash_div_tax": 2.0},
+    ]}
+    r = assess_governance(div, events={})
+    assert r.score == 65.0
+    assert r.risk_codes == []
+    assert any("暂无治理事件数据" in e for e in r.evidence)
+    assert not any("待接入" in e for e in r.evidence)
+
+
+def test_governance_no_event_source_marks_pending():
+    """事件数据源未接入（events=None）→ 保留「待接入」标注，评分不变。"""
+    div = {"records": [
+        {"period": "20251231", "cash_div_tax": 2.2},
+        {"period": "20241231", "cash_div_tax": 2.0},
+    ]}
+    r = assess_governance(div, events=None)
+    assert r.score == 65.0
+    assert any("待接入" in e for e in r.evidence)
 
 
 def test_utility_classified_as_stable_dividend():

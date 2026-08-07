@@ -66,5 +66,6 @@ def test_m6_degrades_on_dividend_failure_not_failed():
     assert res.meta.get("degraded") is True
     assert any("分红数据获取失败" in e for e in res.evidence)
     # 降级输出仍满足下游契约（M9/M10 消费）
-    assert res.outputs["handoff"]["governance_score"] == 0
+    assert res.outputs["handoff"]["governance_score"] == 50  # 6.7：降级态改中性分 50
+    assert "DATA_UNAVAILABLE" in res.outputs["handoff"].get("reason_codes", [])
     assert res.outputs["handoff"]["capital_allocation_flag"] == "neutral"

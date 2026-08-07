@@ -24,7 +24,7 @@ from value_agent.data.pipelines.ingest import daily_update, ingest_company
 from value_agent.data.storage.factory import create_storage
 from value_agent.monitor.runner import notify_webhooks, run_daily_monitor
 from value_agent.report.memo import build_memo
-from value_agent.sessions import InMemoryStore, SessionManager, SqliteStore
+from value_agent.sessions import InMemoryStore, SessionManager, SqliteStore, create_session_store
 from value_agent.workflow import WorkflowEngine, default_workflow
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -137,6 +137,7 @@ def cmd_analyze(args: argparse.Namespace) -> int:
         args.code,
         company_name=info.get("name", ""),
         workflow_id=args.workflow,
+        monitor_hits=manager.prior_monitor_hits(args.code),
     )
     session.data_snapshot_id = f"snap_{args.code}_{session.created_at:%Y%m%d%H%M%S}"
     manager.persist(session)
@@ -225,15 +226,19 @@ def cmd_data(args: argparse.Namespace) -> int:
 
 def cmd_monitor(args: argparse.Namespace) -> int:
     """每日监控：加载已完成会话 → 最新价评估买卖触发 → 推送。"""
-    settings = load_settings()
-    path = settings.get("storage", {}).get("path", "data/sessions.db")
-    store = SqliteStore(path)
+    # 9.9：会话存储与生产一致（SESSION_STORE / DATABASE_URL / SESSIONS_DB），
+    # 不再硬编码本地 SqliteStore，避免 GitHub Actions 全新 runner 读不到生产会话
+    store = create_session_store()
     sessions = store.list()
     source = _default_source()
     print(f"[monitor] 数据源: {source.name} | 已完成会话 {sum(1 for s in sessions if s.status.value == 'completed')} 个")
     events = run_daily_monitor(sessions, source)
     for e in events:
         print(f"[monitor] [{e.severity}] {e.company_name}({e.company_code}) {e.message}")
+    # I-2 记忆闭环：命中写回存储（此前只改内存，进程退出即丢，下次分析读不到）
+    for session in sessions:
+        if session.monitor_hits:
+            store.save(session)
     if events:
         notify_webhooks(events)
     print(f"[monitor] 检查完成，触发事件 {len(events)} 条")

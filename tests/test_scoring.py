@@ -1,11 +1,14 @@
 """LLM 评分层测试：解析 / 回退 / 模块接入（不依赖外网）。"""
 from __future__ import annotations
 
+import pytest
+
 from tests.conftest import StubData
 from tests.test_decision import _results
 from value_agent.agents.base import AgentContext  # 先加载 agents，避免循环导入
 from value_agent.core.scoring import llm_score, parse_llm_score
 from value_agent.decision.agent import M10DecisionAgent
+from value_agent.sessions import ModuleName
 from value_agent.sessions.models import Session, SessionStatus
 
 
@@ -205,27 +208,51 @@ def test_m1_prompt_requires_exclusive_type_judgment(monkeypatch):
 
 
 # ---------- M10 接入 ----------
+def _m10_inputs(results: dict) -> dict:
+    """M10 只消费 spec.inputs 声明的模块（走 ctx.inputs，与契约一致）。"""
+    return {aid: r for aid, r in results.items() if aid in M10DecisionAgent.spec.inputs}
+
+
 def test_m10_llm_score_overrides_total_and_band():
+    """LLM 校准在 ±15 分内生效：规则 50 → 校准 65 → 关注（watch）。"""
     session = Session(id="s1", company_code="600519", status=SessionStatus.CREATED)
-    session.module_results = _results({f"M{i}": 50.0 for i in range(1, 12)})
+    results = _results({ModuleName[f"M{i}"].value: 50.0 for i in range(1, 12)})
+    session.module_results = results
     ctx = AgentContext(
-        session=session, assumptions={}, inputs={},
-        llm=_FakeLLM('{"score": 90, "reason": "综合优秀"}'),
+        session=session, assumptions={}, inputs=_m10_inputs(results),
+        llm=_FakeLLM('{"score": 65, "reason": "综合较好"}'),
     )
     res = M10DecisionAgent().run(ctx)
-    assert res.score == 90
-    assert res.outputs["total"] == 90
-    assert res.outputs["decision_code"] == "buy"
-    assert "强烈关注" in res.outputs["conclusion"]
+    assert res.score == 65
+    assert res.outputs["total"] == 65
+    assert res.outputs["decision_code"] == "watch"
+    assert "关注" in res.outputs["conclusion"]
+
+
+def test_m10_llm_score_cap_over_15_falls_back_to_rule():
+    """8.1：LLM 校准幅度 > ±15 → 回退规则分并记 evidence（防 78 被抬到 82 跨档）。"""
+    session = Session(id="s1", company_code="600519", status=SessionStatus.CREATED)
+    results = _results({ModuleName[f"M{i}"].value: 50.0 for i in range(1, 12)})
+    session.module_results = results
+    ctx = AgentContext(
+        session=session, assumptions={}, inputs=_m10_inputs(results),
+        llm=_FakeLLM('{"score": 90, "reason": "强行抬分"}'),
+    )
+    res = M10DecisionAgent().run(ctx)
+    assert res.score == pytest.approx(50.0, abs=0.1)  # 回退规则分
+    assert res.outputs["total"] == pytest.approx(50.0, abs=0.1)
+    assert any("校准幅度" in e and "回退" in e for e in res.evidence)
+    assert res.outputs["decision_code"] == "watch"
 
 
 def test_m10_veto_not_overridden_by_llm():
     session = Session(id="s1", company_code="600519", status=SessionStatus.CREATED)
-    session.module_results = _results(
+    results = _results(
         {f"M{i}": 90.0 for i in range(1, 12)}, veto=["fraud_signal_hit"]
     )
+    session.module_results = results
     ctx = AgentContext(
-        session=session, assumptions={}, inputs={},
+        session=session, assumptions={}, inputs=_m10_inputs(results),
         llm=_FakeLLM('{"score": 90, "reason": "x"}'),
     )
     res = M10DecisionAgent().run(ctx)

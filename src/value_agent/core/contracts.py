@@ -54,6 +54,7 @@ class ReasonCode(str, enum.Enum):
     INPUT_MISSING = "INPUT_MISSING"  # 依赖模块 handoff 字段缺失
     OUT_OF_RANGE = "OUT_OF_RANGE"  # 数值超出合理区间（数据异常）
     DIV_ZERO = "DIV_ZERO"  # 除零/不可计算
+    PRICE_ABOVE_INTRINSIC = "PRICE_ABOVE_INTRINSIC"  # 现价高于内在价值上沿（M8 高估态）
 
 
 class BusinessType(str, enum.Enum):

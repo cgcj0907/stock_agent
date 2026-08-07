@@ -41,8 +41,8 @@ class MockDataSource(DataSource):
     def daily_prices(self, code: str, start: str | None = None, end: str | None = None) -> dict:
         return {
             "records": [
-                {"trade_date": "20260731", "open": 99.5, "close": 100.0, "high": 101.0, "low": 98.5, "volume": 1_000_000},
-                {"trade_date": "20260803", "open": 100.2, "close": 101.5, "high": 102.0, "low": 99.8, "volume": 1_200_000},
+                {"trade_date": "20260731", "open": 99.5, "close": 100.0, "high": 101.0, "low": 98.5, "volume": 1_000_000, "turnover": 2.5},
+                {"trade_date": "20260803", "open": 100.2, "close": 101.5, "high": 102.0, "low": 99.8, "volume": 1_200_000, "turnover": 2.8},
             ],
             "source": self.name,
         }
@@ -61,6 +61,16 @@ class MockDataSource(DataSource):
             "records": [
                 {"period": "20241231", "cash_div_tax": 2.0, "div_proc": "实施"},
                 {"period": "20251231", "cash_div_tax": 2.2, "div_proc": "实施"},
+            ],
+            "source": self.name,
+        }
+
+    def governance_events(self, code: str) -> dict:
+        """治理事件（M6 非分红证据）：mock 返回 1 条回购 + 无质押/减持，供端到端验证。"""
+        return {
+            "records": [
+                {"kind": "buybacks", "event_date": "20260115", "holder": "",
+                 "ratio": None, "description": "回购进展：累计回购 1.2 亿元"},
             ],
             "source": self.name,
         }

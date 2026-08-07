@@ -122,10 +122,10 @@ const RAW: Array<Omit<AgentInfo, "inputs" | "requires_llm" | "version">> = [
   {
     id: "M7_market",
     code: "M7",
-    name: "价格与情绪",
-    tagline: "估值分位 + 股债性价比",
+    name: "价格与估值分位",
+    tagline: "估值分位 + 股债性价比 + 情绪（情绪=换手率）",
     description:
-      "结合估值历史分位、股债性价比与市场情绪指标，判断当前价格隐含的预期与安全程度。",
+      "结合 10 年估值历史分位、股债性价比与换手率情绪（当前情绪指标仅换手率，北向/两融待接入），判断当前价格隐含的预期与安全程度。",
     icon: "trending-down",
     gradient: "from-cyan-500 to-teal-600",
     category: "市场",

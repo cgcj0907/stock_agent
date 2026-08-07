@@ -9,6 +9,8 @@
 from __future__ import annotations
 
 import logging
+import re
+from pathlib import Path
 
 from value_agent.agents.base import Agent, AgentContext, AgentSpec, degraded_module_result
 from value_agent.core.llm import LLM_JSON_RULE, parse_llm_json
@@ -26,6 +28,40 @@ _ALLOWED_SOURCES = {"无形资产", "转换成本", "网络效应", "成本优�
 _ALLOWED_WIDTH = {"宽", "中", "窄", "无"}
 _ALLOWED_DURABILITY = {"high", "medium", "low"}
 _ALLOWED_TREND = {"widening", "stable", "eroding"}
+
+# 市场情绪/资金面新闻标题特征：这类资料不能作为护城河（竞争优势）证据，
+# 从 M5 参考池中直接剔除，防止 LLM 把「资金热度/股价动量」当成护城河。
+_SENTIMENT_TITLE_RE = re.compile(
+    r"(净流入|特大单|主力资金|主力净|涨停|涨停潮|连板|龙虎榜|两融|融资余额|融券|"
+    r"成交额|换手率|北向资金|游资|跌停|封板|获资金|资金流入|蹭概念|吸筹|拉升|"
+    r"异动|出货|洗盘|妖股|题材|炒作|情绪|人气)"
+)
+
+# 5.10：竞争优势证据类别关键词（LLM 给的竞争证据必须落在这些类别内，
+# 否则视为「股价/情绪凑数」剔除）——与 _SENTIMENT_TITLE_RE 互补。
+_COMPETITION_CATEGORY_RE = re.compile(
+    r"(订单|份额|市占|成本|技术|专利|牌照|客户|转换成本|网络效应|产能|交付|"
+    r"渠道|品牌|规模|壁垒|资质|市占率|市占份额)"
+)
+
+
+def _validate_competition_evidence(items: list) -> list[str]:
+    """5.10：竞争证据内容校验——只保留带类别标签（订单/份额/成本/技术/客户/其他）且
+    不命中市场情绪词表的证据，防止 LLM 用「股价上涨/机构看好」凑数。"""
+    out: list[str] = []
+    for x in items:
+        if not isinstance(x, str):
+            continue
+        t = x.strip()
+        if not t:
+            continue
+        if _SENTIMENT_TITLE_RE.search(t):
+            continue  # 资金面/情绪表述不是护城河证据
+        if not _COMPETITION_CATEGORY_RE.search(t):
+            continue  # 无竞争优势类别关键词 → 剔除
+        out.append(t[:120])
+    return out[:4]
+
 
 _LLM_SYSTEM = (
     "你是价值投资分析师，负责护城河定性判断。规则层已给出「财务代理评级」"
@@ -73,17 +109,68 @@ def _clean_qualitative(parsed: dict) -> dict:
         cleaned = [str(x).strip() for x in evidence if isinstance(x, str) and str(x).strip()][:8]
         if cleaned:
             out["evidence"] = cleaned
+    comp = parsed.get("competition_evidence")
+    if isinstance(comp, list):
+        # 5.10：内容校验（类别标签 + 情绪词过滤）
+        cleaned = _validate_competition_evidence(comp)
+        if cleaned:
+            out["competition_evidence"] = cleaned
     return out
 
 
-def _synthesize_width(rule_tier: str, llm_width: str | None) -> tuple[str, str, bool]:
+def _load_moat_config() -> dict:
+    """5.5：宽度合成门槛进 config/scoring.yaml（moat 段），缺失回退默认。"""
+    default = {
+        "min_competition_evidence": 1,   # LLM 冲突升级需至少 N 条竞争优势证据
+        "downgrade_requires_evidence": False,  # 降级是否同样要求证据
+        "allow_without_refs": True,      # 无参考资料时是否放行 LLM 宽度
+    }
+    for path in (Path("config/scoring.yaml"),
+                 Path(__file__).resolve().parents[3] / "config" / "scoring.yaml"):
+        if not path.exists():
+            continue
+        try:
+            import yaml  # type: ignore
+
+            raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+            cfg = raw.get("moat") or {}
+            return {k: cfg.get(k, v) for k, v in default.items()}
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("scoring.yaml(moat) 读取失败：%s", type(exc).__name__)
+            continue
+    return default
+
+
+def _synthesize_width(
+    rule_tier: str, llm_width: str | None, has_competitive_evidence: bool = False
+) -> tuple[str, str, bool, str]:
     """两层合成最终宽度：LLM 给出合法宽度则采用（带冲突标记），否则用规则代理档位。
 
-    返回 (final_width, width_source, conflict)；width_source ∈ rule_proxy | llm。
+    升级门槛（5.5，可配置）：LLM 宽度与规则层**冲突**时，升级必须附带至少
+    min_competition_evidence 条竞争优势类证据（订单/份额/成本/技术/客户/牌照/专利等），
+    否则不采纳 LLM 宽度、回退规则层——防止 LLM 用「资金面/价格/情绪」等非护城河证据
+    把宽度改高/改低。
+
+    返回 (final_width, width_source, conflict, note)；width_source ∈ rule_proxy | llm。
     """
+    cfg = _load_moat_config()
+    downgrade_requires = bool(cfg.get("downgrade_requires_evidence", False))
     if llm_width is None:
-        return rule_tier, "rule_proxy", False
-    return llm_width, "llm", llm_width != rule_tier
+        return rule_tier, "rule_proxy", False, ""
+    if llm_width != rule_tier:
+        needs_evidence = llm_width in ("宽", "中") or downgrade_requires  # 升级必验；降级按配置
+        if needs_evidence and not has_competitive_evidence:
+            return (
+            rule_tier,
+            "rule_proxy",
+            False,
+            (
+                f"LLM 宽度({llm_width})与规则层({rule_tier})冲突，"
+                "但未给出竞争优势类证据（订单/份额/成本/技术/客户等），"
+                "宽度未采纳，按规则层"
+            ),
+        )
+    return llm_width, "llm", llm_width != rule_tier, ""
 
 
 class M5MoatAgent(Agent):
@@ -91,6 +178,7 @@ class M5MoatAgent(Agent):
         id="M5_moat",
         name="护城河智能体",
         description="护城河宽度/来源/侵蚀（规则代理评级 + LLM 定性两层合成）",
+        inputs=["M1_business_model"],  # 5.8：显式声明依赖 M1（business_type 口径统一）
         requires_llm=True,
     )
 
@@ -170,7 +258,8 @@ class M5MoatAgent(Agent):
 
         if ctx.llm is not None:
             try:
-                refs = CompanyReferences().fetch(code, slot=1)  # 真实链接供 LLM 筛选
+                # 参考池过滤：剔除市场情绪/资金面新闻（不能作为护城河证据）
+                refs = _filter_competitive_refs(CompanyReferences().fetch(code, slot=1))
                 user_prompt = _build_llm_prompt(ctx, result, refs)
                 text = ctx.stream_llm(_LLM_SYSTEM, user_prompt)
                 if not text:
@@ -194,19 +283,22 @@ class M5MoatAgent(Agent):
         else:
             evidence.append("未配置 LLM（LLM_API_KEY），当前为规则引擎结果")
 
-        # 两层合成：最终宽度 + 回填 handoff
-        width, width_source, width_conflict = _synthesize_width(
-            result.rule_tier, qual.get("width")
+        # 两层合成：最终宽度（LLM 冲突升级必须附竞争优势证据）+ 回填 handoff
+        has_comp_evidence = bool(qual.get("competition_evidence"))
+        width, width_source, width_conflict, width_note = _synthesize_width(
+            result.rule_tier, qual.get("width"), has_comp_evidence
         )
         if qual.get("durability"):
             handoff["moat_durability"] = qual["durability"]
         if qual.get("erosion_risks"):
             handoff["erosion_risks"] = qual["erosion_risks"]
         handoff["moat_width"] = _moat_width_code(width)
+        if width_note:
+            evidence.append(f"⚠️ {width_note}")
         if width_conflict:
             evidence.append(
                 f"⚠️ 宽度冲突：规则代理={result.rule_tier}，LLM 定性={qual.get('width')}，"
-                f"最终采用 LLM（width_source=llm）"
+                f"最终采用 LLM（width_source=llm，已附竞争优势证据）"
             )
 
         outputs: dict = {
@@ -220,6 +312,7 @@ class M5MoatAgent(Agent):
                 "sources": [_s.__dict__ for _s in result.sources],
                 "peer": _peer_to_dict(result.peer),
                 "erosion_signals": result.erosion_signals,
+                "cycle_notes": result.cycle_notes,
             },
             "signals": result.signals,
             # 下游契约（docs/09-module-contracts.md §4 M5）：
@@ -229,7 +322,8 @@ class M5MoatAgent(Agent):
         if qual:
             outputs["llm_qualitative"] = qual
         if llm_raw is not None:
-            outputs["llm_qualitative"] = llm_raw
+            # 3.2：raw 仅调试用，截断防 API payload 膨胀
+            outputs["llm_qualitative"] = llm_raw[:2000]
 
         score = llm_score(
             ctx, self.spec.id,
@@ -239,6 +333,7 @@ class M5MoatAgent(Agent):
                 "最终宽度": width,
                 "来源信号数": len(result.sources),
                 "侵蚀风险数": len(handoff["erosion_risks"]),
+                "竞争优势证据数": len(qual.get("competition_evidence") or []),
             },
             evidence=evidence, default=result.score,
         )
@@ -246,6 +341,15 @@ class M5MoatAgent(Agent):
             module=self.spec.id, status=ModuleStatus.DONE, score=score,
             outputs=outputs, evidence=evidence,
         )
+
+
+def _filter_competitive_refs(refs: list[dict]) -> list[dict]:
+    """参考池过滤：剔除市场情绪/资金面类新闻（标题命中 _SENTIMENT_TITLE_RE）。
+
+    护城河证据只能是竞争优势类（订单/份额/成本/技术/客户/牌照等）；
+    资金流入、涨停、换手、龙虎榜等标题与护城河无关，直接不放给 LLM。
+    """
+    return [r for r in refs if not _SENTIMENT_TITLE_RE.search(str(r.get("title") or ""))]
 
 
 def _build_llm_prompt(ctx: AgentContext, rule: MoatResult, refs: list[dict]) -> str:
@@ -278,11 +382,19 @@ def _build_llm_prompt(ctx: AgentContext, rule: MoatResult, refs: list[dict]) -> 
         '"durability": "high|medium|low", '
         '"trend": "widening|stable|eroding", '
         '"erosion_risks": ["具体侵蚀风险1", "具体侵蚀风险2"], '
+        '"competition_evidence": ["1-3 条竞争优势证据"], '
         '"evidence": ["关键证据1", "关键证据2"], '
         '"reference_indices": [筛选出的参考文章编号(1基)]}\n'
         "moat_sources 只从五类中选择确有依据的，不要为了凑数乱填；"
         "width 可修正规则层（规则层只是财务代理）；"
-        "erosion_risks 给 0-3 条具体、可跟踪的侵蚀风险（没有就空数组）；"
+        "erosion_risks 给 0-3 条具体、可跟踪的侵蚀风险（没有就空数组）。\n"
+        "competition_evidence（竞争优势证据）：只有当你给出的 width 与规则层不一致"
+        "（修正/升级/降级）时才必须给出；内容**只能**是竞争优势类事实，例如："
+        "订单能见度/在手订单份额、产能与交付能力、市场份额、成本曲线位置、"
+        "技术/船型/专利/牌照壁垒、客户结构与转换成本、网络效应。\n"
+        "严禁把以下内容当作竞争优势证据：资金流向/净流入、涨跌幅、成交量/换手率、"
+        "新闻热度、股价动量、机构评级等市场情绪类信息——它们不是护城河。\n"
+        "evidence（证据链）：同样不要包含资金面/价格/情绪类表述，只写竞争优势与行业格局证据；"
         "reference_indices：从参考资料清单中筛选与「护城河/竞争优势判断」最相关的文章编号"
         "（1 基），没有就输出空数组；不得编造标题或链接。"
         "优先选择较新的资料（新闻/研报以最近 1-2 年内为主），不要把几年前的旧资讯当作当前事实；"
@@ -304,4 +416,5 @@ def _peer_to_dict(peer) -> dict | None:
         "margin_median": peer.margin_median,
         "debt_company": peer.debt_company,
         "debt_median": peer.debt_median,
+        "debt_note": peer.debt_note,
     }
