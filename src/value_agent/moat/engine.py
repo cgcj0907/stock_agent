@@ -36,7 +36,7 @@ PEER_BENCHMARKS: dict[str, dict] = {
     },
     "financial": {
         "label": "金融", "roe_median": 10.0,
-        "margin_key": "netprofit_margin", "margin_median": 15.0, "debt_median": None,
+        "margin_key": "netprofit_margin", "margin_median": 30.0, "debt_median": None,
     },
     "asset_based": {
         "label": "资产型", "roe_median": 6.0,
@@ -174,7 +174,6 @@ def assess_moat(
 
     roe_latest = roe[0] if roe else None
     gm_latest = gm[0] if gm else None
-    np_latest = np[0] if np else None
     debt_latest = debt[0] if debt else None
 
     bt = business_type or classify_business_type(
@@ -207,7 +206,7 @@ def assess_moat(
             f"ROE {roe_latest:.1f}% vs {bench['label']}行业中位 {bench['roe_median']:.0f}%"
             f"（{'+' if diff >= 0 else ''}{diff:.1f}pct）"
         )
-        if len(roe) >= 3:
+        if len(roe) >= 3 and diff >= 0:  # 稳定性加成只给「不弱于同行中位」的公司
             mean = statistics.mean(roe)
             cv = statistics.stdev(roe) / abs(mean) if mean else 0.0
             if cv <= 0.15:

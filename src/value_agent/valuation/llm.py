@@ -37,7 +37,10 @@ INDUSTRY_CALIBRATION_SYSTEM = (
     "   risk_free_rate∈[0.01,0.05]、method_weight∈[0.05,0.5]、valuation_confidence_delta∈[-0.10,0.10]。\n"
     "4. business_type_override 只能取 consumer_monopoly/growth/cyclical/financial/"
     "asset_based/stable_dividend 之一或 null；route_confidence<0.6 时引擎不会采用覆盖。\n"
-    "5. 输出 JSON 结构：\n"
+    "5. 周期股（cyclical）注意：景气上行期禁用「当期盈利 × 历史中位 PE」高估（历史 PE 会被"
+    "低谷年份顶高），应优先 PB/正常化盈利；method_weight_adjustments 只能对『当前适用方法』"
+    "调整，不要给未路由的方法（如周期股的 dcf）设权重。\n"
+    "6. 输出 JSON 结构：\n"
     '{"business_type_override": "consumer_monopoly|growth|cyclical|financial|asset_based|stable_dividend|null",\n'
     ' "route_confidence": 0.9,\n'
     ' "parameter_adjustments": {"growth_rate": 0.08, "discount_rate": 0.09, "terminal_growth": 0.02, "risk_free_rate": 0.025},\n'

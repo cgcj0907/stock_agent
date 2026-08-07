@@ -101,9 +101,9 @@ const RAW: Array<Omit<AgentInfo, "inputs" | "requires_llm" | "version">> = [
     id: "M5_moat",
     code: "M5",
     name: "护城河",
-    tagline: "竞争优势类型 / 宽度 + 证据链",
+    tagline: "财务代理评级 + LLM 定性两层合成",
     description:
-      "识别竞争优势类型（品牌 / 网络 / 成本 / 转换成本…）与宽度、持续时间，建立护城河证据链并评级。",
+      "规则层按相对行业基准的 ROE/利润率/杠杆做财务代理评级并识别来源信号，LLM 定性补充品牌/网络/转换成本等来源与侵蚀风险，两层合成最终宽度。",
     icon: "castle",
     gradient: "from-amber-500 to-orange-600",
     category: "质地",

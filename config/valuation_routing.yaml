@@ -16,9 +16,9 @@ routing:
     forbidden: [linear_extrapolation]
     note: "成长型：DCF(现金化利润) + PEG + 相对PE；增速上限 20%（M3 已夹逼）"
   cyclical:                 # 周期型
-    methods: [relative_median_pe, graham_number]
+    methods: [relative_median_pe, pb_band, graham_number]
     forbidden: [dcf, tang]
-    note: "周期型：禁 DCF/唐朝（景气高点盈利会失真），用相对PE/资产兜底"
+    note: "周期型：禁 DCF/唐朝；PB 估值主用（重资产盈利波动大），相对PE 用正常化 EPS 并封顶 25 倍，格雷厄姆数资产兜底"
   financial:                # 金融型
     methods: [relative_median_pe, ddm]
     forbidden: [dcf]

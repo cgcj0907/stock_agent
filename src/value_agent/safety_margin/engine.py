@@ -34,9 +34,15 @@ def run_safety_margin(
     intrinsic: dict,
     business_type: str = "consumer_monopoly",
     required_discount: float | None = None,
+    margin_adjustment: float = 0.0,
 ) -> SafetyMarginResult:
-    """主入口：现价 vs 内在价值区间 → 安全边际与买卖区间。"""
-    req = required_discount if required_discount is not None else REQUIRED_DISCOUNT.get(business_type, DEFAULT_REQUIRED)
+    """主入口：现价 vs 内在价值区间 → 安全边际与买卖区间。
+
+    margin_adjustment：M7 市场情绪叠加量（过热 +0.05 / 样本不足 +0.10 / 正常 0 / 低估 −0.05），
+    直接叠加到要求折扣上（docs/09-module-contracts.md §4 M8）。
+    """
+    base_req = required_discount if required_discount is not None else REQUIRED_DISCOUNT.get(business_type, DEFAULT_REQUIRED)
+    req = round(base_req + margin_adjustment, 4)
     low, high, mid = intrinsic.get("low"), intrinsic.get("high"), intrinsic.get("mid")
 
     if price is None or low is None:
@@ -68,6 +74,11 @@ def run_safety_margin(
         f"买入区间 ≤ {buy_price:.2f} 元；卖出区间 ≥ {sell_price:.2f} 元（{business_type}）",
         f"结论：{status}",
     ]
+    if margin_adjustment:
+        evidence.insert(
+            1,
+            f"市场情绪调整（M7）：margin_adjustment {margin_adjustment:+.0%}，要求折扣 {base_req:.0%} → {req:.0%}",
+        )
     return SafetyMarginResult(
         price=price, intrinsic=intrinsic, discount=round(discount, 4),
         required_discount=req, buy_price=round(buy_price, 2),

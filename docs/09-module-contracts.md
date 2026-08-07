@@ -165,15 +165,23 @@ DIV_ZERO           # 除零/不可计算
 - 消费方：M8、M9、M10、M11
 - 降级：`intrinsic_range=None` + `reason_codes=[DATA_UNAVAILABLE]`；**字段集合与正常态一致**（缺值置 None/空）
 
-### M5 护城河（fact）
-- 依赖：无（读 financials）
-- `core_facts`：`width`（宽|中|窄|无）、`score`、`signals`
-- `qualitative`（LLM）：`moat_sources[]`（无形资产/转换成本/网络效应/成本/规模渠道）、`durability`、`erosion_risks[]`
+### M5 护城河（fact）—— 两层制：规则代理评级 × LLM 定性
+- 依赖：无（读 financials + company_info 行业；可选软读 M1 已产出的 business_type，不声明依赖）
+- `core_facts`：
+  - `width`（宽|中|窄|无）：**两层合成后的最终护城河宽度**（M4/M9/M10 消费）
+  - `width_source`：`rule_proxy | llm`；`width_conflict`：规则层与 LLM 不一致时 True
+  - `rule_proxy`：规则层财务代理评级 `{tier, score, signals, sources[], peer, erosion_signals[]}`
+    - 规则层**不再自称护城河结论**：按相对行业基准（PEER_BENCHMARKS 静态行业中位代理，
+      待接真实同行中位数）的 ROE/利润率/杠杆相对评分；金融用净利率口径、跳过杠杆维度；
+    - `sources[]`：可计算来源代理（无形资产/成本规模；转换成本/网络效应待 LLM 定性）；
+    - `erosion_signals[]`：规则层侵蚀趋势信号（ROE 下滑/利润率压缩/杠杆抬升/盈利波动大）
+- `qualitative`（LLM，可选）：`moat_sources[]`（五类）、`width`（修正建议）、`durability`、
+  `trend`（widening|stable|eroding）、`erosion_risks[]`、`evidence[]`；枚举白名单清洗后回填
 - `handoff`：
   - `moat_width [req]`：`wide | medium | narrow | none`（M10 用，替代中文"宽/中/窄/无"）
-  - `moat_durability [req]`：`high | medium | low`
-  - `erosion_risks [opt]`：字符串数组（M9 风险聚合消费）
-- 消费方：M9、M10
+  - `moat_durability [req]`：`high | medium | low`（LLM 合法输出优先，否则规则映射）
+  - `erosion_risks [req]`：字符串数组（LLM 合法输出优先，否则规则侵蚀信号；**M9 风险聚合消费**）
+- 消费方：M4（kill switch/质量乘数）、M9（width + erosion_risks + durability）、M10
 
 ### M6 治理（fact）
 - 依赖：无

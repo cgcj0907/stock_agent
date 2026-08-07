@@ -31,6 +31,8 @@ from .methods import (
     ddm,
     graham_formula,
     graham_number,
+    pb_band,
+    pb_roe,
     peg,
     relative_median_pe,
     tang,
@@ -38,14 +40,14 @@ from .methods import (
 
 # 已实现方法（= methods.py 的函数名）；路由表里未实现的规划方法会被剔除，前端只展示可执行方法
 IMPLEMENTED_METHODS = frozenset(
-    {"dcf", "tang", "graham_number", "graham_formula", "ddm", "relative_median_pe", "peg"}
+    {"dcf", "tang", "graham_number", "graham_formula", "ddm", "relative_median_pe", "peg", "pb_band", "pb_roe"}
 )
 
 # 兜底路由（与 config/valuation_routing.yaml 对齐；M1 落地后从输入取类型）
 DEFAULT_ROUTING: dict[str, list[str]] = {
     "consumer_monopoly": ["dcf", "tang", "graham_number", "graham_formula", "ddm", "relative_median_pe"],
     "growth": ["dcf", "peg", "relative_median_pe"],  # 费雪视角：真成长股补 PEG
-    "cyclical": ["relative_median_pe", "graham_number"],  # 禁 DCF/唐朝（周期股）
+    "cyclical": ["relative_median_pe", "pb_band", "graham_number"],  # 禁 DCF/唐朝（周期股）；PB 主用
     "financial": ["relative_median_pe", "ddm"],           # 禁 DCF（现金流法不适用）
     "asset_based": ["graham_number", "graham_formula"],
     "stable_dividend": ["ddm", "tang", "relative_median_pe"],
@@ -61,10 +63,46 @@ METHOD_WEIGHTS: dict[str, float] = {
     "graham_formula": 0.15,
     "relative_median_pe": 0.30,  # 相对 PE / PEG 一档
     "peg": 0.30,
+    "pb_band": 0.30,           # PB 估值（周期/资产型；cyclical 里 TYPE_WEIGHTS 提到 0.50）
+    "pb_roe": 0.30,            # PB-ROE（银行主方法；financial_bank 里 TYPE_WEIGHTS 提到 0.50）
 }
 
 # 质量乘数权重（对应反馈建议：0.35×M2 + 0.25×M5 + 0.2×M3 + 0.2×M6）
 QUALITY_WEIGHTS: dict[str, float] = {"m2": 0.35, "m5": 0.25, "m3": 0.20, "m6": 0.20}
+
+# 生意类型级权重覆盖（合并到 METHOD_WEIGHTS 之上）。周期股：PB 主用 + 正常化 PE 次之。
+TYPE_WEIGHTS: dict[str, dict[str, float]] = {
+    "cyclical": {
+        "pb_band": 0.50,             # 重资产周期股主方法（PB 相对稳定）
+        "relative_median_pe": 0.25,  # 正常化 EPS × 封顶 PE
+        "graham_number": 0.15,       # 资产兜底
+    },
+    "financial_bank": {              # 银行：PB-ROE 主方法 + DDM
+        "pb_roe": 0.50,
+        "ddm": 0.25,
+    },
+    "financial_broker": {            # 券商：金融外壳、周期内核 → 等同周期股处理
+        "relative_median_pe": 0.25,
+        "pb_band": 0.50,
+        "graham_number": 0.15,
+    },
+}
+
+# 周期股正常化保护参数
+CYCLICAL_PE_CAP = 25.0   # 正常化口径下合理 PE 上限（防止低谷年份 PE 顶高估值）
+CYCLICAL_EPS_YEARS = 5   # 正常化 EPS = 近 N 年 EPS 中位数
+
+# 唐朝法合理 PE 上限（按生意类型）：公用事业/类债资产用低 PE（regulated return），勿套 25 倍
+TANG_PE_CAP: dict[str, float] = {"stable_dividend": 18.0}
+
+# 金融子类型路由（financial 内部按细分行业切换方法）
+FINANCIAL_SUBTYPE_ROUTES: dict[str, list[str]] = {
+    "bank": ["pb_roe", "ddm"],                         # 银行：PE 被拨备扭曲，PB-ROE 标准
+    "broker": ["relative_median_pe", "pb_band", "graham_number"],  # 券商：盈利强周期，等同周期股
+    "insurance": ["relative_median_pe", "ddm"],        # 保险：暂用，EV 数据待接入
+}
+# 需正常化 EPS 保护的子类型（和周期股同病根：盈利波动大）
+NORMALIZED_SUBTYPES = {"broker"}
 
 # 方法级置信度基础值（0-1）
 BASE_CONFIDENCE: dict[str, float] = {
@@ -204,7 +242,7 @@ def kill_switch_check(
     - LOSS_YEAR（M2）→ 禁用 DCF/唐朝/PEG（盈利外推失真）
     - OCF_NP_DIVERGENCE（M2）→ DCF 价值 ×0.85
     - 负债率 >70%（M2 财务字段）→ 整体估值 ×0.85
-    - 周期特征 + 景气下行（M3）→ 只保留相对/资产估值
+    - 周期特征 + 景气下行（M3）→ 只保留 PB/相对/资产估值
     - 护城河缺失（M5）+ 治理弱（M6）→ 整体估值 ×0.9
     """
     allowed = list(allowed)
@@ -232,11 +270,11 @@ def kill_switch_check(
         evidence.append(f"⚠️ kill_switch[HIGH_LEVERAGE]：资产负债率 {debt_latest:.1%} >70%，整体估值 ×0.85")
 
     if m3_cyclicality_flag and m3_prosperity_code == "down":
-        keep = [m for m in allowed if m in ("relative_median_pe", "graham_number", "graham_formula", "ddm")]
+        keep = [m for m in allowed if m in ("pb_band", "relative_median_pe", "graham_number", "graham_formula")]
         if keep:
             allowed = keep
         switches.append("CYCLICAL_DOWN")
-        evidence.append("⚠️ kill_switch[CYCLICAL_DOWN]：周期特征 + 景气下行，仅保留相对/资产类估值")
+        evidence.append("⚠️ kill_switch[CYCLICAL_DOWN]：周期特征 + 景气下行，仅保留 PB/相对/资产类估值")
 
     if m5_width == "none" and m6_score is not None and m6_score < 50:
         overall *= 0.9
@@ -322,15 +360,35 @@ def run_valuation(
     m3_prosperity_code: str | None = None,    # up | flat | down
     m5_width: str | None = None,              # wide | medium | narrow | none
     m6_score: float | None = None,
-    weights: dict | None = None,              # 方法权重覆盖（默认 METHOD_WEIGHTS）
+    weights: dict | None = None,              # 方法权重覆盖（默认 METHOD_WEIGHTS + TYPE_WEIGHTS）
     confidence_delta: float = 0.0,            # LLM 行业校准的置信度增量（±0.1 内）
+    # —— 周期股正常化保护输入（DB financials / valuation_history 表字段）——
+    eps_history: list[float] | None = None,   # 年度 EPS 序列（正常化 EPS 用，正数）
+    pb_history: list[float] | None = None,    # PB 历史（pb_band 用，正数）
+    roe: float | None = None,                 # 最新年报 ROE（pb_roe 用，银行）
+    financial_subtype: str | None = None,     # 金融细类：bank | broker | insurance | other
 ) -> ValuationResult:
     """主入口：按业务类型路由方法 → kill_switch 裁剪 → 执行 → 质量乘数 → 加权汇总。"""
     p = {**default_params(), **(params or {})}
     routing = load_routing()
     allowed = routing.get(business_type, routing.get(DEFAULT_TYPE, DEFAULT_ROUTING[DEFAULT_TYPE]))
+
+    # 亏损/微利（当期 EPS ≤ 0）：盈利类方法全部不适用，只用资产锚（PB），避免整块估值空白
+    loss_mode = eps is not None and eps <= 0
+    if loss_mode:
+        allowed = ["pb_band"]
+
+    # 金融细类路由：银行 PB-ROE / 券商正常化+PB / 保险相对PE+DDM
+    if business_type == "financial" and financial_subtype in FINANCIAL_SUBTYPE_ROUTES:
+        allowed = FINANCIAL_SUBTYPE_ROUTES[financial_subtype]
+
     g, r, tg, rf = p["growth_rate"], p["discount_rate"], p["terminal_growth"], p["risk_free_rate"]
-    w = {**METHOD_WEIGHTS, **(weights or {})}
+    type_key = (
+        f"financial_{financial_subtype}"
+        if business_type == "financial" and financial_subtype in ("bank", "broker")
+        else business_type
+    )
+    w = {**METHOD_WEIGHTS, **TYPE_WEIGHTS.get(type_key, {}), **(weights or {})}
 
     # 1) kill switch：先裁方法，再定折扣
     ks = kill_switch_check(
@@ -345,12 +403,23 @@ def run_valuation(
     cash_eps = cash_earnings_proxy(eps, ocf_to_np, ocfps)
     cash_proxy_used = cash_eps is not None and (ocf_to_np is not None or ocfps is not None)
 
+    # 2b) 正常化 EPS：近 N 年 EPS 中位数（稳健，抗单年异常），供 relative_median_pe 正常化。
+    #     适用：周期股 + 券商（金融外壳、周期内核，盈利随市场大幅波动）
+    need_normalized = business_type == "cyclical" or (
+        business_type == "financial" and financial_subtype in NORMALIZED_SUBTYPES
+    )
+    normalized_eps: float | None = None
+    if need_normalized and eps_history:
+        recent = [e for e in eps_history if e is not None and e > 0][-CYCLICAL_EPS_YEARS:]
+        if recent:
+            normalized_eps = round(statistics.median(recent), 4)
+
     # 3) 执行方法
     methods: dict[str, MethodResult] = {}
     if "dcf" in allowed:
         methods["dcf"] = dcf(eps, g, r, tg, cash_eps=cash_eps if cash_proxy_used else None)
     if "tang" in allowed:
-        methods["tang"] = tang(eps, g, rf)
+        methods["tang"] = tang(eps, g, rf, pe_cap=TANG_PE_CAP.get(business_type))
     if "graham_number" in allowed:
         methods["graham_number"] = graham_number(eps, bvps)
     if "graham_formula" in allowed:
@@ -358,7 +427,16 @@ def run_valuation(
     if "ddm" in allowed:
         methods["ddm"] = ddm(dividend, g, r)
     if "relative_median_pe" in allowed:
-        methods["relative_median_pe"] = relative_median_pe(eps, pe_history)
+        # 周期股/券商：正常化 EPS + PE 封顶（无 EPS 历史时至少对当期 EPS 封顶，避免 101 倍失真）
+        methods["relative_median_pe"] = relative_median_pe(
+            eps, pe_history,
+            normalized_eps=normalized_eps,
+            pe_cap=(CYCLICAL_PE_CAP if need_normalized else None),
+        )
+    if "pb_band" in allowed:
+        methods["pb_band"] = pb_band(bvps, pb_history)
+    if "pb_roe" in allowed:
+        methods["pb_roe"] = pb_roe(bvps, roe, g, r)
     if "peg" in allowed:
         methods["peg"] = peg(eps, g, pe_history)
 
@@ -381,13 +459,17 @@ def run_valuation(
     final_mult = q_mult * ks.overall_multiplier
 
     evidence = [f"生意类型：{business_type}；适用方法：{', '.join(allowed)}；参数：{p}"]
+    if loss_mode:
+        evidence.append("⚠️ 当期 EPS ≤ 0（亏损/微利）：盈利类方法不适用，仅用 PB 资产估值")
+    if business_type == "financial" and financial_subtype:
+        evidence.append(f"金融细类：{financial_subtype}（{', '.join(allowed)}）")
     for m in methods.values():
         if m.value is not None:
             note = f"（{m.note}）" if m.note else ""
             evidence.append(f"{m.name}: {m.value} 元{note}（{m.params}）")
         else:
             evidence.append(f"{m.name}: 跳过（{m.note}）")
-    if cash_proxy_used:
+    if cash_proxy_used and "dcf" in allowed:
         evidence.append(f"DCF 盈利基数：现金化利润代理 {cash_eps}（ocf_to_np×EPS 或 OCFPS）")
     evidence += ks.evidence
     evidence += q_evidence

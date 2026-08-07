@@ -94,18 +94,23 @@ def dcf(
     )
 
 
-def tang(eps: float, g: float, risk_free: float) -> MethodResult:
-    """唐朝估值法：三年后合理估值 = EPS×(1+g)³ × (1/无风险利率)；买点50% / 卖点 min(150%, 当年净利×50)。"""
+def tang(eps: float, g: float, risk_free: float, *, pe_cap: float | None = None) -> MethodResult:
+    """唐朝估值法：三年后合理估值 = EPS×(1+g)³ × (1/无风险利率)；买点50% / 卖点 min(150%, 当年净利×50)。
+
+    pe_cap：合理 PE 上限（如公用事业类 18 倍），避免低无风险利率下 1/rf 把估值拉高。
+    """
     if eps is None or eps <= 0 or risk_free <= 0:
         return MethodResult("tang", None, note="缺 EPS 或无风险利率")
     pe_fair = 1 / risk_free
+    if pe_cap is not None:
+        pe_fair = min(pe_fair, pe_cap)
     eps3 = eps * (1 + g) ** 3
     fair = eps3 * pe_fair
     buy = fair * 0.5
     sell = min(fair * 1.5, eps * 50)
     return MethodResult(
         "tang", round(fair, 2),
-        params={"fair_pe": round(pe_fair, 1), "eps3": round(eps3, 2), "buy": round(buy, 2), "sell": round(sell, 2)},
+        params={"fair_pe": round(pe_fair, 1), "pe_cap": pe_cap, "eps3": round(eps3, 2), "buy": round(buy, 2), "sell": round(sell, 2)},
     )
 
 
@@ -127,23 +132,104 @@ def graham_formula(eps: float, g: float, risk_free: float) -> MethodResult:
     )
 
 
+# DDM 最小折现率-增速价差：价差过小（如 r=8%/g=6%）时分母趋零、价值爆炸，直接跳过
+DDM_MIN_SPREAD = 0.02
+
+
 def ddm(div: float, g: float, r: float) -> MethodResult:
-    """DDM：P = D₁/(r−g)。"""
+    """DDM：P = D₁/(r−g)。要求 r−g ≥ 2pct（价差过小 DDM 不稳定，跳过）。"""
     if div is None or div <= 0:
         return MethodResult("ddm", None, note="无分红数据")
     if r <= g:
         return MethodResult("ddm", None, note=f"折现率 r({r:.2f}) 需大于增速 g({g:.2f})")
-    return MethodResult("ddm", round(div * (1 + g) / (r - g), 2), params={"div": div})
+    if r - g < DDM_MIN_SPREAD:
+        return MethodResult(
+            "ddm", None,
+            note=f"折现率-增速价差 {r - g:.1%} < {DDM_MIN_SPREAD:.0%}，DDM 不稳定，跳过",
+        )
+    return MethodResult("ddm", round(div * (1 + g) / (r - g), 2), params={"div": div, "spread": round(r - g, 4)})
 
 
-def relative_median_pe(eps: float, pe_history: list[float]) -> MethodResult:
-    """相对估值：合理价 = EPS × PE 历史中位数。"""
+def relative_median_pe(
+    eps: float,
+    pe_history: list[float],
+    *,
+    normalized_eps: float | None = None,
+    pe_cap: float | None = None,
+) -> MethodResult:
+    """相对估值：合理价 = PE 历史中位数 × EPS。
+
+    normalized_eps / pe_cap：**周期股正常化保护**。周期股直接用「当期 EPS × 历史中位 PE」
+    会双重失真：景气高点的当期 EPS × 被低谷年份（EPS≈0 → PE 上百）顶高的历史中位 PE，
+    会把估值顶到天上去（如中国船舶：1.40 × 101 = 142 元 vs 现价 35）。
+    传入 normalized_eps（近 N 年 EPS 中位数）时代替当期 EPS，并把 PE 夹逼到 pe_cap
+    （默认 25），避免亏损/微利年份的异常 PE 拉高估值。
+    """
     if eps is None or not pe_history:
         return MethodResult("relative_median_pe", None, note="缺 EPS 或 PE 历史")
-    median = statistics.median(pe_history)
+    median_pe = statistics.median(pe_history)
+    base, mode = (normalized_eps, "normalized") if normalized_eps is not None else (eps, "current")
+    pe_used = min(median_pe, pe_cap) if pe_cap else median_pe  # 封顶对当期/正常化口径都生效
+    if base is None or base <= 0 or pe_used <= 0:
+        return MethodResult("relative_median_pe", None, note="EPS 或 PE 非正，不适用")
     return MethodResult(
-        "relative_median_pe", round(eps * median, 2),
-        params={"median_pe": round(median, 2), "n": len(pe_history)},
+        "relative_median_pe", round(base * pe_used, 2),
+        params={
+            "median_pe": round(median_pe, 2), "pe_used": round(pe_used, 2),
+            "eps_base": mode, "n": len(pe_history),
+        },
+    )
+
+
+def pb_band(bvps: float, pb_history: list[float]) -> MethodResult:
+    """PB 估值法（周期/资产型主方法）：价值 = 每股净资产 × 历史 PB 中位；区间 = p25/p75。
+
+    重资产/周期股盈利波动大，PE 失真，用 PB（每股净资产相对稳定）更稳。
+    """
+    if bvps is None or not pb_history:
+        return MethodResult("pb_band", None, note="缺每股净资产或 PB 历史")
+    pbs = sorted(p for p in pb_history if p is not None and p > 0)
+    if not pbs:
+        return MethodResult("pb_band", None, note="PB 历史无有效值")
+
+    def _pct(ratio: float) -> float:
+        return pbs[min(len(pbs) - 1, int(len(pbs) * ratio))]
+
+    p25, p50, p75 = _pct(0.25), _pct(0.50), _pct(0.75)
+    return MethodResult(
+        "pb_band",
+        round(bvps * p50, 2),
+        round(bvps * p25, 2),
+        round(bvps * p75, 2),
+        {"median_pb": round(p50, 3), "p25": round(p25, 3), "p75": round(p75, 3), "n": len(pbs)},
+    )
+
+
+def pb_roe(
+    bvps: float,
+    roe: float,
+    g: float,
+    r: float,
+    *,
+    pb_floor: float = 0.4,
+    pb_cap: float = 3.0,
+) -> MethodResult:
+    """PB-ROE（银行/金融主方法）：V = 每股净资产 × (ROE−g)/(r−g)。
+
+    银行盈利受拨备/杠杆影响，PE 结构性失真；PB-ROE 把「盈利能力（ROE）相对资本成本（r）
+    的超额」折算成合理市净率。隐含 PB 夹逼到 [pb_floor, pb_cap] 防参数敏感爆炸。
+    """
+    if bvps is None or bvps <= 0:
+        return MethodResult("pb_roe", None, note="缺每股净资产")
+    if roe is None or roe <= 0:
+        return MethodResult("pb_roe", None, note="缺 ROE 或 ROE≤0")
+    if r is None or r <= g:
+        return MethodResult("pb_roe", None, note="折现率需大于增速")
+    implied_pb = (roe - g) / (r - g)
+    implied_pb = max(pb_floor, min(pb_cap, implied_pb))
+    return MethodResult(
+        "pb_roe", round(bvps * implied_pb, 2),
+        params={"roe": roe, "g": g, "r": r, "implied_pb": round(implied_pb, 3)},
     )
 
 

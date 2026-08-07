@@ -50,3 +50,23 @@ def test_missing_data_neutral():
 def test_sell_price_is_120pct_of_high():
     r = run_safety_margin(40.0, INTRINSIC)
     assert r.sell_price == pytest.approx(149.74 * 1.2, abs=0.01)
+
+def test_margin_adjustment_stacks_on_required_discount():
+    """M7 市场情绪叠加：过热 +0.05 → 要求折扣 25%→30%，买入区间更保守。"""
+    r = run_safety_margin(40.0, INTRINSIC, required_discount=0.25, margin_adjustment=0.05)
+    assert r.required_discount == pytest.approx(0.30)
+    assert r.buy_price == pytest.approx(56.67 * 0.70, abs=0.01)
+    assert any("margin_adjustment" in e for e in r.evidence)
+
+
+def test_margin_adjustment_cold_lowers_required_discount():
+    """市场低估（−0.05）→ 要求折扣 25%→20%，买入区间放宽（机会更大时更积极）。"""
+    r = run_safety_margin(40.0, INTRINSIC, margin_adjustment=-0.05)
+    assert r.required_discount == pytest.approx(0.20)
+    assert r.buy_price == pytest.approx(56.67 * 0.80, abs=0.01)
+
+
+def test_margin_adjustment_default_zero_unchanged():
+    r = run_safety_margin(40.0, INTRINSIC)
+    assert r.required_discount == 0.25
+    assert r.buy_price == pytest.approx(56.67 * 0.75, abs=0.01)

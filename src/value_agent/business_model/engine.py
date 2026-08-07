@@ -11,6 +11,8 @@ CYCLICAL_KEYWORDS = [
     "房地产", "港口", "建材", "水泥", "机械", "汽车",
 ]
 ASSET_KEYWORDS = ["高速公路"]
+# 公用事业/类债资产：稳定现金流 + 低成长 + 分红，应走高分红稳定（DDM），而非 DCF/唐朝 25 倍
+UTILITY_KEYWORDS = ["电力", "水电", "燃气", "水务", "供热", "公用事业"]
 
 TYPE_LABEL = {
     "consumer_monopoly": "消费垄断（高毛利/高ROE/低杠杆）",
@@ -39,6 +41,7 @@ class BusinessModelResult:
     industry: str
     score: float
     evidence: list[str] = field(default_factory=list)
+    financial_subtype: str = "other"  # 金融细类：bank | broker | insurance | other（M4 用）
 
 
 BUSINESS_TYPE_ALIASES = {
@@ -55,6 +58,17 @@ BUSINESS_TYPE_ALIASES = {
     "stable_dividend": "stable_dividend",
     "高分红稳定": "stable_dividend",
 }
+
+
+def financial_subtype_of(industry: str) -> str:
+    """金融细类（M4 估值方法路由的依据）：银行走 PB-ROE，券商走正常化盈利+PB，保险暂用相对PE+DDM。"""
+    if "银行" in industry:
+        return "bank"
+    if "证券" in industry:
+        return "broker"
+    if "保险" in industry:
+        return "insurance"
+    return "other"
 
 
 def normalize_business_type(value: str | None) -> str | None:
@@ -75,6 +89,9 @@ def classify_business_type(
         return "cyclical"
     if any(k in industry for k in ASSET_KEYWORDS):
         return "asset_based"
+    # 公用事业：类债资产，先于 ROE/毛利率启发式（长江电力这类会被误分消费垄断）
+    if any(k in industry for k in UTILITY_KEYWORDS):
+        return "stable_dividend"
     if (
         roe is not None and roe >= 15
         and gross_margin is not None and gross_margin >= 40
@@ -97,6 +114,7 @@ def analyze_business_model(
 
     rule_btype = classify_business_type(industry or "", roe, gm, debt)
     btype = normalize_business_type(business_type) or rule_btype
+    financial_subtype = financial_subtype_of(industry or "")
     one_liner = f"{company_info.get('name', company_info.get('code'))}：{industry or '未知行业'}，{TYPE_LABEL[btype]}型生意"
     und = UNDERSTAND[btype]
     # 评分：数据完整度 + 简单性
@@ -118,6 +136,7 @@ def analyze_business_model(
         evidence.append(f"规则分类参考：{rule_btype}（{TYPE_LABEL[rule_btype]}）")
     return BusinessModelResult(
         business_type=btype, one_liner=one_liner,
+        financial_subtype=financial_subtype,
         understandability=und, industry=industry, score=round(score, 1),
         evidence=evidence,
     )

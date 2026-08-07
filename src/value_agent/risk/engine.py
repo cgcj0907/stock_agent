@@ -73,19 +73,32 @@ def assess_risk(inputs: dict[str, ModuleResult], assumptions: dict | None = None
             items.append(_risk_item(n, "财务", "medium", "M2_financial_quality",
                                     "financial_quality_below_60", "财务质量一般"))
 
-    # M3 景气风险
+    # M3 景气风险（契约：读 handoff.prosperity_code，不再直接读中文 prosperity）
     m3 = out("M3_growth")
-    if m3.get("prosperity") == "下行":
+    m3_handoff = m3.get("handoff") or {}
+    if m3_handoff.get("prosperity_code") == "down":
         n += 1
-        items.append(_risk_item(n, "景气", "medium", "M3_growth", "prosperity=down",
+        items.append(_risk_item(n, "景气", "medium", "M3_growth", "prosperity_code=down",
                                 "行业景气下行", mitigation="财报季重点复查景气指标"))
 
-    # M5 护城河风险
+    # M5 护城河风险（宽度 + 侵蚀风险 + 持久性）
     m5 = out("M5_moat")
     if m5.get("width") in ("无", "窄"):
         n += 1
         impact = "护城河无（竞争压力大）" if m5.get("width") == "无" else "护城河较窄（竞争压力大）"
         items.append(_risk_item(n, "护城河", "medium", "M5_moat", f"width={m5.get('width')}", impact))
+    m5_handoff = m5.get("handoff") or {}
+    durability = m5_handoff.get("moat_durability")
+    for er in m5_handoff.get("erosion_risks") or []:
+        if not str(er).strip():
+            continue
+        n += 1
+        # 侵蚀风险 + 低持久性 → high（进入 M11 监控候选）；否则 medium
+        sev = "high" if durability == "low" else "medium"
+        items.append(_risk_item(
+            n, "护城河", sev, "M5_moat", "erosion_risk",
+            str(er), mitigation="跟踪护城河来源指标与竞争格局变化",
+        ))
 
     # M6 治理风险
     m6 = out("M6_governance")

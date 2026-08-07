@@ -13,7 +13,10 @@ def test_monitor_plan_generates_rules():
     results = {
         "M8_safety_margin": _mod("M8_safety_margin", {"buy_price": 42.5, "sell_price": 179.69}),
         "M7_market": _mod("M7_market", {"position": "合理"}),
-        "M3_growth": _mod("M3_growth", {"prosperity": "下行"}),
+        "M3_growth": _mod("M3_growth", {
+            "prosperity": "下行",
+            "handoff": {"prosperity_code": "down"},
+        }),
         "M2_financial_quality": _mod("M2_financial_quality", {"signals": ["ROE 突变"]}),
         "M9_risk": _mod("M9_risk", {"risk_items": ["护城河不足"]}),
     }

@@ -44,6 +44,7 @@ def assess_growth(financials: dict, default_growth: float = 0.10) -> GrowthResul
             continue
         eps_by_year.append((year, r["eps"]))
 
+    cagr = None  # 无 EPS 时保持 None：增速/可信度/景气判定统一走缺省分支，避免 UnboundLocalError
     if eps_by_year:
         cagr = _eps_cagr(eps_by_year)
         growth = max(0.0, min(cagr if cagr is not None else default_growth, 0.20))
@@ -55,13 +56,19 @@ def assess_growth(financials: dict, default_growth: float = 0.10) -> GrowthResul
     debt = [r["debt_to_assets"] for r in recs if r.get("debt_to_assets") is not None]
     eps_vals = [e for _, e in eps_by_year]
 
-    # 景气度：由增速与 ROE 趋势共同判定
-    if growth >= 0.15:
-        prosperity = "上行"
-    elif growth >= 0.05 and (not roe or roe[-1] >= 10):
-        prosperity = "平稳"
-    else:
+    # 景气度：负增长或 ROE 显著恶化 → 下行；高增长 → 上行；其余（含零/微增长）→ 平稳。
+    # 注意 growth 已被钳制到 ≥0，负 CAGR 需用原始 cagr 判断；成熟稳定公司不再误判"下行"。
+    down_reason = None
+    if cagr is not None and cagr < 0:
         prosperity = "下行"
+        down_reason = f"EPS CAGR {cagr * 100:.1f}% 为负"
+    elif growth >= 0.15:
+        prosperity = "上行"
+    elif len(roe) >= 2 and roe[-1] < roe[-2] - 5:
+        prosperity = "下行"
+        down_reason = f"ROE 同比下滑 {roe[-2] - roe[-1]:.0f}pp"
+    else:
+        prosperity = "平稳"
     prosperity_code = {"上行": "up", "平稳": "flat", "下行": "down"}[prosperity]
 
     # 增速可信度：真实 CAGR 且样本充足 → high；数据不足/默认值 → low
@@ -93,7 +100,7 @@ def assess_growth(financials: dict, default_growth: float = 0.10) -> GrowthResul
         note,
         f"增速假设：{growth:.1%}（M4 DCF 将采用）",
         f"再投资质量：ROE {roe_latest}% vs WACC {WACC:.0%}" if roe_latest is not None else "再投资质量：缺 ROE",
-        f"景气度评级：{prosperity}",
+        f"景气度评级：{prosperity}" + (f"（{down_reason}）" if down_reason else ""),
     ]
     return GrowthResult(
         growth_estimate=round(growth, 4), prosperity=prosperity,

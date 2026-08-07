@@ -49,12 +49,19 @@ class M8SafetyMarginAgent(Agent):
         business_type = m4.outputs.get("business_type", "consumer_monopoly")
         required_discount = ctx.assumptions.get("required_discount")
 
+        # M7 契约：margin_adjustment 直接叠加到要求折扣（过热更保守 / 低估更宽松）
+        m7 = ctx.inputs.get("M7_market")
+        margin_adjustment = 0.0
+        if m7:
+            handoff = m7.outputs.get("handoff") or {}
+            margin_adjustment = handoff.get("margin_adjustment", 0.0) or 0.0
+
         result = run_safety_margin(
             price=price, intrinsic=intrinsic,
             business_type=business_type, required_discount=required_discount,
+            margin_adjustment=margin_adjustment,
         )
         evidence = list(result.evidence)
-        m7 = ctx.inputs.get("M7_market")
         if m7 and m7.outputs.get("position") in ("高估", "泡沫"):
             evidence.append(f"M7 估值位置：{m7.outputs['position']}（卖出参考触发）")
         score = llm_score(

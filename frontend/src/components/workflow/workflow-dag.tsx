@@ -67,7 +67,12 @@ export function StatusIndicator({
   }
 }
 
-/** 按状态着色的连线：目标运行中→深灰虚线滚动动画；其余→中性灰 */
+/**
+ * 连线按状态着色，给数据注入感：
+ * - 目标运行中 → 翠绿发光虚线，向前流动注入；
+ * - 源/目标已完成 → 翠绿实线；
+ * - 失败 → 红色；跳过 → 琥珀色；其余 → 中性灰。
+ */
 function buildEdges(
   steps: WorkflowStep[],
   statuses: Record<string, StepStatus>
@@ -75,8 +80,22 @@ function buildEdges(
   const edges: Edge[] = [];
   for (const s of steps) {
     for (const dep of s.deps) {
-      const running = statuses[s.id] === "running";
-      const color = running ? "#3f3f46" : "#a1a1aa";
+      const src = statuses[dep] ?? "pending";
+      const tgt = statuses[s.id] ?? "pending";
+      const running = tgt === "running";
+      const failed = src === "failed" || tgt === "failed";
+      const done = !running && !failed && (src === "done" || tgt === "done");
+      const skipped =
+        !running && !failed && !done && (src === "skipped" || tgt === "skipped");
+
+      const color = failed
+        ? "#ef4444"
+        : running || done
+          ? "#10b981"
+          : skipped
+            ? "#f59e0b"
+            : "#a1a1aa";
+
       edges.push({
         id: `${dep}-${s.id}`,
         source: dep,
@@ -85,14 +104,20 @@ function buildEdges(
         animated: running,
         style: {
           stroke: color,
-          strokeWidth: running ? 2 : 1.5,
-          strokeDasharray: running ? "5 4" : undefined,
-          transition: "stroke 250ms ease, stroke-width 250ms ease",
+          strokeWidth: running ? 2.5 : failed || done ? 2 : 1.5,
+          strokeDasharray: running ? "7 5" : undefined,
+          filter: running
+            ? "drop-shadow(0 0 4px rgba(16,185,129,0.55))"
+            : failed
+              ? "drop-shadow(0 0 3px rgba(239,68,68,0.35))"
+              : undefined,
+          transition:
+            "stroke 250ms ease, stroke-width 250ms ease, filter 250ms ease",
         },
         markerEnd: {
           type: MarkerType.ArrowClosed,
-          width: 14,
-          height: 14,
+          width: 16,
+          height: 16,
           color,
         },
       });

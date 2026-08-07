@@ -210,7 +210,18 @@ def test_kill_switch_cyclical_down_keeps_relative_asset():
     r = run_valuation(eps=4.5, bvps=31.7, pe_history=[21.0, 21.3], dividend=2.2,
                       m3_cyclicality_flag=True, m3_prosperity_code="down")
     assert "CYCLICAL_DOWN" in r.kill_switches
-    assert set(r.methods) <= {"relative_median_pe", "graham_number", "graham_formula", "ddm"}
+    assert set(r.methods) <= {"pb_band", "relative_median_pe", "graham_number", "graham_formula"}
+
+
+def test_kill_switch_cyclical_down_keeps_pb_band():
+    # 周期 + 景气下行：保留 PB 主方法（与新路由表一致），不摘掉设计文档指定的周期股主方法
+    r = run_valuation(eps=4.5, bvps=31.7, pe_history=[21.0, 21.3], pb_history=[1.5, 1.6, 1.7, 1.8],
+                      dividend=2.2, business_type="cyclical",
+                      m3_cyclicality_flag=True, m3_prosperity_code="down")
+    assert "CYCLICAL_DOWN" in r.kill_switches
+    assert "pb_band" in r.methods
+    assert "dcf" not in r.methods
+    assert set(r.methods) <= {"pb_band", "relative_median_pe", "graham_number", "graham_formula"}
 
 
 def test_peg_method():
@@ -413,3 +424,158 @@ def test_m4_agent_llm_parse_failure_keeps_rule_result():
     assert res.outputs["intrinsic_value"]["mid"] is not None
     assert res.outputs["llm_qualitative"] is None
     assert any("解析失败" in e for e in res.evidence)
+
+
+# ---------- v4：周期股正常化保护（relative_median_pe 正常化 + PB 估值法） ----------
+def test_pb_band_method():
+    from value_agent.valuation.methods import pb_band
+
+    r = pb_band(19.91, [1.5, 1.6, 1.7, 1.8, 1.9, 2.0, 2.1, 2.2])
+    assert r.value == pytest.approx(round(19.91 * 1.9, 2))   # p50
+    assert r.low == pytest.approx(round(19.91 * 1.7, 2))     # p25
+    assert r.high == pytest.approx(round(19.91 * 2.1, 2))    # p75
+    assert pb_band(19.91, []).value is None
+    assert pb_band(None, [1.0]).value is None
+
+
+def test_relative_median_pe_normalized_mode():
+    from value_agent.valuation.methods import relative_median_pe
+
+    # 周期股：当期 EPS 1.40、PE 中位 101 → 正常化 EPS 0.66 × 封顶 PE 25，绝不再 142
+    r = relative_median_pe(1.40, [101.0, 90.0, 110.0], normalized_eps=0.66, pe_cap=25)
+    assert r.value == pytest.approx(0.66 * 25)
+    assert r.params["eps_base"] == "normalized"
+    assert r.params["pe_used"] == 25
+    # 未传正常化 → 保持当期口径
+    r2 = relative_median_pe(1.40, [20.0, 30.0])
+    assert r2.params["eps_base"] == "current"
+    assert r2.value == pytest.approx(1.40 * 25.0)
+
+
+def test_cyclical_engine_normalizes_relative_pe_and_uses_pb():
+    """复现中国船舶场景：当期 EPS 1.40、PE 中位 101 → 中值不再顶到 120，PB 法进入。"""
+    r = run_valuation(
+        eps=1.40, bvps=19.91,
+        pe_history=[101.0] * 10, pb_history=[1.6, 1.7, 1.8, 1.9, 2.0, 2.1, 2.2, 2.3],
+        dividend=None, business_type="cyclical",
+        eps_history=[0.05, 0.20, 0.66, 0.86, 1.40],
+    )
+    rel = r.methods["relative_median_pe"]
+    assert rel.params["eps_base"] == "normalized"
+    assert rel.value == pytest.approx(round(0.66 * 25, 2))  # 正常化保护生效
+    assert "pb_band" in r.methods
+    assert r.methods["pb_band"].value is not None
+    assert r.weights.get("pb_band") == 0.50                 # 周期股 PB 主方法权重
+    assert r.intrinsic["mid"] < 60                          # 不再顶到 120
+
+
+def test_cyclical_without_eps_history_still_caps_pe():
+    """没有 EPS 历史时，周期股至少对当期 EPS 封顶 PE，防止 101 倍失真。"""
+    r = run_valuation(eps=1.40, bvps=19.91, pe_history=[101.0] * 10,
+                      dividend=None, business_type="cyclical")
+    rel = r.methods["relative_median_pe"]
+    assert rel.params["pe_used"] == 25
+    assert rel.value == pytest.approx(1.40 * 25)
+
+
+def test_m4_agent_cyclical_includes_pb_and_normalized_pe():
+    from value_agent.valuation.agent import M4ValuationAgent
+
+    res = M4ValuationAgent().run(_m4_ctx(StubData(), business_type="cyclical"))
+    assert res.status.value == "done"
+    methods = {m["method"]: m for m in res.outputs["methods"]}
+    assert "pb_band" in methods and methods["pb_band"]["applicable"]
+    assert methods["relative_median_pe"]["applicable"]
+    # StubData 全为年度 eps=5.0 → 正常化 EPS 也是 5.0，PE 25 → 125；PB=20×5=100
+    assert methods["relative_median_pe"]["value"] == pytest.approx(125.0)
+
+
+def test_m4_agent_llm_skips_unrouted_weight():
+    """LLM 给未路由方法（周期股上的 dcf）设权重 → 忽略，并提示。"""
+    from value_agent.valuation.agent import M4ValuationAgent
+
+    fake = _FakeLLM(
+        '{"business_type_override": "cyclical", "route_confidence": 0.9, '
+        '"parameter_adjustments": {}, "method_weight_adjustments": {"dcf": 0.2, "pb_band": 0.5}, '
+        '"valuation_confidence_delta": 0.0, "reasons": ["周期股应重 PB"]}'
+    )
+    res = M4ValuationAgent().run(_m4_ctx(StubData(), inputs=_quality_inputs(), llm=fake))
+    assert res.outputs["business_type"] == "cyclical"
+    calib = res.outputs["llm_qualitative"]["calibration"]
+    assert calib["method_weight_adjustments"] == {"pb_band": 0.5}
+    assert any("忽略未路由方法" in e for e in res.evidence)
+
+
+# ---------- v5：亏损股纯 PB / 金融细类（银行 PB-ROE / 券商正常化）/ 公用事业 ----------
+def test_loss_making_stock_uses_pb_only():
+    """亏损股（EPS≤0）：盈利类方法全部跳过，只用 PB 资产锚，不再估值空白。"""
+    r = run_valuation(
+        eps=-0.3, bvps=8.0, pe_history=[30.0, 28.0, 35.0], pb_history=[1.0, 1.2, 1.4],
+        dividend=None, business_type="consumer_monopoly",
+    )
+    assert set(r.methods.keys()) == {"pb_band"}
+    assert r.methods["pb_band"].value is not None
+    assert r.intrinsic["mid"] is not None  # 不再 None
+    assert any("EPS ≤ 0" in e for e in r.evidence)
+
+
+def test_pb_roe_method():
+    from value_agent.valuation.methods import pb_roe
+
+    r = pb_roe(37.0, 0.15, 0.05, 0.10)
+    implied = (0.15 - 0.05) / (0.10 - 0.05)  # 2.0
+    assert r.value == pytest.approx(round(37.0 * implied, 2))
+    assert r.params["implied_pb"] == pytest.approx(2.0)
+    # ROE≤0 / r≤g → 跳过
+    assert pb_roe(37.0, -0.1, 0.05, 0.10).value is None
+    assert pb_roe(37.0, 0.15, 0.10, 0.10).value is None
+
+
+def test_financial_bank_uses_pb_roe():
+    r = run_valuation(
+        eps=5.9, bvps=37.0, pe_history=[7.0, 6.5, 7.5], pb_history=[0.9, 1.0, 1.1],
+        dividend=1.9, business_type="financial", financial_subtype="bank",
+        roe=0.15, params={"growth_rate": 0.05, "discount_rate": 0.10},
+    )
+    assert "pb_roe" in r.methods
+    assert "ddm" in r.methods
+    assert "relative_median_pe" not in r.methods  # 银行不再用 PE
+    assert r.weights.get("pb_roe") == 0.50
+    assert any("金融细类：bank" in e for e in r.evidence)
+
+
+def test_financial_broker_normalized_like_cyclical():
+    """券商：金融外壳、周期内核 → 正常化 EPS + PB，等同周期股处理。"""
+    r = run_valuation(
+        eps=1.2, bvps=15.0, pe_history=[30.0, 12.0, 18.0, 25.0], pb_history=[1.5, 1.8, 2.0],
+        dividend=0.4, business_type="financial", financial_subtype="broker",
+        eps_history=[0.4, 0.9, 1.2, 1.5, 1.8],
+    )
+    assert r.methods["relative_median_pe"].params["eps_base"] == "normalized"
+    assert "pb_band" in r.methods
+    assert r.methods["relative_median_pe"].value < 30  # 不再用当期 1.2 × 高位 PE
+
+
+def test_financial_unknown_subtype_keeps_default():
+    r = run_valuation(eps=2.0, bvps=20.0, pe_history=[15.0, 16.0], dividend=1.0,
+                      business_type="financial", financial_subtype="other")
+    assert "relative_median_pe" in r.methods
+    assert "ddm" in r.methods
+    assert "pb_roe" not in r.methods
+
+
+def test_tang_pe_cap_for_stable_dividend():
+    from value_agent.valuation.methods import tang
+
+    r = tang(1.0, 0.06, 0.04, pe_cap=18.0)
+    assert r.params["fair_pe"] == 18.0  # 不再 1/0.04=25
+    assert r.value == pytest.approx(round(1.0 * 1.06**3 * 18.0, 2))
+
+
+def test_ddm_min_spread_guard():
+    from value_agent.valuation.methods import ddm
+
+    # r=8%, g=6% → 价差 2%，正好达标（不跳过）
+    assert ddm(0.8, 0.06, 0.08).value is not None
+    # r=7%, g=6% → 价差 1% < 2% → 跳过（防 DDM 爆炸）
+    assert ddm(0.8, 0.06, 0.07).value is None

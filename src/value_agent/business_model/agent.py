@@ -69,6 +69,7 @@ class M1BusinessModelAgent(Agent):
                         "handoff": {
                             "valuation_route": "cyclical",
                             "understandability_level": "medium",
+                            "financial_subtype": "other",
                         },
                     },
                     evidence=[f"数据源异常：{type(exc).__name__}（{str(exc)[:80]}），已降级为周期分类"],
@@ -142,6 +143,7 @@ class M1BusinessModelAgent(Agent):
             "handoff": {
                 "valuation_route": result.business_type,
                 "understandability_level": _understandability_level(result.understandability),
+                "financial_subtype": getattr(result, "financial_subtype", "other"),
             },
         }
         # 移除空 references

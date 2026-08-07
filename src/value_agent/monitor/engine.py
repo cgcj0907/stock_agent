@@ -73,7 +73,7 @@ def build_monitor_plan(
         ))
 
     m3 = get("M3_growth")
-    if m3 and m3.outputs.get("prosperity") == "下行":
+    if m3 and (m3.outputs.get("handoff") or {}).get("prosperity_code") == "down":
         rules.append(MonitorRule(
             "prosperity_watch", "景气评级=下行",
             "行业景气下行，财报季重点复查", "warn",

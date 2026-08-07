@@ -35,15 +35,21 @@ def assess_market(valuation_history: dict, risk_free: float = 0.04) -> MarketRes
 
     evidence = [f"估值历史样本：PE {len(pe_hist)} 期 / PB {len(pb_hist)} 期"]
 
-    if len(pe_hist) < MIN_SAMPLES or latest_pe is None:
+    pe_ok = len(pe_hist) >= MIN_SAMPLES and latest_pe is not None
+    pb_ok = len(pb_hist) >= MIN_SAMPLES and latest_pb is not None
+
+    if not pe_ok and not pb_ok:
         return MarketResult(
             pe_percentile=None, pb_percentile=None, position="样本不足（<10 期）",
             score=50.0,
             evidence=evidence + ["⚠️ 历史样本不足，分位与价格位置暂不可靠"],
         )
 
-    pe_pct = _percentile(latest_pe, pe_hist)
-    pb_pct = _percentile(latest_pb, pb_hist) if latest_pb else None
+    pe_pct = _percentile(latest_pe, pe_hist) if pe_ok else None
+    pb_pct = _percentile(latest_pb, pb_hist) if pb_ok else None
+    if not pe_ok:
+        # 银行/保险/资产型公司：PE 常失真或缺失，PB 更有效 → 不因缺 PE 误判"样本不足"
+        evidence.append("⚠️ PE 历史样本不足，以 PB 分位判定价格位置（银行/资产型公司常见）")
     max_pct = max(p for p in (pe_pct, pb_pct) if p is not None)
 
     if max_pct < 0.2:
@@ -57,15 +63,21 @@ def assess_market(valuation_history: dict, risk_free: float = 0.04) -> MarketRes
     else:
         position, score = "泡沫", 10.0
 
-    ey = 1 / latest_pe if latest_pe > 0 else None
+    ey = (1 / latest_pe if latest_pe and latest_pe > 0 else None) if pe_ok else None
+    pct_parts = []
+    if pe_pct is not None:
+        pct_parts.append(f"PE(TTM) {latest_pe} 分位 {pe_pct:.0%}")
+    if pb_pct is not None:
+        pct_parts.append(f"PB {latest_pb} 分位 {pb_pct:.0%}")
     evidence += [
-        f"PE(TTM) {latest_pe} 分位 {pe_pct:.0%}；PB {latest_pb} 分位 {pb_pct:.0%}" if latest_pb else f"PE(TTM) {latest_pe} 分位 {pe_pct:.0%}",
-        f"股债性价比：盈利收益率 {ey:.1%} vs 无风险利率 {risk_free:.1%}（{position}）" if ey else "盈利收益率不可计算",
+        "；".join(pct_parts),
+        f"股债性价比：盈利收益率 {ey:.1%} vs 无风险利率 {risk_free:.1%}（{position}）" if ey else "盈利收益率不可计算（PE 样本不足）",
     ]
     if latest_dv is not None:
         evidence.append(f"股息率 {latest_dv:.1%} vs 无风险利率 {risk_free:.1%}（{'有吸引力' if latest_dv >= risk_free else '不占优'}）")
     evidence.append(f"价格位置：{position}（市场先生报价）")
     return MarketResult(
-        pe_percentile=round(pe_pct, 4), pb_percentile=round(pb_pct, 4) if pb_pct is not None else None,
+        pe_percentile=round(pe_pct, 4) if pe_pct is not None else None,
+        pb_percentile=round(pb_pct, 4) if pb_pct is not None else None,
         position=position, score=score, evidence=evidence,
     )

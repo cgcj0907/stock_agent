@@ -19,7 +19,7 @@ from value_agent.core.contracts import ReasonCode, build_meta
 from value_agent.core.scoring import llm_score
 from value_agent.sessions.models import ModuleResult, ModuleStatus
 
-from .engine import METHOD_WEIGHTS, run_valuation
+from .engine import METHOD_WEIGHTS, load_routing, run_valuation
 
 # 方法名 → 一句话说明（methods[].reason 用；note 用于跳过原因）
 _METHOD_REASON = {
@@ -28,8 +28,10 @@ _METHOD_REASON = {
     "graham_number": "格雷厄姆数 √(22.5×EPS×每股净资产)",
     "graham_formula": "格雷厄姆公式 EPS×(8.5+2g)×4.4/Y",
     "ddm": "股利折现（D₁/(r−g)）",
-    "relative_median_pe": "历史中位 PE × EPS 相对估值",
+    "relative_median_pe": "历史中位 PE × EPS（周期股用正常化 EPS 并封顶 25 倍）",
     "peg": "PEG（合理 PE≈增速%，适合成长型）",
+    "pb_band": "PB 估值法（每股净资产 × 历史中位 PB，周期/资产型主方法）",
+    "pb_roe": "PB-ROE（每股净资产 × (ROE−g)/(r−g)，银行主方法）",
 }
 
 # M4 消费的上游模块（= ctx.inputs 实际读取集合，与 MODULE_DEPENDENCIES/YAML deps 对齐）
@@ -151,6 +153,7 @@ class M4ValuationAgent(Agent):
         ocfps = annual_rec.get("ocfps") if annual_rec else None
         ocf_to_np = annual_rec.get("ocf_to_np") if annual_rec else None
         debt_to_assets = annual_rec.get("debt_to_assets") if annual_rec else None
+        roe = annual_rec.get("roe") if annual_rec else None
         # 按 trade_date 降序取最新
         val_recs = sorted((val or {}).get("records", []), key=lambda r: r.get("trade_date") or "", reverse=True)
         price_recs = sorted((price or {}).get("records", []), key=lambda r: r.get("trade_date") or "", reverse=True)
@@ -161,6 +164,15 @@ class M4ValuationAgent(Agent):
         pe_history = [
             r["pe_ttm"] for r in val_recs if r.get("pe_ttm") and r["pe_ttm"] > 0
         ]
+        # 周期股正常化保护输入：年度 EPS 序列（按年份升序，取近 N 年中位）+ PB 历史（DB 字段）
+        eps_history = [
+            r["eps"] for r in sorted(
+                (r for r in fin_recs
+                 if str(r.get("period", "")).endswith("1231") and r.get("eps") and r["eps"] > 0),
+                key=lambda r: str(r.get("period") or ""),
+            )
+        ]
+        pb_history = [r["pb"] for r in val_recs if r.get("pb") and r["pb"] > 0]
         dividend = next((r["cash_div_tax"] for r in (div or {}).get("records", []) if r.get("cash_div_tax")), None)
 
         # 业务类型：优先 M1 输出，其次 assumptions
@@ -171,6 +183,10 @@ class M4ValuationAgent(Agent):
             or "cyclical"  # 未知类型保守按周期（禁 DCF/唐朝，避免增长假设拉宽区间）
         )
         industry = (m1.outputs.get("industry") if m1 and m1.outputs else None) or ""
+        financial_subtype = (
+            (m1.outputs.get("handoff") or {}).get("financial_subtype")
+            if m1 and m1.outputs else None
+        )
         company_name = ctx.session.company_name or code
 
         params = {k: ctx.assumptions[k] for k in
@@ -209,6 +225,8 @@ class M4ValuationAgent(Agent):
             "quality": quality, "m2_signals": m2_signals,
             "m3_cyclicality_flag": m3_cyclicality, "m3_prosperity_code": m3_prosperity,
             "m5_width": m5_width, "m6_score": m6_score,
+            "eps_history": eps_history, "pb_history": pb_history,
+            "roe": roe, "financial_subtype": financial_subtype,
         }
         result = run_valuation(**valuation_kwargs)
 
@@ -362,7 +380,15 @@ class M4ValuationAgent(Agent):
         calib = parse_calibration(text)
         if not calib:
             return None, None, ["LLM 行业校准：输出解析失败或无可调整项，保持规则结果"]
-        p2, w2, bt2, delta = apply_calibration(base.params, METHOD_WEIGHTS, calib)
+        # 权重校准只作用于「最终路由」的方法：忽略如周期股上 DCF 这类未路由权重（无效配置）
+        bt2 = calib.get("business_type_override")  # 已由 clamp_calibration 校验
+        final_bt = bt2 or valuation_kwargs["business_type"]
+        routed = set(load_routing().get(final_bt, []))
+        raw_weights = calib.get("method_weight_adjustments") or {}
+        filtered_weights = {k: v for k, v in raw_weights.items() if k in routed}
+        dropped_weights = sorted(set(raw_weights) - routed)
+        calib["method_weight_adjustments"] = filtered_weights or None
+        p2, w2, bt2, delta = apply_calibration(base.params, base.weights or METHOD_WEIGHTS, calib)
         calibrated = run_valuation(
             **{
                 **valuation_kwargs,
@@ -388,6 +414,8 @@ class M4ValuationAgent(Agent):
         detail: list[str] = []
         if bt2:
             detail.append(f"  · 路由覆盖：{valuation_kwargs['business_type']} → {bt2}")
+        if dropped_weights:
+            detail.append(f"  · 忽略未路由方法的权重调整：{', '.join(dropped_weights)}")
         changed_params = {k: v for k, v in p2.items() if base.params.get(k) != v}
         if changed_params:
             detail.append(f"  · 参数校准：{changed_params}")
