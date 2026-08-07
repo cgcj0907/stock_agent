@@ -151,15 +151,25 @@ export function ResultCard({
             </span>
           </div>
         </div>
-        <Badge
-          variant="outline"
-          className={`gap-1 rounded-md ${badge.className}`}
-        >
-          <StatusIcon
-            className={`size-3 ${result.status === "running" ? "animate-spin" : ""}`}
-          />
-          {badge.label}
-        </Badge>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {result.meta?.degraded && (
+            <Badge
+              variant="outline"
+              className="gap-1 rounded-md border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-300"
+            >
+              降级
+            </Badge>
+          )}
+          <Badge
+            variant="outline"
+            className={`gap-1 rounded-md ${badge.className}`}
+          >
+            <StatusIcon
+              className={`size-3 ${result.status === "running" ? "animate-spin" : ""}`}
+            />
+            {badge.label}
+          </Badge>
+        </div>
       </CardHeader>
 
       <CardContent className="flex flex-1 flex-col gap-2.5">
@@ -257,6 +267,31 @@ export function ResultCard({
               {result.llm_explanation}
             </p>
           ))}
+
+        {result.evidence && result.evidence.length > 0 && (
+          <div className="flex flex-col gap-1 border-t border-border/40 pt-2.5">
+            <div className="text-[10px] font-semibold tracking-wide text-muted-foreground">
+              分析依据
+            </div>
+            <ul className="flex flex-col gap-1">
+              {result.evidence.slice(0, 8).map((e, i) => {
+                const warn = /异常|降级|失败|⚠️|跳过|缺失/.test(e);
+                return (
+                  <li
+                    key={i}
+                    className={
+                      warn
+                        ? "text-[11px] leading-5 text-amber-600 dark:text-amber-400"
+                        : "text-[11px] leading-5 text-muted-foreground"
+                    }
+                  >
+                    {e}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

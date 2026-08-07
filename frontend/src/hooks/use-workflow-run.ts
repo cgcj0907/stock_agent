@@ -13,6 +13,8 @@ export interface ModuleResultView {
   outputs: Record<string, unknown>;
   evidence: string[];
   llm_explanation: string | null;
+  /** 模块元信息（如降级标记 meta.degraded，见 core/contracts.build_meta） */
+  meta?: { degraded?: boolean; reason_codes?: string[]; [key: string]: unknown };
 }
 
 export interface SessionView {
