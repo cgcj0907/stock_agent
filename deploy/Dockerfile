@@ -1,5 +1,11 @@
 # FastAPI 镜像（Render 部署，docs/07-deployment-guide.md §1.3）
-FROM python:3.11-slim
+# 国内构建直连 Docker Hub 常报 EOF/超时，可用镜像加速覆盖基础镜像：
+#   docker build -f deploy/Dockerfile \
+#     --build-arg BASE_IMAGE=docker.m.daocloud.io/library/python:3.11-slim \
+#     -t registry.cn-chengdu.aliyuncs.com/zgy_20223090903005/value-agent:latest .
+# Render 等海外平台保持默认 docker.io，无需任何改动。
+ARG BASE_IMAGE=python:3.11-slim
+FROM ${BASE_IMAGE}
 
 WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1

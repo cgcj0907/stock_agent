@@ -93,20 +93,23 @@ services:
 ### 1.3 Dockerfile（`deploy/Dockerfile` 模板）
 
 ```dockerfile
-FROM python:3.11-slim
+# 国内构建直连 Docker Hub 常 EOF/超时 → 用 --build-arg BASE_IMAGE=<镜像加速>/library/python:3.11-slim 覆盖
+ARG BASE_IMAGE=python:3.11-slim
+FROM ${BASE_IMAGE}
 
 WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app/src
 
-COPY pyproject.toml ./
+# 先装依赖再拷代码（依赖变化才重跑 pip）；国内用清华 PyPI 镜像
+RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple \
+    fastapi uvicorn pandas numpy akshare litellm "psycopg2-binary" pyyaml pydantic httpx
 COPY src ./src
-RUN pip install --no-cache-dir .
-
-# 免费数据源（AkShare）
-RUN pip install --no-cache-dir akshare
+COPY config ./config
 
 EXPOSE 8000
-CMD ["sh", "-c", "uvicorn value_agent.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# FC 自定义容器监听 FC_SERVER_PORT（默认 9000）；Render 等平台用 PORT
+CMD ["sh", "-c", "uvicorn value_agent.main:app --host 0.0.0.0 --port ${FC_SERVER_PORT:-${PORT:-8000}}"]
 ```
 
 ### 1.4 健康检查（Render 必需）
@@ -153,6 +156,30 @@ render open --service value-agent-api   # 打开 https://xxx.onrender.com
 - 前提：在 GitHub 仓库 **Settings → Secrets and variables → Actions** 添加：
   `DATABASE_URL`（Supabase Session Pooler 连接串）、`LLM_API_KEY`（可选）。
 - 排错：Actions → 对应 run → 看日志；或手动点 **Run workflow** 触发调试。
+
+
+### 1.8 推送到阿里云 ACR（国内构建/FC 部署）
+
+> **背景**：国内网络直连 Docker Hub（`registry-1.docker.io`）经常超时/连接被重置（报
+> `failed to resolve source metadata ... EOF`）。构建时用**国内可达的基础镜像镜像源**即可，
+> 推送到阿里云 ACR 本身不受影响。
+
+```bash
+# 在仓库根目录执行（Dockerfile 在 deploy/，构建上下文是仓库根）
+docker build -f deploy/Dockerfile \
+  --build-arg BASE_IMAGE=docker.m.daocloud.io/library/python:3.11-slim \
+  -t registry.cn-chengdu.aliyuncs.com/zgy_20223090903005/value-agent:latest .
+docker push registry.cn-chengdu.aliyuncs.com/zgy_20223090903005/value-agent:latest
+```
+
+- **备选加速前缀**（第三方，可用性随时变化）：`docker.1ms.run`、`docker.xuanyuan.me`、`dockerpull.org`
+  → 用法同上，把 `BASE_IMAGE` 换成 `<前缀>/library/python:3.11-slim`。
+- **不想改命令行**：Docker Desktop → Settings → Docker Engine → 在 `registry-mirrors` 加入
+  `["https://docker.m.daocloud.io", "https://docker.1ms.run"]`（也可用阿里云容器镜像服务控制台里的
+  **个人镜像加速器** `https://<你的ID>.mirror.aliyuncs.com`）→ Apply & Restart，
+  之后 `docker build` 直接用默认 `python:3.11-slim` 即可；若 BuildKit 不走镜像配置，
+  仍以上面的 `--build-arg` 为准。
+- Render（海外）保持默认 `python:3.11-slim` 即可，无需任何改动。
 
 ---
 
