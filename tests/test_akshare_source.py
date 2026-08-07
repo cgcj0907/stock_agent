@@ -208,3 +208,81 @@ def test_daily_prices_all_sources_fail_raises_summary(monkeypatch):
     assert "eastmoney" in msg
     assert "sina" in msg
     assert "tencent" in msg
+
+
+def test_financials_parses_sales_margin_columns(monkeypatch):
+    """新浪列名「销售毛利率(%)/销售净利率(%)」也应解析（akshare 1.18 起带「销售」前缀）。"""
+    ds = AkShareDataSource()
+    df = pd.DataFrame([
+        {"日期": "2025-12-31", "净资产收益率(%)": 15.59,
+         "销售毛利率(%)": 62.1, "销售净利率(%)": 40.5,
+         "资产负债率(%)": 58.3, "摊薄每股收益(元)": 1.4,
+         "每股经营性现金流(元)": 2.0, "经营现金净流量与净利润的比率(%)": 1.5},
+    ])
+    monkeypatch.setattr(ds._ak, "stock_financial_analysis_indicator", lambda symbol: df)
+    for fn in ("stock_balance_sheet_by_report_em", "stock_profit_sheet_by_report_em",
+               "stock_cash_flow_sheet_by_report_em"):
+        monkeypatch.setattr(ds._ak, fn, lambda symbol: pd.DataFrame())
+    fin = ds.financials("600900")
+    rec = fin["records"][0]
+    assert rec["grossprofit_margin"] == 62.1
+    assert rec["netprofit_margin"] == 40.5
+    assert rec["debt_to_assets"] == 0.583
+
+
+def test_merge_financial_statements_english_columns():
+    """东财三大报表英文字段（akshare 1.18 起）也能补出有息负债率/合同负债/bvps/归母现金流。"""
+    from value_agent.data.sources.akshare_source import _merge_financial_statements
+
+    b = pd.DataFrame([{
+        "REPORT_DATE": "2025-12-31", "TOTAL_ASSETS": 100.0,
+        "CURRENT_ASSET_BALANCE": 30.0, "TOTAL_LIABILITIES": 60.0,
+        "PARENT_EQUITY_BALANCE": 40.0, "SHORT_LOAN": 10.0,
+        "LONG_LOAN": 20.0, "BOND_PAYABLE": 5.0,
+        "NONCURRENT_LIAB_1YEAR": 2.0, "CONTRACT_LIAB": 8.0,
+    }])
+    i = pd.DataFrame([{
+        "REPORT_DATE": "2025-12-31", "TOTAL_OPERATE_INCOME": 50.0,
+        "PARENT_NETPROFIT": 10.0, "NETPROFIT": 10.0,
+    }])
+    c = pd.DataFrame([{"REPORT_DATE": "2025-12-31", "NETCASH_OPERATE": 12.0}])
+
+    class FakeAk:
+        def stock_balance_sheet_by_report_em(self, symbol=""):
+            return b
+        def stock_profit_sheet_by_report_em(self, symbol=""):
+            return i
+        def stock_cash_flow_sheet_by_report_em(self, symbol=""):
+            return c
+
+    recs = [{"period": "20251231", "eps": 1.0}]
+    _merge_financial_statements("600900", recs, FakeAk())
+    rec = recs[0]
+    assert rec["interest_debt_ratio"] == round((10 + 20 + 5 + 2) / 100, 4)
+    assert rec["contract_liability_ratio"] == round(8 / 100, 4)
+    assert rec["bvps"] == round(40 / 10, 4)          # 股本 = 10 / 1.0
+    assert rec["ncav_ps"] == round((30 - 60) / 10, 4)
+    assert rec["ocf_to_np_parent"] == round(12 / 10, 4)
+
+
+def test_financials_backfills_margins_from_ths(monkeypatch):
+    """新浪「销售毛利率」为 NaN 时，用同花顺财务摘要直接补真实毛利率（不自行推算）。"""
+    ds = AkShareDataSource()
+    df = pd.DataFrame([
+        {"日期": "2025-12-31", "净资产收益率(%)": 15.59,
+         "销售毛利率(%)": None, "销售净利率(%)": 40.5,
+         "资产负债率(%)": 58.3, "摊薄每股收益(元)": 1.4,
+         "每股经营性现金流(元)": 2.0, "经营现金净流量与净利润的比率(%)": 1.5},
+    ])
+    ths = pd.DataFrame([
+        {"报告期": "2025-12-31", "销售毛利率": "61.67%", "销售净利率": "40.52%"},
+    ])
+    monkeypatch.setattr(ds._ak, "stock_financial_analysis_indicator", lambda symbol: df)
+    monkeypatch.setattr(ds._ak, "stock_financial_abstract_ths", lambda symbol, indicator: ths)
+    for fn in ("stock_balance_sheet_by_report_em", "stock_profit_sheet_by_report_em",
+               "stock_cash_flow_sheet_by_report_em"):
+        monkeypatch.setattr(ds._ak, fn, lambda symbol: pd.DataFrame())
+    fin = ds.financials("600900")
+    rec = fin["records"][0]
+    assert rec["grossprofit_margin"] == 61.67
+    assert rec["netprofit_margin"] == 40.5  # 新浪已有值，不回填覆盖

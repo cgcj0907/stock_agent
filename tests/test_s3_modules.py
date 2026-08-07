@@ -250,3 +250,13 @@ def test_moat_rd_ratio_adds_tech_source():
              "debt_to_assets": 0.3, "rd_ratio": 0.08} for i in range(6)]
     r = assess_moat({"records": recs}, industry="软件", business_type="growth")
     assert any(s.source == "无形资产" and "研发费用率" in s.basis for s in r.sources)
+
+
+def test_moat_missing_margin_marks_neutral_and_notes():
+    """利润率维度数据缺失时按中性处理，并提示「档位可能低估」（避免误读为真实结论）。"""
+    recs = [
+        {"period": f"{y}1231", "roe": 15.6, "debt_to_assets": 0.58}
+        for y in range(2023, 2026)
+    ]
+    r = assess_moat({"records": recs}, industry="电力", business_type="stable_dividend")
+    assert any("利润率数据缺失" in e for e in r.evidence)

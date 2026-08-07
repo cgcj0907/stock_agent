@@ -147,6 +147,12 @@ const WIDTH_SOURCE_LABEL: Record<string, string> = {
   degraded: "降级",
 };
 
+const WIDTH_SOURCE_TONE: Record<string, string> = {
+  llm: "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-800 dark:bg-violet-950/60 dark:text-violet-300",
+  rule_proxy: "border-border bg-muted/50 text-muted-foreground",
+  degraded: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-300",
+};
+
 const CAP_ALLOC_LABEL: Record<string, string> = {
   good: "优秀",
   neutral: "中性",
@@ -485,35 +491,65 @@ function M5Outputs({ outputs }: { outputs: Record<string, unknown> }) {
   const ruleProxy = isObj(outputs.rule_proxy) ? outputs.rule_proxy : {};
   const signals = arr(outputs.signals);
   const qual = isObj(outputs.llm_qualitative) ? outputs.llm_qualitative : null;
+  const widthSource = labelOf(WIDTH_SOURCE_LABEL, outputs.width_source);
+  const widthConflict = outputs.width_conflict === true;
+  const llmWidth = str(qual?.width);
   const qualList = qual ? (
     <QualBlock qual={qual} excludeKeys={["width"]} />
   ) : typeof outputs.llm_qualitative === "string" ? (
     <p className="break-words whitespace-pre-wrap text-xs leading-5 text-foreground/80">{outputs.llm_qualitative}</p>
   ) : null;
+
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <ToneBadge text={outputs.width ?? "—"} tone={toneOf(WIDTH_TONE, outputs.width)} icon={Castle} />
-        <span className="text-[10px] text-muted-foreground">
-          来源：{labelOf(WIDTH_SOURCE_LABEL, outputs.width_source)}
-          {outputs.width_conflict === true && " · 规则/LLM 冲突"}
-        </span>
+      {/* 主结论：最终护城河宽度（LLM 层优先） */}
+      <div className="flex items-center gap-2.5 rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5">
+        <Castle className="size-4 shrink-0 text-primary/70" />
+        <div className="min-w-0 flex-1">
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            最终护城河宽度
+          </div>
+          <div className={`text-lg leading-7 font-bold ${toneOf(WIDTH_TONE, outputs.width)}`}>{fmt(outputs.width) || "—"}</div>
+        </div>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <ToneBadge text={widthSource} tone={toneOf(WIDTH_SOURCE_TONE, outputs.width_source)} />
+          {widthConflict && (
+            <span className="text-[10px] text-amber-600 dark:text-amber-400">规则/LLM 冲突</span>
+          )}
+        </div>
       </div>
-      <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
-        <Metric label="规则代理档位" value={fmt(ruleProxy.tier)} />
-        <Metric label="代理评分" value={fmt(ruleProxy.score)} />
-        <Metric label="来源信号" value={arr(ruleProxy.sources).length} />
-        <Metric
-          label="侵蚀信号"
-          value={arr(ruleProxy.erosion_signals).length}
-          tone={arr(ruleProxy.erosion_signals).length > 0 ? "warn" : "default"}
-        />
+
+      {widthConflict && (
+        <p className="rounded-lg border border-amber-200/70 bg-amber-50/60 px-2.5 py-1.5 text-[11px] leading-5 text-amber-800 dark:border-amber-800/50 dark:bg-amber-950/30 dark:text-amber-300">
+          规则层={fmt(ruleProxy.tier)}（{fmt(ruleProxy.score)} 分）vs LLM 定性={llmWidth || "—"}，
+          最终采用 <span className="font-semibold">{fmt(outputs.width)}</span>
+          {outputs.width_source === "llm" && "（LLM 已附竞争优势证据）"}
+        </p>
+      )}
+
+      {/* 规则层参考（财务代理，不作为主结论） */}
+      <div className="flex flex-col gap-1.5 border-t border-border/40 pt-2.5">
+        <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          规则层参考（财务代理）
+        </div>
+        <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+          <Metric label="代理档位" value={fmt(ruleProxy.tier)} />
+          <Metric label="代理评分" value={fmt(ruleProxy.score)} />
+          <Metric label="来源信号" value={arr(ruleProxy.sources).length} />
+          <Metric
+            label="侵蚀信号"
+            value={arr(ruleProxy.erosion_signals).length}
+            tone={arr(ruleProxy.erosion_signals).length > 0 ? "warn" : "default"}
+          />
+        </div>
       </div>
+
       {signals.length > 0 && (
         <Section icon={ShieldAlert} title="信号" tone="rose">
           <BulletList items={signals} />
         </Section>
       )}
+
       {qualList && (
         <Section icon={BadgeCheck} title="LLM 定性" tone="violet">
           {qualList}

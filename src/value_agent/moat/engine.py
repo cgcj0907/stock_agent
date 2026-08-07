@@ -376,6 +376,11 @@ def assess_moat(
         evidence.append(f"注：{bench['label']}基准下「{'/'.join(skipped)}」维度不适用，代理评分上限受限")
     if debt_note:
         evidence.append(f"注：{debt_note}")
+    # 数据缺失兜底：维度缺失时按中性处理并明示「档位可能低估」，避免把缺数据误读成真实结论
+    if margin_compare is None and bench.get("margin_median") is not None:
+        evidence.append("⚠️ 利润率数据缺失，该维度按中性处理，代理档位可能低估实际护城河")
+    if debt_compare is None and bench.get("debt_median") is not None:
+        evidence.append("⚠️ 杠杆数据缺失，该维度按中性处理，代理档位可能低估实际护城河")
     if erosion:
         evidence.append(f"⚠️ 规则层侵蚀信号：{'；'.join(erosion)}")
     if cycle_notes:

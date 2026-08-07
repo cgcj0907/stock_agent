@@ -5,13 +5,20 @@ from abc import ABC, abstractmethod
 
 
 def to_float(value, divisor: float = 1.0) -> float | None:
-    """把字符串/百分比/千分位转 float，失败返回 None（各数据源共用）。"""
+    """把字符串/百分比/千分位转 float，失败返回 None（各数据源共用）。
+
+    注意：pandas NaN 用 `value in ("nan",)` 判不相等（NaN != "nan"），
+    这里先转 float 再判 `x != x` 兜底，避免 NaN 原样透传到下游。
+    """
     if value in (None, "", "-", "nan"):
         return None
     try:
-        return float(str(value).replace("%", "").replace(",", "")) / divisor
+        f = float(str(value).replace("%", "").replace(",", ""))
     except (TypeError, ValueError):
         return None
+    if f != f:  # NaN
+        return None
+    return f / divisor
 
 
 class DataSource(ABC):

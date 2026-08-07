@@ -9,11 +9,29 @@ from __future__ import annotations
 
 import datetime
 import logging
+import re
 
 from .base import DataSource, to_float
 from .urls import market_prefix, source_url
 
 logger = logging.getLogger(__name__)
+
+
+def _first_col(df, *names) -> str | None:
+    """返回第一个存在的列名（兼容 AkShare 版本间列名差异，如 毛利率 vs 销售毛利率）。"""
+    for n in names:
+        if n in df.columns:
+            return n
+    return None
+
+
+def _row_value(row, *names):
+    """按候选列名取首个非空值（兼容东财三大报表中英文列名）。"""
+    for n in names:
+        v = row.get(n)
+        if v is not None and str(v).strip() not in ("", "nan", "None"):
+            return v
+    return None
 
 
 def _sina_symbol(code: str) -> str:
@@ -106,6 +124,9 @@ class AkShareDataSource(DataSource):
         # 与 ocfps/eps=73.61/71.12 完全一致），**不要**再除以 100。
         # 季度口径波动大，M2/M4 均只用年报（period 以 1231 结尾）。
         has_ratio_col = "经营现金净流量与净利润的比率(%)" in df.columns
+        # 列名兼容：akshare 1.18 起新浪返回「销售毛利率(%)/销售净利率(%)」
+        gm_col = _first_col(df, "毛利率(%)", "销售毛利率(%)")
+        np_col = _first_col(df, "净利率(%)", "销售净利率(%)")
         records: list[dict] = []
         for _, r in df.iterrows():
             period = str(r.get("日期", "") or "")
@@ -121,8 +142,8 @@ class AkShareDataSource(DataSource):
                 {
                     "period": period.replace("-", ""),
                     "roe": to_float(r.get("净资产收益率(%)")),
-                    "grossprofit_margin": to_float(r.get("毛利率(%)")),
-                    "netprofit_margin": to_float(r.get("净利率(%)")),
+                    "grossprofit_margin": to_float(r.get(gm_col)) if gm_col else None,
+                    "netprofit_margin": to_float(r.get(np_col)) if np_col else None,
                     "debt_to_assets": to_float(r.get("资产负债率(%)"), 100.0),  # % → 小数
                     "ocfps": ocfps,
                     "eps": eps,
@@ -135,6 +156,11 @@ class AkShareDataSource(DataSource):
             _merge_financial_statements(code, records, self._ak)
         except Exception as exc:  # noqa: BLE001
             logger.warning("[financials] %s 三大报表补充失败（%s），仅用新浪基础指标", code, type(exc).__name__)
+        # 新浪个别标的「销售毛利率」为 NaN：用同花顺财务摘要直接补真实毛利率（不自行推算）
+        try:
+            _backfill_margins_from_ths(code, records, self._ak)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("[financials] %s 同花顺毛利率兜底失败（%s）", code, type(exc).__name__)
         return {"records": records, "source": self.name, "url": source_url("financials", code)}
 
     def daily_prices(self, code: str, start: str | None = None, end: str | None = None) -> dict:
@@ -435,9 +461,47 @@ def _col(df, *names):
 
 
 def _normalize_em_period(v) -> str:
-    """东财报告期 → YYYYMMDD。"""
-    s = str(v or "").replace("-", "")
-    return s[:8] if s.isdigit() and len(s) >= 8 else ""
+    """东财报告期 → YYYYMMDD（兼容 datetime 字符串「2025-12-31 00:00:00」）。"""
+    if v is None:
+        return ""
+    s = str(v).strip()
+    m = re.match(r"(\d{4})-(\d{1,2})-(\d{1,2})", s)
+    if m:
+        return f"{m.group(1)}{int(m.group(2)):02d}{int(m.group(3)):02d}"
+    s2 = s.replace("-", "").replace("/", "")
+    return s2[:8] if s2.isdigit() and len(s2) >= 8 else ""
+
+
+def _backfill_margins_from_ths(code: str, records: list[dict], ak) -> None:
+    """新浪缺「销售毛利率」时，用同花顺财务摘要直接补真实毛利率/净利率（不自行推算）。
+
+    新浪 `stock_financial_analysis_indicator` 对部分标的（如 600900）销售毛利率返回 NaN，
+    而同花顺 `stock_financial_abstract_ths` 直接给出 销售毛利率/销售净利率。
+    """
+    df = ak.stock_financial_abstract_ths(symbol=code, indicator="按报告期")
+    if df is None or df.empty:
+        return
+    by_period: dict[str, dict] = {}
+    for _, r in df.iterrows():
+        period = str(r.get("报告期") or "").replace("-", "")
+        if len(period) == 8 and period.isdigit():
+            by_period[period] = {
+                "grossprofit_margin": to_float(r.get("销售毛利率")),
+                "netprofit_margin": to_float(r.get("销售净利率")),
+            }
+    filled = 0
+    for rec in records:
+        m = by_period.get(str(rec.get("period") or ""))
+        if not m:
+            continue
+        if rec.get("grossprofit_margin") is None and m["grossprofit_margin"] is not None:
+            rec["grossprofit_margin"] = m["grossprofit_margin"]
+            filled += 1
+        if rec.get("netprofit_margin") is None and m["netprofit_margin"] is not None:
+            rec["netprofit_margin"] = m["netprofit_margin"]
+            filled += 1
+    if filled:
+        logger.debug("[financials] %s 同花顺补齐毛利率/净利率 %d 个值", code, filled)
 
 
 def _merge_financial_statements(code: str, records: list[dict], ak) -> None:
@@ -456,43 +520,45 @@ def _merge_financial_statements(code: str, records: list[dict], ak) -> None:
     try:
         dfb = ak.stock_balance_sheet_by_report_em(symbol=sym)
         for _, r in dfb.iterrows():
-            period = _normalize_em_period(r.get("报告期"))
+            period = _normalize_em_period(_row_value(r, "报告期", "REPORT_DATE"))
             if not period:
                 continue
             balance[period] = {
-                "total_assets": to_float(r.get("资产总计") or r.get("资产合计")),
-                "current_assets": to_float(r.get("流动资产合计")),
-                "total_liabilities": to_float(r.get("负债合计")),
-                "equity_parent": to_float(r.get("归属于母公司股东权益合计")),
-                "short_loan": to_float(r.get("短期借款")),
-                "long_loan": to_float(r.get("长期借款")),
-                "bond": to_float(r.get("应付债券")),
-                "due_1y": to_float(r.get("一年内到期的非流动负债")),
-                "contract_liabilities": to_float(r.get("合同负债")),
+                "total_assets": to_float(_row_value(r, "资产总计", "资产合计", "TOTAL_ASSETS")),
+                "current_assets": to_float(_row_value(r, "流动资产合计", "CURRENT_ASSET_BALANCE", "TOTAL_CURRENT_ASSETS")),
+                "total_liabilities": to_float(_row_value(r, "负债合计", "TOTAL_LIABILITIES")),
+                "equity_parent": to_float(_row_value(r, "归属于母公司股东权益合计", "PARENT_EQUITY_BALANCE")),
+                "short_loan": to_float(_row_value(r, "短期借款", "SHORT_LOAN")),
+                "long_loan": to_float(_row_value(r, "长期借款", "LONG_LOAN")),
+                "bond": to_float(_row_value(r, "应付债券", "BOND_PAYABLE")),
+                "due_1y": to_float(_row_value(r, "一年内到期的非流动负债", "NONCURRENT_LIAB_1YEAR")),
+                "contract_liabilities": to_float(_row_value(r, "合同负债", "CONTRACT_LIAB")),
             }
     except Exception as exc:  # noqa: BLE001
         logger.warning("[financials] %s 资产负债表获取失败（%s）", code, type(exc).__name__)
     try:
         dfi = ak.stock_profit_sheet_by_report_em(symbol=sym)
         for _, r in dfi.iterrows():
-            period = _normalize_em_period(r.get("报告期"))
+            period = _normalize_em_period(_row_value(r, "报告期", "REPORT_DATE"))
             if not period:
                 continue
             income[period] = {
-                "revenue": to_float(r.get("营业总收入") or r.get("营业收入")),
-                "net_profit_parent": to_float(r.get("归属于母公司所有者的净利润") or r.get("净利润")),
-                "rd_expense": to_float(r.get("研发费用")),
+                "revenue": to_float(_row_value(r, "营业总收入", "营业收入", "TOTAL_OPERATE_INCOME", "OPERATE_INCOME")),
+                "net_profit_parent": to_float(_row_value(r, "归属于母公司所有者的净利润", "净利润", "PARENT_NETPROFIT", "NETPROFIT")),
+                "rd_expense": to_float(_row_value(r, "研发费用", "RESEARCH_EXPENSE", "RD_EXPENSE", "DEVELOP_EXPENSE")),
             }
     except Exception as exc:  # noqa: BLE001
         logger.warning("[financials] %s 利润表获取失败（%s）", code, type(exc).__name__)
     try:
         dfc = ak.stock_cash_flow_sheet_by_report_em(symbol=sym)
         for _, r in dfc.iterrows():
-            period = _normalize_em_period(r.get("报告期"))
+            period = _normalize_em_period(_row_value(r, "报告期", "REPORT_DATE"))
             if not period:
                 continue
             cash[period] = {
-                "ocf_net": to_float(r.get("经营活动产生的现金流量净额") or r.get("经营活动产生的现金流量净额(元)")),
+                "ocf_net": to_float(_row_value(
+                    r, "经营活动产生的现金流量净额", "经营活动产生的现金流量净额(元)", "NETCASH_OPERATE"
+                )),
             }
     except Exception as exc:  # noqa: BLE001
         logger.warning("[financials] %s 现金流量表获取失败（%s）", code, type(exc).__name__)
