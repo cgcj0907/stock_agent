@@ -136,20 +136,34 @@ DIV_ZERO           # 除零/不可计算
 - 消费方：M4、M9、M11
 
 ### M4 估值（fact）
-- 依赖：M1、M2、M3、M5、M6（M5/M6 为输入用，不重跑）
-- `core_facts`：`intrinsic_value {low, high, mid}`、`current_price`、`business_type`、`params`
-- `methods[]`（统一方法级 schema，替代按方法名作键的 dict）：
+- 依赖：M1、M2、M3、M5、M6（M2/M3/M5/M6 为**输入用**：质量乘数 + kill switch，不重跑）
+- `core_facts`：`intrinsic_value {low, mid, high, std, method_agreement}`、`current_price`、
+  `business_type`、`params`、`valuation_confidence`、`quality_multiplier`、`risk_multiplier`、
+  `total_multiplier`、`quality_tier`、`kill_switches`
+- 汇总口径（v2，2026-08-07）：**加权中位数 ± 加权标准差**（不再用 min~max 包络）；
+  `low/mid/high = (中位 ∓ 离散度) × 质量乘数 × 风险折扣`
+- `methods[]`（统一方法级 schema，含每方法置信度）：
   ```python
   {"method": "dcf", "applicable": True, "value": 25.0, "low": 20.0, "high": 30.0,
-   "reason": "消费垄断+稳定增长，DCF 主用", "confidence": 0.8}
+   "reason": "消费垄断+稳定增长，DCF 主用", "confidence": 0.75}
   ```
 - `handoff`：
-  - `intrinsic_range [req]`：`{low, high, mid}`（M8/M10 消费）
+  - `intrinsic_range [req]`：`{low, mid, high}`（M8/M10 消费）
   - `coverage [req]`：`high | medium | low`（方法覆盖度，来自 coverage_score）
   - `valuation_confidence [req]`：0–1
   - `methods_used [req]`：方法名列表
+  - `quality_multiplier [opt]` / `kill_switches [opt]`（M10 质量维度辅助）
+- kill switch 规则（全部复用上游信号）：`LOSS_YEAR`→禁 DCF/唐朝/PEG；
+  `OCF_NP_DIVERGENCE`→DCF×0.85；负债率>70%→整体×0.85；
+  周期特征+景气下行→只留相对/资产类；护城河缺失+治理弱→整体×0.9
+- `llm_qualitative`（可选，v3）：**行业校准**——规则估值打底后，LLM 按行业惯例输出
+  `{calibration: {business_type_override, route_confidence, parameter_adjustments,
+  method_weight_adjustments, valuation_confidence_delta, industry_notes, risk_notes,
+  reasons, calibrated_intrinsic}, raw}`；所有数值在 `valuation/llm.py` 里 clamp 到安全区间
+  （增速≤20%、折现率 7~12%、永续≤3%、权重 0.05~0.5、置信度增量 ±0.1），
+  校准后引擎用新参数重跑；未配 LLM 时完全退化为规则结果
 - 消费方：M8、M9、M10、M11
-- 降级：`intrinsic_range=None` + `reason_codes=[DATA_UNAVAILABLE]`；**字段集合与正常态一致**（修掉现在降级态缺 `params`/`intrinsic_value` 的差异）
+- 降级：`intrinsic_range=None` + `reason_codes=[DATA_UNAVAILABLE]`；**字段集合与正常态一致**（缺值置 None/空）
 
 ### M5 护城河（fact）
 - 依赖：无（读 financials）

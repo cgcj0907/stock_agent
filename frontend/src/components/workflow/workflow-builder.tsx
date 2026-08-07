@@ -8,6 +8,7 @@ import {
   Background,
   Controls,
   Handle,
+  MarkerType,
   Position,
   ReactFlow,
   useEdgesState,
@@ -18,7 +19,7 @@ import {
   type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { ArrowLeft, Play, Plus, Save, X } from "lucide-react";
+import { ArrowLeft, LayoutGrid, Play, Plus, Save, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -28,6 +29,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AgentIcon } from "@/components/agent-icon";
 import { LOCAL_AGENTS, type AgentInfo } from "@/lib/agents/catalog";
+import { layoutWorkflow } from "@/lib/workflows/layout";
 import type {
   CustomWorkflow,
   CustomWorkflowStep,
@@ -40,7 +42,7 @@ function BuilderNode({ id, data }: NodeProps) {
   const onDelete = React.useContext(DeleteContext);
   const agent = data.agent as AgentInfo;
   return (
-    <div className="relative rounded-xl border bg-card px-3 py-2.5 shadow-sm">
+    <div className="relative w-[150px] rounded-xl border border-border bg-card px-3 py-2.5 shadow-sm transition-shadow hover:shadow-md">
       <Handle
         type="target"
         position={Position.Left}
@@ -48,7 +50,7 @@ function BuilderNode({ id, data }: NodeProps) {
       />
       <div className="flex items-center gap-2">
         <AgentIcon icon={agent?.icon} className="size-4" />
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <div className="truncate text-xs font-semibold leading-tight">
             {agent?.code ?? ""}
           </div>
@@ -62,7 +64,7 @@ function BuilderNode({ id, data }: NodeProps) {
             e.stopPropagation();
             onDelete(id);
           }}
-          className="ml-1 rounded-md p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-destructive"
+          className="ml-0.5 rounded-md p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           aria-label="移除"
         >
           <X className="size-3.5" />
@@ -81,6 +83,18 @@ const nodeTypes = { builderNode: BuilderNode };
 
 type BuilderNodeData = { agent: AgentInfo };
 
+/** 由当前节点与连线生成 WorkflowStep 列表，供自动排版使用 */
+function toSteps(
+  nodes: Node<BuilderNodeData>[],
+  edges: Edge[]
+): CustomWorkflowStep[] {
+  return nodes.map((n) => ({
+    id: n.id,
+    agent: n.data.agent.id,
+    deps: edges.filter((e) => e.target === n.id).map((e) => e.source),
+  }));
+}
+
 export function WorkflowBuilder({
   initial,
 }: {
@@ -96,23 +110,38 @@ export function WorkflowBuilder({
   );
   const [saving, setSaving] = React.useState(false);
 
+  const initialSteps: CustomWorkflowStep[] = initial?.steps ?? [];
+  const initialLayout = React.useMemo(
+    () => layoutWorkflow(initialSteps, { columnGap: 230, rowGap: 110, nodeWidth: 150 }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
+
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<BuilderNodeData>>(
-    (initial?.steps ?? []).map((s, i) => ({
+    initialSteps.map((s) => ({
       id: s.id,
       type: "builderNode",
-      position: { x: 40 + (i % 3) * 200, y: 40 + Math.floor(i / 3) * 100 },
+      position:
+        initialLayout.positions[s.id] ?? { x: 60, y: 40 },
       data: {
         agent: LOCAL_AGENTS.find((a) => a.id === s.agent) ?? LOCAL_AGENTS[0],
       },
     })) as Node<BuilderNodeData>[]
   );
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(
-    (initial?.steps ?? []).flatMap((s) =>
+    initialSteps.flatMap((s) =>
       s.deps.map((dep) => ({
         id: `${dep}-${s.id}`,
         source: dep,
         target: s.id,
         type: "smoothstep",
+        style: { stroke: "#a1a1aa", strokeWidth: 1.75 },
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          width: 14,
+          height: 14,
+          color: "#a1a1aa",
+        },
       }))
     ) as Edge[]
   );
@@ -125,26 +154,74 @@ export function WorkflowBuilder({
     [setNodes, setEdges]
   );
 
-  function addAgent(agent: AgentInfo) {
-    if (nodes.some((n) => n.id === agent.id)) {
-      toast.info("该智能体已在画布中");
-      return;
+  /** 在网格中寻找不与现有节点重叠的空位 */
+  function findFreeSlot(occupied: { x: number; y: number }[]) {
+    for (let row = 0; row < 12; row++) {
+      for (let col = 0; col < 8; col++) {
+        const x = 60 + col * 230;
+        const y = 40 + row * 110;
+        if (
+          !occupied.some(
+            (p) => Math.abs(p.x - x) < 190 && Math.abs(p.y - y) < 100
+          )
+        ) {
+          return { x, y };
+        }
+      }
     }
-    const position = {
-      x: 60 + (nodes.length % 4) * 190,
-      y: 40 + Math.floor(nodes.length / 4) * 100,
-    };
-    setNodes((nds) => [
-      ...nds,
-      { id: agent.id, type: "builderNode", position, data: { agent } },
-    ]);
+    return { x: 60 + occupied.length * 20, y: 40 };
+  }
+
+  function addAgent(agent: AgentInfo) {
+    setNodes((nds) => {
+      if (nds.some((n) => n.id === agent.id)) {
+        return nds;
+      }
+      const position = findFreeSlot(nds.map((n) => n.position));
+      return [
+        ...nds,
+        {
+          id: agent.id,
+          type: "builderNode",
+          position,
+          data: { agent },
+        },
+      ];
+    });
+  }
+
+  /** 一键自动排版：按依赖深度分层、层内降交叉、列居中 */
+  function handleAutoLayout() {
+    if (nodes.length === 0) return;
+    const steps = toSteps(nodes, edges);
+    const layout = layoutWorkflow(steps, { columnGap: 230, rowGap: 110, nodeWidth: 150 });
+    setNodes((nds) =>
+      nds.map((n) => ({
+        ...n,
+        position: layout.positions[n.id] ?? n.position,
+      }))
+    );
+    toast.success("已自动排版");
   }
 
   const handleConnect = React.useCallback(
     (conn: Connection) => {
       if (!conn.source || !conn.target || conn.source === conn.target) return;
       setEdges((eds) =>
-        addEdge({ ...conn, type: "smoothstep" }, eds)
+        addEdge(
+          {
+            ...conn,
+            type: "smoothstep",
+            style: { stroke: "#a1a1aa", strokeWidth: 1.75 },
+            markerEnd: {
+              type: MarkerType.ArrowClosed,
+              width: 14,
+              height: 14,
+              color: "#a1a1aa",
+            },
+          },
+          eds
+        )
       );
     },
     [setEdges]
@@ -180,13 +257,15 @@ export function WorkflowBuilder({
         ? `/api/custom-workflows/${savedId}`
         : "/api/custom-workflows";
       const res = await fetch(url, {
-        method: savedId ? "PATCH" : "POST",
+        method: savedId ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, description, steps }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "保存失败");
-      setSavedId(data.workflow.id);
+      if (!res.ok) {
+        throw new Error(data.error || "保存失败");
+      }
+      if (!savedId) setSavedId(data.id as string);
       toast.success("工作流已保存");
       router.refresh();
     } catch (e) {
@@ -269,6 +348,21 @@ export function WorkflowBuilder({
           </div>
 
           <Card className="overflow-hidden rounded-2xl">
+            <div className="flex items-center justify-between border-b bg-muted/30 px-4 py-2 dark:bg-muted/20">
+              <span className="text-xs font-medium text-muted-foreground">
+                DAG 画布 · 拖拽节点可自由调整位置
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 rounded-lg px-2.5 text-xs"
+                onClick={handleAutoLayout}
+                disabled={nodes.length === 0}
+              >
+                <LayoutGrid className="size-3.5" />
+                自动排版
+              </Button>
+            </div>
             <DeleteContext.Provider value={handleDelete}>
               <div className="h-[460px]">
                 <ReactFlow
@@ -281,18 +375,18 @@ export function WorkflowBuilder({
                   onNodesDelete={handleNodesDelete}
                   deleteKeyCode={["Backspace", "Delete"]}
                   fitView
-                  fitViewOptions={{ padding: 0.2 }}
-                  minZoom={0.4}
+                  fitViewOptions={{ padding: 0.15 }}
+                  minZoom={0.3}
                   proOptions={{ hideAttribution: true }}
                 >
-                  <Background gap={24} />
+                  <Background gap={24} size={1} />
                   <Controls showInteractive={false} />
                 </ReactFlow>
               </div>
             </DeleteContext.Provider>
             <div className="border-t px-4 py-2.5 text-xs text-muted-foreground">
               从左侧点击添加智能体；拖拽节点右侧圆点到另一节点表示「依赖」；
-              选中节点按 Delete / 点击 × 移除
+              选中节点按 Delete / 点击 × 移除；连线杂乱时可用「自动排版」一键整理
             </div>
           </Card>
 

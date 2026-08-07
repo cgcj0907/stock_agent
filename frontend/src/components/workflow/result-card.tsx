@@ -130,7 +130,7 @@ export function ResultCard({
   return (
     <Card
       size="sm"
-      className="flex h-full flex-col rounded-2xl transition-shadow hover:shadow-sm"
+      className="flex flex-col rounded-2xl transition-shadow hover:shadow-sm"
     >
       <CardHeader className="flex-row items-center justify-between space-y-0 pb-1">
         <div className="flex items-center gap-2.5">

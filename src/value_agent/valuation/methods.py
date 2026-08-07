@@ -1,6 +1,7 @@
 """M4 估值方法库：纯函数、确定性、可测试（每股价值，单位：元）。
 
-方法：DCF / 唐朝估值法 / 格雷厄姆数 / 格雷厄姆公式 / DDM / 相对中位 PE。
+方法：DCF(可换现金化利润基数) / 唐朝估值法 / 格雷厄姆数 / 格雷厄姆公式 / DDM /
+相对中位 PE / PEG。
 """
 from __future__ import annotations
 
@@ -19,32 +20,77 @@ class MethodResult:
     note: str = ""
 
 
-def _dcf_value(eps: float, g: float, r: float, terminal_g: float, years: int) -> float | None:
+# 现金化比率夹逼区间：OCF/净利 的正常区间（0.5~1.5），防止一次性损益把 DCF 基数拉爆/打穿
+CASH_RATIO_LOW, CASH_RATIO_HIGH = 0.5, 1.5
+
+
+def cash_earnings_proxy(
+    eps: float | None,
+    ocf_to_np: float | None = None,
+    ocfps: float | None = None,
+) -> float | None:
+    """现金化利润代理：DCF 的盈利基数，避免直接用 EPS（利润≠现金）。
+
+    优先级（与当前数据库 financials 表可用字段对齐）：
+    1. `ocf_to_np × EPS`（比值先夹逼到 [0.5, 1.5]，防一次性损益失真）
+    2. `ocfps`（每股经营现金流，AkShare 当前有值；DB 的 ocf_to_np 列为空时用它）
+    3. 兜底 EPS 本身（无现金流字段时保持原行为，置信度相应降低）
+    """
+    if eps is None or eps <= 0:
+        return None
+    if ocf_to_np is not None:
+        ratio = min(max(ocf_to_np, CASH_RATIO_LOW), CASH_RATIO_HIGH)
+        return round(eps * ratio, 4)
+    if ocfps is not None and ocfps > 0:
+        return round(float(ocfps), 4)
+    return round(float(eps), 4)
+
+
+def _dcf_value(base: float, g: float, r: float, terminal_g: float, years: int) -> float | None:
     """两阶段 DCF 纯值计算：前 years 年按 g 增长，终值按 terminal_g 永续。"""
-    if eps is None or eps <= 0 or r <= terminal_g:
+    if base is None or base <= 0 or r <= terminal_g:
         return None
     pv = 0.0
     for t in range(1, years + 1):
-        fcf = eps * (1 + g) ** t
+        fcf = base * (1 + g) ** t
         pv += fcf / (1 + r) ** t
-    fcf_terminal = eps * (1 + g) ** years
+    fcf_terminal = base * (1 + g) ** years
     tv = fcf_terminal * (1 + terminal_g) / (r - terminal_g)
     return pv + tv / (1 + r) ** years
 
 
-def dcf(eps: float, g: float, r: float, terminal_g: float, years: int = 10) -> MethodResult:
-    """两阶段 DCF（含敏感性：增速±2pct、折现率∓1pct）。"""
-    mid = _dcf_value(eps, g, r, terminal_g, years)
+def dcf(
+    eps: float,
+    g: float,
+    r: float,
+    terminal_g: float,
+    years: int = 10,
+    cash_eps: float | None = None,
+) -> MethodResult:
+    """两阶段 DCF（含敏感性：增速±2pct、折现率∓1pct）。
+
+    cash_eps：现金化利润代理（ocf_to_np×EPS 或 OCFPS），非 None 时作为盈利基数；
+    为 None 或 ≤0 时跳过 DCF（经营现金流为负不适合现金流折现）。
+    """
+    base = cash_eps if cash_eps is not None else eps
+    mid = _dcf_value(base, g, r, terminal_g, years)
     if mid is None:
-        return MethodResult("dcf", None, note="缺 EPS 或折现率 r ≤ 永续增速")
-    low = _dcf_value(eps, max(g - 0.02, 0.0), r + 0.01, terminal_g, years)
-    high = _dcf_value(eps, g + 0.02, max(r - 0.01, terminal_g + 0.01), terminal_g, years)
+        if cash_eps is not None and (cash_eps <= 0):
+            return MethodResult("dcf", None, note="现金化利润代理 ≤0（经营现金流为负），DCF 不适用")
+        if base is None or base <= 0:
+            return MethodResult("dcf", None, note="缺 EPS 或折现率 r ≤ 永续增速")
+        return MethodResult("dcf", None, note="折现率 r ≤ 永续增速，DCF 不适用")
+    low = _dcf_value(base, max(g - 0.02, 0.0), r + 0.01, terminal_g, years)
+    high = _dcf_value(base, g + 0.02, max(r - 0.01, terminal_g + 0.01), terminal_g, years)
+    params: dict = {"g": g, "r": r, "terminal_g": terminal_g, "years": years}
+    if cash_eps is not None:
+        params.update({"profit_base": "cash_proxy", "cash_eps": round(cash_eps, 2), "eps": round(eps, 2)})
     return MethodResult(
         "dcf",
         round(mid, 2),
         round(low, 2) if low else None,
         round(high, 2) if high else None,
-        {"g": g, "r": r, "terminal_g": terminal_g, "years": years},
+        params,
     )
 
 
@@ -98,4 +144,34 @@ def relative_median_pe(eps: float, pe_history: list[float]) -> MethodResult:
     return MethodResult(
         "relative_median_pe", round(eps * median, 2),
         params={"median_pe": round(median, 2), "n": len(pe_history)},
+    )
+
+
+def peg(eps: float, g: float, pe_history: list[float]) -> MethodResult:
+    """PEG（费雪/彼得·林奇）：合理 PE ≈ 增速百分数（增速 15% → PE 15），价值 = EPS × 合理PE。
+
+    只适用于有真实增速与 PE 历史的成长型公司；增速 ≤0 或缺 PE 历史时跳过。
+    """
+    if eps is None or eps <= 0:
+        return MethodResult("peg", None, note="缺 EPS")
+    if g is None or g <= 0:
+        return MethodResult("peg", None, note="增速 ≤0，PEG 不适用")
+    if not pe_history:
+        return MethodResult("peg", None, note="缺 PE 历史")
+    g_pct = g * 100
+    fair_pe = g_pct  # 增速 15% → PE 15 合理
+    median_pe = statistics.median(pe_history)
+    peg_ratio = round(median_pe / g_pct, 2)
+    return MethodResult(
+        "peg", round(eps * fair_pe, 2),
+        params={
+            "fair_pe": round(fair_pe, 1),
+            "g_pct": g_pct,
+            "median_pe": round(median_pe, 2),
+            "peg_ratio": peg_ratio,
+        },
+        note=(
+            f"当前中位 PE {median_pe:.1f} 高于 PEG 合理水平（PEG={peg_ratio}）"
+            if peg_ratio > 1.5 else ""
+        ),
     )

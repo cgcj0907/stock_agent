@@ -17,6 +17,32 @@
 
 ---
 
+> ✅ 2026-08-07 **M4 LLM 行业校准层（v3，可选）**：规则估值打底 → LLM 按行业惯例输出结构化校准
+> （business_type 路由覆盖 + 增速/折现率/永续/无风险参数 + 方法权重 + 置信度增量 ±0.1），
+> 全部 clamp 到安全区间后用校准参数重跑引擎；不同行业估值体系差异由此落地（银行走 financial 禁 DCF、
+> 成长股上调 PEG 权重、消费股上调 DCF 权重）。新增 `valuation/llm.py`（提示词/解析/clamp/应用）、
+> M4 agent 接入 `llm_qualitative`（含 calibration + raw），memo 与前端 labels 同步；
+> 未配 LLM 完全退化为规则结果（行为不变）。7 个新测试，208 全绿。
+
+（新浪接口本就有该列，之前适配器没读）**：新浪财务指标接口
+> `stock_financial_analysis_indicator` 自带 `经营现金净流量与净利润的比率(%)` 列（akshare 返回的
+> 原始值已是比率，勿再 ÷100），适配器之前硬编码 `ocf_to_np: None` 导致该字段一直取不到；
+> 现改为直接读取 + `ocfps/eps` 兜底。已用 600519/000333/601919/600036 真实验证：列名稳定、
+> 数值与 ocfps/eps 完全一致（茅台 2025=0.7212）。库里旧数据（BaoStock 时代）该列为 NULL，
+> 需 `value-agent data fetch <code>` 重抓才会写入。2 个新测试，201 全绿。
+
+（大师视角收敛版）**：① 路由统一——`config/valuation_routing.yaml`
+> 改为唯一事实来源，方法名=已实现函数（dcf/tang/graham_number/graham_formula/ddm/relative_median_pe/peg），
+> 规划中方法（nav/dcf_three_stage 等）不写入，前端只展示可执行方法，测试锁定 YAML 与代码兜底一致；
+> ② 汇总改加权中位数 ± 加权标准差（不再 min~max），新增 method_agreement；
+> ③ 新增 valuation_confidence（方法级置信度 × 覆盖度 × 一致性）；
+> ④ 质量乘数 0.85~1.1（克制区间）= 0.35×M2 + 0.25×M5 + 0.2×M3 + 0.2×M6；
+> ⑤ kill switch 复用 M2/M3/M5/M6 信号（LOSS_YEAR/OCF_NP_DIVERGENCE/高杠杆/周期下行/护城河缺失）；
+> ⑥ DCF 用现金化利润代理（ocf_to_np×EPS 或 OCFPS，financials 表字段）；
+> ⑦ 新增 PEG 方法（growth 路由）；⑧ 买卖点仍归 M8 不重复；
+> ⑨ M4 outputs/handoff 补全（intrinsic_range/coverage/valuation_confidence/methods_used），
+> 前端 memo 卡展示置信度/质量乘数/风险开关。19 个新测试，199 全绿。
+
 > ✅ 2026-08-06 **LLM 流式管道（打字机 + 思考过程）**：`LlmClient.stream_chat()` 逐个 yield `(kind, delta)`（content 正文 / thinking 思考过程，兼容 DeepSeek Reasoner 的 `reasoning_content` 与 OpenAI o 系 `reasoning`）；`AgentContext.stream_llm()` 边生成边回调 `on_llm_chunk(step_id, kind, chunk)`，thinking 不混入正文返回值；`WorkflowEngine.run(on_llm_chunk=...)` 透传；`/events` SSE 新增 `llm_chunk{step,agent,kind,chunk}` 事件；M1/M5/M6/M9 定性调用全部切流式；前端 `StepActivityFeed` 渲染灰字思考区 + 正文打字机光标，对话页重跑同步；新增 `/chat/stream` 流式追问端点（`chat_chunk`/`done` 事件、assistant 落库），前端追问气泡打字机渲染。155 测试全绿 + 前端 tsc/eslint 通过。
 
 > ✅ 2026-08-05 **方案 1 批次 E（增强项，docs/09-module-contracts.md §10.2）**：O-3 M10 决策快照审计（engine 在 M10 完成后写 session.decision_snapshots，含输入 handoff 摘要）；O-4 memo 质量自评（accuracy/logicality/storytelling 规则自评 + 降级标注）；O-5 输出稳定性测试（固定输入 3 次运行，outputs key 集合与契约枚举一致）；I-2 跨会话监控命中记忆（run_daily_monitor 把触发写入 session.monitor_hits，M11 将 warn/critical 历史命中回放为回顾规则）；配套测试 6 个。108 测试全绿 + 前端 tsc 通过。

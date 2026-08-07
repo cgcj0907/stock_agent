@@ -20,6 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { MasonryGrid } from "@/components/ui/masonry-grid";
 import {
   Select,
   SelectContent,
@@ -646,7 +647,7 @@ export function ConversationDetailView({
       {orderedResults.length > 0 && (
         <section className="flex flex-col gap-3">
           <h2 className="text-base font-semibold">分析结果</h2>
-          <div className="grid gap-3 md:grid-cols-2">
+          <MasonryGrid>
             {orderedResults.map(({ step, agent, result }) => (
               <ResultCard
                 key={step}
@@ -654,7 +655,7 @@ export function ConversationDetailView({
                 result={result}
               />
             ))}
-          </div>
+          </MasonryGrid>
         </section>
       )}
 

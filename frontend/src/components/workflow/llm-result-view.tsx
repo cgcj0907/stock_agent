@@ -18,12 +18,17 @@ function ReferenceLinks({ value }: { value: unknown }) {
         const rec = item as Record<string, unknown>;
         const url = String(rec.url ?? rec.link ?? rec.href ?? "").trim();
         if (/^https?:\/\//i.test(url)) {
-          return { title: String(rec.title ?? rec.name ?? url), url };
+          // meta/date 供前端展示发布日期与来源，便于识别资讯时效
+          const meta = [String(rec.date ?? ""), String(rec.meta ?? "")]
+            .map((s) => s.trim())
+            .filter(Boolean)
+            .join(" · ");
+          return { title: String(rec.title ?? rec.name ?? url), url, meta };
         }
       }
       return null;
     })
-    .filter((x): x is { title: string; url: string } => x !== null);
+    .filter((x): x is { title: string; url: string; meta?: string } => x !== null);
 
   if (links.length === 0) return null;
   return (
@@ -40,6 +45,11 @@ function ReferenceLinks({ value }: { value: unknown }) {
             >
               {l.title}
             </a>
+            {l.meta ? (
+              <span className="mt-0.5 block break-all text-[10px] text-muted-foreground">
+                {l.meta}
+              </span>
+            ) : null}
           </span>
         </li>
       ))}

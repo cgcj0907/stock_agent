@@ -94,12 +94,24 @@ class AkShareDataSource(DataSource):
         df = self._ak.stock_financial_analysis_indicator(symbol=code)
         # 接口按日期升序返回 → 取最新 years*4 期（避免取到最旧数据）
         df = df.tail(years * 4)
-        # 列名（新浪）：日期, 净资产收益率(%), 毛利率(%), 净利率(%), 资产负债率(%), 每股收益, 每股经营现金流
+        # 列名（新浪 displaytype=4，已验证 600519/000333/601919/600036 列稳定）：
+        # 日期, 净资产收益率(%), 毛利率(%), 净利率(%), 资产负债率(%),
+        # 摊薄每股收益(元), 每股经营性现金流(元), 经营现金净流量与净利润的比率(%) ← ocf_to_np
+        # 注意：列名带 (%)，但 akshare 返回的**原始值已经是比率**（2024 茅台 = 1.0350，
+        # 与 ocfps/eps=73.61/71.12 完全一致），**不要**再除以 100。
+        # 季度口径波动大，M2/M4 均只用年报（period 以 1231 结尾）。
+        has_ratio_col = "经营现金净流量与净利润的比率(%)" in df.columns
         records: list[dict] = []
         for _, r in df.iterrows():
             period = str(r.get("日期", "") or "")
             if not period or period in ("nan", "-"):
                 continue
+            eps = to_float(r.get("摊薄每股收益(元)") or r.get("加权每股收益(元)") or r.get("每股收益"))
+            ocfps = to_float(r.get("每股经营性现金流(元)") or r.get("每股经营现金流"))
+            ocf_to_np = to_float(r.get("经营现金净流量与净利润的比率(%)")) if has_ratio_col else None
+            # 兜底：新浪个别页面缺比率列时，用每股口径估算（每股经营现金流/每股收益 = 总额口径，等价）
+            if ocf_to_np is None and ocfps is not None and eps and eps > 0:
+                ocf_to_np = round(ocfps / eps, 4)
             records.append(
                 {
                     "period": period.replace("-", ""),
@@ -107,9 +119,9 @@ class AkShareDataSource(DataSource):
                     "grossprofit_margin": to_float(r.get("毛利率(%)")),
                     "netprofit_margin": to_float(r.get("净利率(%)")),
                     "debt_to_assets": to_float(r.get("资产负债率(%)"), 100.0),  # % → 小数
-                    "ocfps": to_float(r.get("每股经营性现金流(元)") or r.get("每股经营现金流")),
-                    "eps": to_float(r.get("摊薄每股收益(元)") or r.get("加权每股收益(元)") or r.get("每股收益")),
-                    "ocf_to_np": None,
+                    "ocfps": ocfps,
+                    "eps": eps,
+                    "ocf_to_np": ocf_to_np,
                 }
             )
         return {"records": records, "source": self.name, "url": source_url("financials", code)}

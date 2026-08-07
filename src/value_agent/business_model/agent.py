@@ -103,6 +103,7 @@ class M1BusinessModelAgent(Agent):
                     "reasons 至少覆盖两点：为什么是该类型；为什么不是另一个最相近的类型。\n"
                     "reference_indices：从参考资料清单中筛选与「商业模式/可理解性判断」最相关的文章编号"
                     "（1 基），没有相关文章就输出空数组；不得编造标题或链接。"
+                    "优先选择较新的资料（新闻/研报以最近 1-2 年内为主），不要把几年前的旧资讯当作当前事实；引用时以清单中标注的日期为准。"
                 )
                 text = ctx.stream_llm(_LLM_SYSTEM, user_prompt)
                 parsed = parse_llm_json(text)

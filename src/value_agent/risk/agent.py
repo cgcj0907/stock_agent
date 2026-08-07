@@ -52,6 +52,7 @@ class M9RiskAgent(Agent):
                     '"reference_indices": [筛选出的参考文章编号(1基)]}\n'
                     "reference_indices：从参考资料清单中筛选与「风险/红队批判」最相关的文章编号"
                     "（1 基），没有就输出空数组；不得编造标题或链接。"
+                    "优先选择较新的资料（新闻/研报以最近 1-2 年内为主），不要把几年前的旧资讯当作当前事实；引用时以清单中标注的日期为准。"
                 )
                 text = ctx.stream_llm(_LLM_SYSTEM, user_prompt)
                 parsed = parse_llm_json(text)

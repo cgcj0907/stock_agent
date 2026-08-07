@@ -33,10 +33,23 @@ def build_memo(session: Session) -> str:
         m8 = results.get("M8_safety_margin")
         if m4 and m4.outputs.get("intrinsic_value"):
             iv = m4.outputs["intrinsic_value"]
+            conf = m4.outputs.get("valuation_confidence")
+            q_mult = m4.outputs.get("quality_multiplier")
             lines.append(
-                f"- 内在价值区间：{iv['low']} ~ {iv['high']} 元（中值 {iv['mid']}），"
+                f"- 内在价值区间：{iv['low']} ~ {iv['high']} 元（中值 {iv['mid']}"
+                f"{('，离散度 ±' + str(iv['std'])) if iv.get('std') is not None else ''}），"
                 f"现价 {m4.outputs.get('current_price')} 元"
             )
+            if conf is not None:
+                lines.append(f"- 估值置信度：{conf}；方法一致性：{iv.get('method_agreement')}")
+            if q_mult is not None:
+                lines.append(
+                    f"- 质量乘数：{q_mult}（档位 {m4.outputs.get('quality_tier')}，"
+                    f"风险折扣 {m4.outputs.get('risk_multiplier')}，综合 {m4.outputs.get('total_multiplier')}）"
+                )
+            ks = m4.outputs.get("kill_switches") or []
+            if ks:
+                lines.append(f"- ⚠️ 触发风险开关：{'、'.join(ks)}")
         if m8 and m8.outputs.get("buy_price"):
             lines.append(
                 f"- 安全边际：买入 ≤ {m8.outputs['buy_price']} 元 / 卖出 ≥ {m8.outputs['sell_price']} 元"
@@ -87,6 +100,24 @@ def build_memo(session: Session) -> str:
                 f"要求折扣 {m8.outputs.get('required_discount')}，买入 ≤ {m8.outputs['buy_price']} 元，"
                 f"卖出 ≥ {m8.outputs['sell_price']} 元"
             )
+        llm_q = m4.outputs.get("llm_qualitative") if m4 else None
+        if isinstance(llm_q, dict) and llm_q.get("calibration"):
+            calib = llm_q["calibration"]
+            parts = []
+            if calib.get("business_type_override"):
+                parts.append(f"路由→{calib['business_type_override']}")
+            if calib.get("parameter_adjustments"):
+                parts.append(f"参数 {calib['parameter_adjustments']}")
+            if calib.get("method_weight_adjustments"):
+                parts.append(f"权重 {calib['method_weight_adjustments']}")
+            if calib.get("valuation_confidence_delta"):
+                parts.append(f"置信度 {calib['valuation_confidence_delta']:+.2f}")
+            if parts:
+                lines.append(f"\n- LLM 行业校准：{'；'.join(parts)}")
+            if calib.get("industry_notes"):
+                lines.append(f"- 行业判断：{'；'.join(calib['industry_notes'])}")
+            if calib.get("risk_notes"):
+                lines.append(f"- 行业风险：{'；'.join(calib['risk_notes'])}")
 
     m11 = results.get("M11_monitor")
     if m11 and m11.outputs.get("monitor_rules"):

@@ -210,6 +210,10 @@ def test_agent_inputs_match_expected_consumption():
     registry = register_builtin_agents(AgentRegistry())
     expected = {
         "M3_growth": set(),
+        "M4_valuation": {
+            "M1_business_model", "M2_financial_quality", "M3_growth",
+            "M5_moat", "M6_governance",
+        },
         "M10_decision": {
             "M1_business_model", "M2_financial_quality", "M3_growth",
             "M4_valuation", "M5_moat", "M6_governance", "M7_market",

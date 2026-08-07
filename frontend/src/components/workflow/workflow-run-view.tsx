@@ -8,20 +8,21 @@ import remarkGfm from "remark-gfm";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { MasonryGrid } from "@/components/ui/masonry-grid";
 import { StepActivityFeed } from "@/components/workflow/step-activity-feed";
-import { WorkflowDag } from "@/components/workflow/workflow-dag";
+import { StatusIndicator, WorkflowDag } from "@/components/workflow/workflow-dag";
 import { ResultCard } from "@/components/workflow/result-card";
 import { MemoCard } from "@/components/workflow/memo-card";
 import { findAgent } from "@/lib/agents/catalog";
 import { useWorkflowRun } from "@/hooks/use-workflow-run";
-import type { WorkflowInfo } from "@/lib/workflows/catalog";
+import type { StepStatus, WorkflowInfo } from "@/lib/workflows/catalog";
 
-const LEGEND = [
-  { label: "待运行", dot: "bg-muted-foreground/40" },
-  { label: "运行中", dot: "bg-emerald-500 animate-pulse" },
-  { label: "完成", dot: "bg-emerald-500" },
-  { label: "跳过", dot: "bg-amber-500" },
-  { label: "失败", dot: "bg-red-500" },
+const LEGEND: { label: string; status: StepStatus }[] = [
+  { label: "待运行", status: "pending" },
+  { label: "运行中", status: "running" },
+  { label: "完成", status: "done" },
+  { label: "跳过", status: "skipped" },
+  { label: "失败", status: "failed" },
 ];
 
 export function WorkflowRunView({ workflow }: { workflow: WorkflowInfo }) {
@@ -92,16 +93,12 @@ export function WorkflowRunView({ workflow }: { workflow: WorkflowInfo }) {
       <Card className="overflow-hidden rounded-2xl">
         <div className={`h-1 bg-gradient-to-r ${workflow.accent}`} />
         <div className="p-3 md:p-4">
-          <WorkflowDag
-            steps={workflow.steps}
-            statuses={statuses}
-            height={workflow.steps.length > 6 ? 300 : 220}
-          />
+          <WorkflowDag steps={workflow.steps} statuses={statuses} />
         </div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t px-4 py-2.5 text-xs text-muted-foreground">
           {LEGEND.map((item) => (
             <span key={item.label} className="flex items-center gap-1.5">
-              <span className={`size-2 rounded-full ${item.dot}`} />
+              <StatusIndicator status={item.status} />
               {item.label}
             </span>
           ))}
@@ -176,7 +173,7 @@ export function WorkflowRunView({ workflow }: { workflow: WorkflowInfo }) {
       {showResults && (
         <section className="flex flex-col gap-3">
           <h2 className="text-base font-semibold">分析结果</h2>
-          <div className="grid gap-3 md:grid-cols-2">
+          <MasonryGrid>
             {orderedResults.map(({ step, agent, result }) => (
               <ResultCard
                 key={step}
@@ -184,7 +181,7 @@ export function WorkflowRunView({ workflow }: { workflow: WorkflowInfo }) {
                 result={result}
               />
             ))}
-          </div>
+          </MasonryGrid>
         </section>
       )}
 

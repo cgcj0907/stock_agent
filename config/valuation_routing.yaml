@@ -1,21 +1,33 @@
 # M4 估值方法路由表：生意类型 → 适用估值方法（由 M1 商业模式认知输出路由）
+#
+# 约定（2026-08-07 起）：
+# 1. methods 里的方法名 = src/value_agent/valuation/methods.py 中**已实现**的函数名；
+#    规划中（如 nav / dcf_three_stage / ev_ebitda）不写进来，引擎加载时会过滤，
+#    前端只展示真正可执行的方法（避免"理念正确但取不到数"）。
+# 2. 此文件是路由唯一事实来源，代码 DEFAULT_ROUTING 仅为兜底，
+#    tests/test_valuation.py 锁定两者一致（防漂移）。
 routing:
   consumer_monopoly:        # 消费垄断/稳定增长
-    methods: [dcf, dividend_discount, relative_percentile]
+    methods: [dcf, tang, graham_number, graham_formula, ddm, relative_median_pe]
     forbidden: [current_pe_only]
+    note: "消费垄断：DCF(现金化利润) 为主，唐朝/格雷厄姆/DDM/相对PE 交叉验证"
   growth:                   # 成长型
-    methods: [dcf_three_stage, ps, peg, scenario]
+    methods: [dcf, peg, relative_median_pe]
     forbidden: [linear_extrapolation]
-    note: "DCF 需保守参数 + 敏感性"
+    note: "成长型：DCF(现金化利润) + PEG + 相对PE；增速上限 20%（M3 已夹逼）"
   cyclical:                 # 周期型
-    methods: [normalized_earnings, ev_ebitda, replacement_cost]
-    forbidden: [dcf_on_peak_earnings, tang_method]
+    methods: [relative_median_pe, graham_number]
+    forbidden: [dcf, tang]
+    note: "周期型：禁 DCF/唐朝（景气高点盈利会失真），用相对PE/资产兜底"
   financial:                # 金融型
-    methods: [pb_roe, dividend_yield]
-    forbidden: [dcf, tang_method]
+    methods: [relative_median_pe, ddm]
+    forbidden: [dcf]
+    note: "金融型：禁 DCF（现金流法不适用），用相对PE + DDM"
   asset_based:              # 资产型/困境
-    methods: [nav, liquidation_value, ncav]
+    methods: [graham_number, graham_formula]
     forbidden: [earnings_multiple]
+    note: "资产型：清算/资产兜底优先；NAV/NCAV 待数据字段稳定后（P2）接入"
   stable_dividend:          # 高分红稳定型
-    methods: [ddm, dividend_yield_vs_rfr]
+    methods: [ddm, tang, relative_median_pe]
     forbidden: []
+    note: "高分红稳定：DDM 为主，唐朝/相对PE 交叉"

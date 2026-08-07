@@ -91,8 +91,12 @@ export function MemoCard({
   const m4 = moduleResults.M4_valuation?.outputs as
     | {
         business_type?: string;
-        intrinsic_value?: { low?: number; high?: number; mid?: number };
+        intrinsic_value?: { low?: number; high?: number; mid?: number; std?: number; method_agreement?: number };
         current_price?: number;
+        valuation_confidence?: number;
+        quality_multiplier?: number;
+        risk_multiplier?: number;
+        kill_switches?: string[];
         methods?: {
           method?: string;
           applicable?: boolean;
@@ -259,6 +263,35 @@ export function MemoCard({
                   <span>中 {iv.mid}</span>
                   <span>高 {iv.high}</span>
                 </div>
+                {(m4?.valuation_confidence != null || m4?.quality_multiplier != null) && (
+                  <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+                    {m4?.valuation_confidence != null && (
+                      <span>
+                        置信度{" "}
+                        <b className="text-foreground tabular-nums">
+                          {(m4.valuation_confidence * 100).toFixed(0)}%
+                        </b>
+                      </span>
+                    )}
+                    {m4?.quality_multiplier != null && (
+                      <span>
+                        质量乘数{" "}
+                        <b className="text-foreground tabular-nums">{m4.quality_multiplier}</b>
+                      </span>
+                    )}
+                    {m4?.risk_multiplier != null && m4.risk_multiplier < 1 && (
+                      <span>
+                        风险折扣{" "}
+                        <b className="text-foreground tabular-nums">{m4.risk_multiplier}</b>
+                      </span>
+                    )}
+                  </div>
+                )}
+                {m4?.kill_switches && m4.kill_switches.length > 0 && (
+                  <div className="mt-1.5 text-[11px] text-amber-600 dark:text-amber-400">
+                    ⚠️ 触发风险开关：{m4.kill_switches.join("、")}
+                  </div>
+                )}
                 <div className="mt-4 grid grid-cols-2 gap-2">
                   <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 dark:border-emerald-800 dark:bg-emerald-950/40">
                     <div className="text-[11px] text-emerald-700 dark:text-emerald-300">
