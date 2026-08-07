@@ -303,6 +303,13 @@ def test_m5_depends_on_m1():
     assert "M1_business_model" in deps_by_agent["M5_moat"]
 
 
+def test_m2_depends_on_m1_for_industry_routing():
+    """12.1：M2→M1 依赖显式化（分行业口径需要 M1 的 business_type/financial_subtype）。"""
+    assert ModuleName.M1 in MODULE_DEPENDENCIES[ModuleName.M2]
+    deps_by_agent = _yaml_deps_by_agent()
+    assert "M1_business_model" in deps_by_agent["M2_financial_quality"]
+
+
 def test_m10_agent_veto_flags_real_shape(stub_data):
     """8.10：agent 层 handoff.veto_flags 回归——LLM 不得覆盖一票否决（真实输出形状）。"""
     from value_agent.agents.base import AgentContext

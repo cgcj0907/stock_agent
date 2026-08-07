@@ -1,0 +1,95 @@
+# M2 财务质量分行业口径（backlog 12.1，2026-08-07）—— 唯一事实来源，代码兜底（quality.py）
+#
+# 同 M4 估值路由：按 M1 的 business_type（+ financial_subtype）选择财务质量评估口径。
+# 不同生意类型的现金流/杠杆属性差异很大，通用阈值会误伤：
+#   - 金融（银行/保险/券商）：净利润主要由投资端决定、经营现金流含存款进出/保费/赔付/
+#     准备金变动，OCF/NP<0.8 不代表盈利质量差（M4 路由已声明"金融型禁 DCF"）；
+#     负债率 90%+ 是吸收存款/保单准备金/客户保证金的行业常态，"杠杆过高"扣分不适用。
+#   - 周期：周期底部 OCF/NP 天然偏低（景气下行期盈利萎缩），不应按"盈利含金量差"处理；
+#     但高杠杆仍是真实风险，杠杆扣分不放松。
+#   - 成长：再投资/营运资金占用会阶段性压低 OCF/NP，容忍度略放宽；杠杆标准不变。
+#   - 资产型/高分红/消费垄断：现金流是盈利质量的核心验证，保持通用硬阈值。
+#
+# cashflow_mode:
+#   standard - 通用 0.8 硬阈值
+#   lenient  - 行业口径：仅年报 + 阈值放宽，低于阈值才提示
+#   skip     - 现金流口径对该行业盈利质量无判别力，按中性计（如银行）
+# cashflow_annual_only: 现金流比是否只用年报（季度 OCF/NP 季节波动大，易误触发）
+# leverage_mode:
+#   standard - 通用杠杆分档（>60% 偏高、>80% 过高）
+#   industry - 金融/保险高杠杆视为行业常态（中性偏高分，仅异常值预警）
+routing:
+  # ---- 通用默认：非金融、未显式路由的行业 ----
+  default:
+    cashflow_mode: standard
+    cashflow_annual_only: false
+    cashflow_threshold: 0.8
+    leverage_mode: standard
+    ocf_divergence_severity: medium
+
+  # ---- 消费垄断：现金流应强、杠杆应低，通用规则即可（显式声明便于调参）----
+  consumer_monopoly:
+    cashflow_mode: standard
+    cashflow_annual_only: false
+    cashflow_threshold: 0.8
+    leverage_mode: standard
+    ocf_divergence_severity: medium
+
+  # ---- 成长：再投资/营运资金占用阶段性压低 OCF/NP，容忍度略放宽（仅年报）----
+  growth:
+    cashflow_mode: lenient
+    cashflow_annual_only: true
+    cashflow_threshold: 0.6
+    leverage_mode: standard
+    ocf_divergence_severity: medium
+
+  # ---- 周期：底部 OCF/NP 天然偏低，放宽阈值（仅年报）；杠杆仍是风险不放松 ----
+  cyclical:
+    cashflow_mode: lenient
+    cashflow_annual_only: true
+    cashflow_threshold: 0.4
+    leverage_mode: standard
+    ocf_divergence_severity: medium
+
+  # ---- 金融：净利润主要由投资端决定、负债率 90%+ 是行业常态 ----
+  financial:
+    cashflow_mode: lenient
+    cashflow_annual_only: true
+    cashflow_threshold: 0.5
+    leverage_mode: industry
+    ocf_divergence_severity: low
+  # 金融细类（覆盖 financial）：银行经营现金流被存款进出主导，OCF/NP 无判别力 → 中性
+  bank:
+    cashflow_mode: skip
+    cashflow_annual_only: true
+    cashflow_threshold: 0.5
+    leverage_mode: industry
+    ocf_divergence_severity: low
+  broker:
+    cashflow_mode: lenient
+    cashflow_annual_only: true
+    cashflow_threshold: 0.5
+    leverage_mode: industry
+    ocf_divergence_severity: low
+  insurance:
+    cashflow_mode: lenient
+    cashflow_annual_only: true
+    cashflow_threshold: 0.5
+    leverage_mode: industry
+    ocf_divergence_severity: low
+
+  # ---- 资产型/困境：现金流是生命线，不放松 ----
+  asset_based:
+    cashflow_mode: standard
+    cashflow_annual_only: false
+    cashflow_threshold: 0.8
+    leverage_mode: standard
+    ocf_divergence_severity: medium
+
+  # ---- 高分红稳定（公用事业类）：分红靠现金流兑现，不放松 ----
+  stable_dividend:
+    cashflow_mode: standard
+    cashflow_annual_only: false
+    cashflow_threshold: 0.8
+    leverage_mode: standard
+    ocf_divergence_severity: medium

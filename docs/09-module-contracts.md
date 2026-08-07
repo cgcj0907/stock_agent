@@ -116,7 +116,7 @@ DIV_ZERO           # 除零/不可计算
 - 消费方：M4、M10（business_moat 维度）
 
 ### M2 财务质量（fact）
-- 依赖：无
+- 依赖：M1（12.1 分行业口径：business_type / financial_subtype → 行业规则；M1 缺失回退通用口径）
 - `core_facts`：`metrics`（现字段不变）、`score`
 - `signals`：结构化信号数组（见 §4.2），从 `signals: list[str]` 升级
 - `handoff`：

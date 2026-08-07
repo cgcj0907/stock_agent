@@ -3,6 +3,7 @@ id: quick
 name: 快速估值流
 description: 只跑财务质量 → 估值 → 安全边际，用于快速筛查
 steps:
-  - {id: M2, agent: M2_financial_quality}
-  - {id: M4, agent: M4_valuation, deps: [M2]}
-  - {id: M8, agent: M8_safety_margin, deps: [M4]}
+  - {id: M1, agent: M1_business_model}
+  - {id: M2, agent: M2_financial_quality, deps: [M1]}
+  - {id: M4, agent: M4_valuation, deps: [M1, M2]}
+  - {id: M8, agent: M8_safety_margin, deps: [M2, M4]}

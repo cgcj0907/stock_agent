@@ -46,6 +46,7 @@ PIPELINE_ORDER: list[ModuleName] = [
 
 # 重算依赖：模块 -> 直接依赖模块（改依赖需重跑下游）
 MODULE_DEPENDENCIES: dict[ModuleName, set[ModuleName]] = {
+    ModuleName.M2: {ModuleName.M1},  # 12.1：M2 按 M1 生意类型分行业口径（财务质量行业路由）
     ModuleName.M3: {ModuleName.M2},
     ModuleName.M7: {ModuleName.M1},  # 生意类型 → 主估值指标（周期/银行看 PB）
     ModuleName.M4: {
