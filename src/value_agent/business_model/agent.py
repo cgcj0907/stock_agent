@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 from value_agent.agents.base import Agent, AgentContext, AgentSpec
+from value_agent.core.contracts import ReasonCode, build_meta
 from value_agent.core.llm import LLM_JSON_RULE, parse_llm_json
-from value_agent.core.scoring import llm_score
+from value_agent.core.scoring import confidence_from_completeness, llm_score
 from value_agent.data.references import CompanyReferences, format_reference_list, select_references
+from value_agent.planner import parse_profile, resolve_profile
 from value_agent.sessions.models import ModuleResult, ModuleStatus
 
-from .engine import analyze_business_model, normalize_business_type
+from .engine import analyze_business_model
 
 
 def _understandability_level(label: str) -> str:
@@ -44,6 +46,8 @@ class M1BusinessModelAgent(Agent):
         if ctx.data is None:
             raise RuntimeError("M1 需要数据访问（ctx.data）")
         code = ctx.session.company_code
+        plan_trace: dict | None = None  # v2 画像校验轨迹（P4 试点）
+        effective_profile = None
         # 公司信息与财务数据分开容错：东财接口瞬时故障（如 JSONDecodeError）时，
         # 公司信息失败仍可用财务数据（ROE/毛利率/负债率）完成分类，不整模块降级。
         info: dict = {}
@@ -73,6 +77,8 @@ class M1BusinessModelAgent(Agent):
                         },
                     },
                     evidence=[f"数据源异常：{type(exc).__name__}（{str(exc)[:80]}），已降级为周期分类"],
+                    meta=build_meta(0.0, "low", degraded=True,
+                                    reason_codes=[ReasonCode.DATA_UNAVAILABLE.value]),
                 )
             data_issues.append(f"财务数据获取失败（{type(exc).__name__}），仅用公司信息与 LLM 判断")
             fin = {"records": [], "source": "fallback(empty_financials)"}
@@ -95,12 +101,18 @@ class M1BusinessModelAgent(Agent):
                 user_prompt += (
                     "请按以下结构输出 JSON：\n"
                     '{"business_type": "consumer_monopoly|growth|cyclical|financial|asset_based|stable_dividend 之一", '
+                    '"financial_subtype": "bank|broker|insurance|real_estate|other|null（金融类必填，其余 null）", '
+                    '"cyclicality": "low|medium|high", '
+                    '"primary_metric": "pe|pb|null（银行/券商主看 PB，消费/成长主看 PE，不确定填 null）", '
+                    '"confidence": "high|medium|low（对 business_type 判断的把握）", '
+                    '"special_flags": ["high_dividend/state_owned/export_led 等，无则空数组"], '
                     '"business_model": "一句话描述其生意本质", '
                     '"understandability": "可理解|基本可理解|难以理解", '
                     '"reasons": ["判断理由1", "判断理由2"], '
                     '"reference_indices": [筛选出的参考文章编号(1基)]}\n'
                     "business_type 必须从给定枚举中选择一个，优先依据行业属性、盈利模式、周期性、"
                     "资产特征与财务表现综合判断，不要机械跟随规则参考类型。\n"
+                    "若你的 business_type 与规则参考类型不同，请给出理由并在 confidence 如实标注把握。\n"
                     "reasons 至少覆盖两点：为什么是该类型；为什么不是另一个最相近的类型。\n"
                     "reference_indices：从参考资料清单中筛选与「商业模式/可理解性判断」最相关的文章编号"
                     "（1 基），没有相关文章就输出空数组；不得编造标题或链接。"
@@ -109,13 +121,30 @@ class M1BusinessModelAgent(Agent):
                 text = ctx.stream_llm(_LLM_SYSTEM, user_prompt)
                 parsed = parse_llm_json(text)
                 if parsed is not None:
-                    llm_business_type = normalize_business_type(parsed.get("business_type"))
-                    if llm_business_type is not None:
-                        result = analyze_business_model(info, fin, business_type=llm_business_type)
-                        evidence = data_issues + list(result.evidence)
-                        evidence.append(f"LLM 主判生意类型：{llm_business_type}")
-                    else:
+                    profile = parse_profile(parsed)
+                    effective_profile, plan_trace = resolve_profile(
+                        profile,
+                        rule_business_type=rule_result.business_type,
+                        rule_financial_subtype=getattr(rule_result, "financial_subtype", None),
+                    )
+                    if plan_trace.outcome == "fallback_rule":
                         evidence.append("LLM 未给出合法 business_type，已回退规则分类")
+                    elif effective_profile.business_type != rule_result.business_type:
+                        result = analyze_business_model(info, fin, business_type=effective_profile.business_type)
+                        evidence = data_issues + list(result.evidence)
+                        evidence.append(
+                            f"LLM 主判生意类型：{effective_profile.business_type}"
+                            f"（plan={plan_trace.outcome}）"
+                        )
+                    elif plan_trace.outcome == "conflict_fallback":
+                        evidence.append(
+                            f"LLM 画像与规则分类冲突且置信度不足，business_type 回退规则"
+                            f"（{profile.business_type}→{rule_result.business_type}）"
+                        )
+                    else:
+                        evidence.append(
+                            f"LLM 画像：{effective_profile.business_type}（plan={plan_trace.outcome}）"
+                        )
                     selected = select_references(refs, parsed.get("reference_indices"))
                     if selected:
                         parsed["references"] = selected
@@ -132,6 +161,20 @@ class M1BusinessModelAgent(Agent):
         else:
             evidence.append("未配置 LLM（LLM_API_KEY），当前 business_type 使用规则结果")
 
+        handoff = {
+            "valuation_route": result.business_type,
+            "understandability_level": _understandability_level(result.understandability),
+            "financial_subtype": getattr(result, "financial_subtype", "other"),
+        }
+        if plan_trace is not None and effective_profile is not None:
+            # v2 画像（P4 试点）：M1/M2/M4/M7 消费同一份；plan_trace 落审计
+            handoff["financial_subtype"] = (
+                effective_profile.financial_subtype or handoff["financial_subtype"]
+            )
+            handoff["primary_metric"] = effective_profile.primary_metric
+            handoff["cyclicality"] = effective_profile.cyclicality
+            handoff["plan_trace"] = plan_trace.to_dict()
+
         outputs = {
             "business_type": result.business_type,
             "business_model": llm_qualitative.get("business_model") if isinstance(llm_qualitative, dict) else result.one_liner,
@@ -140,16 +183,28 @@ class M1BusinessModelAgent(Agent):
             "industry": result.industry,
             "references": llm_qualitative.get("references") if isinstance(llm_qualitative, dict) else None,
             # 下游契约（§4 M1）：M4 直接读 handoff.valuation_route，不再猜
-            "handoff": {
-                "valuation_route": result.business_type,
-                "understandability_level": _understandability_level(result.understandability),
-                "financial_subtype": getattr(result, "financial_subtype", "other"),
-            },
+            "handoff": handoff,
         }
         # 移除空 references
         if not outputs.get("references"):
             outputs.pop("references", None)
 
+        # v2 P5 接线：画像/数据 → meta.completeness → 校准上限
+        # （completeness 低 → 规则分可信度低 → LLM 校准上限放宽，但抬分证据要求不变）
+        if data_issues:
+            completeness = "low"
+        elif plan_trace is not None and plan_trace.outcome in ("fallback_rule", "conflict_fallback"):
+            completeness = "medium"
+        else:
+            completeness = "high"
+        meta = build_meta(
+            {"high": 0.9, "medium": 0.6, "low": 0.3}[completeness],
+            completeness,
+            degraded=bool(data_issues),
+            reason_codes=[ReasonCode.DATA_UNAVAILABLE.value] if data_issues else [],
+        )
+
+        calib: dict = {}
         score = llm_score(
             ctx, self.spec.id,
             facts={
@@ -157,9 +212,10 @@ class M1BusinessModelAgent(Agent):
                 "生意类型": outputs.get("business_type"),
                 "可理解性": outputs.get("understandability"),
             },
-            evidence=evidence, default=result.score,
+            evidence=evidence, default=result.score, trace=calib,
+            confidence=confidence_from_completeness(completeness),
         )
         return ModuleResult(
-            module=self.spec.id, status=ModuleStatus.DONE, score=score,
-            outputs=outputs, evidence=evidence,
+            module=self.spec.id, status=ModuleStatus.DONE, score=score, calibration=calib or None,
+            outputs=outputs, evidence=evidence, meta=meta,
         )

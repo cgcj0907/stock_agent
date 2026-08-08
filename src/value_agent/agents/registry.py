@@ -15,10 +15,6 @@ class AgentRegistry:
             raise ValueError(f"agent 已存在: {aid}（可用 overwrite=True 覆盖）")
         self._agents[aid] = agent
 
-    def register_many(self, agents: list[Agent]) -> None:
-        for agent in agents:
-            self.register(agent)
-
     def get(self, agent_id: str) -> Agent:
         try:
             return self._agents[agent_id]

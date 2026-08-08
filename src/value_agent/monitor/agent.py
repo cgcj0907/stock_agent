@@ -29,13 +29,14 @@ class M11MonitorAgent(Agent):
         evidence = list(plan.evidence)
         if prior_hits:
             evidence.append(f"跨会话记忆：历史监控命中 {len(prior_hits)} 次（warn/critical 回放为回顾规则）")
+        calib: dict = {}
         score = llm_score(
             ctx, self.spec.id,
             facts={"规则数": len(plan.rules), "规则类型": [r.rule_type for r in plan.rules]},
-            evidence=evidence, default=plan.score,
+            evidence=evidence, default=plan.score, trace=calib,
         )
         return ModuleResult(
-            module=self.spec.id, status=ModuleStatus.DONE, score=score,
+            module=self.spec.id, status=ModuleStatus.DONE, score=score, calibration=calib or None,
             outputs={
                 "monitor_rules": [r.__dict__ for r in plan.rules],
                 "rule_count": len(plan.rules),

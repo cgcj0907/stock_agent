@@ -100,6 +100,7 @@ class M8SafetyMarginAgent(Agent):
         evidence = list(result.evidence)
         if m7 and m7.outputs.get("position") in ("高估", "泡沫"):
             evidence.append(f"M7 估值位置：{m7.outputs['position']}（卖出参考触发）")
+        calib: dict = {}
         score = llm_score(
             ctx, self.spec.id,
             facts={
@@ -108,12 +109,13 @@ class M8SafetyMarginAgent(Agent):
                 "安全边际状态": result.mos_state,
                 "状态": result.status,
             },
-            evidence=evidence, default=result.score,
+            evidence=evidence, default=result.score, trace=calib,
         )
         return ModuleResult(
             module=self.spec.id,
             status=ModuleStatus.DONE,
             score=score,
+            calibration=calib or None,
             outputs={
                 "price": price,
                 "discount": result.discount,
@@ -138,8 +140,10 @@ class M8SafetyMarginAgent(Agent):
             # 6.6：正常态也带 meta.reason_codes（前端按 meta 判断质量/降级）
             meta=build_meta(
                 round(score / 100.0, 3),
-                "high" if result.mos_state in ("attractive", "fair") else "medium",
-                degraded=False,
+                "high" if result.mos_state in ("attractive", "fair")
+                else "low" if result.mos_state == "unavailable"
+                else "medium",
+                degraded=result.mos_state == "unavailable",
                 reason_codes=result.reason_codes,
             ),
         )

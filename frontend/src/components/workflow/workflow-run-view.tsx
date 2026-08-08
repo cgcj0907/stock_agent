@@ -13,6 +13,7 @@ import { StepActivityFeed } from "@/components/workflow/step-activity-feed";
 import { StatusIndicator, WorkflowDag } from "@/components/workflow/workflow-dag";
 import { ResultCard } from "@/components/workflow/result-card";
 import { MemoCard } from "@/components/workflow/memo-card";
+import { WorkflowRail } from "@/components/workflow/workflow-rail";
 import { findAgent } from "@/lib/agents/catalog";
 import { useWorkflowRun } from "@/hooks/use-workflow-run";
 import type { StepStatus, WorkflowInfo } from "@/lib/workflows/catalog";
@@ -25,7 +26,15 @@ const LEGEND: { label: string; status: StepStatus }[] = [
   { label: "失败", status: "failed" },
 ];
 
-export function WorkflowRunView({ workflow }: { workflow: WorkflowInfo }) {
+export function WorkflowRunView({
+  workflow,
+  initialCode,
+  initialName,
+}: {
+  workflow: WorkflowInfo;
+  initialCode?: string;
+  initialName?: string;
+}) {
   const stepIds = React.useMemo(
     () => workflow.steps.map((s) => s.id),
     [workflow]
@@ -49,7 +58,8 @@ export function WorkflowRunView({ workflow }: { workflow: WorkflowInfo }) {
   } = useWorkflowRun(
     workflow.id,
     stepIds,
-    workflow.id === "custom" ? workflow.steps : undefined
+    workflow.id === "custom" ? workflow.steps : undefined,
+    { initialCompanyCode: initialCode, initialCompanyName: initialName }
   );
 
   const doneCount = stepIds.filter(
@@ -72,8 +82,14 @@ export function WorkflowRunView({ workflow }: { workflow: WorkflowInfo }) {
     orderedResults.length > 0 &&
     (runStatus === "completed" || runStatus === "failed");
 
+  const hasRun = running || Object.keys(statuses).length > 0;
+  const hasResults = Object.keys(results).length > 0;
+
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-6">
+    <div className="mx-auto flex max-w-7xl flex-col gap-6">
+      <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+        {/* 左列：过程 + 结果 + 备忘录 */}
+        <div className="flex min-w-0 flex-1 flex-col gap-6">
       {/* 头部 */}
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -112,7 +128,7 @@ export function WorkflowRunView({ workflow }: { workflow: WorkflowInfo }) {
       </Card>
 
       {/* 输入区（ChatGPT 风格） */}
-      <div className="rounded-2xl border bg-card p-2 shadow-sm transition-all focus-within:border-emerald-300 focus-within:ring-4 focus-within:ring-emerald-500/10 dark:focus-within:border-emerald-700">
+      <div className="rounded-2xl border bg-card p-2 shadow-sm transition-all focus-within:border-ring focus-within:ring-4 focus-within:ring-ring/10">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <input
             value={companyCode}
@@ -213,6 +229,23 @@ export function WorkflowRunView({ workflow }: { workflow: WorkflowInfo }) {
           ) : null}
         </section>
       )}
+        </div>
+
+        {/* 右列：sticky 运行概览 / 投资结论栏 */}
+        {hasRun && (
+          <aside className="w-full lg:w-80 lg:shrink-0">
+            <WorkflowRail
+              workflow={workflow}
+              statuses={statuses}
+              running={running}
+              sessionId={sessionId}
+              results={results}
+              showResults={showResults}
+              hasResults={hasResults}
+            />
+          </aside>
+        )}
+      </div>
     </div>
   );
 }

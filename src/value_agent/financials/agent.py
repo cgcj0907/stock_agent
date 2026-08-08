@@ -49,6 +49,7 @@ class M2FinancialQualityAgent(Agent):
                     "handoff": {"quality_score": None, "risk_signal_codes": []},
                 },
             )
+        calib: dict = {}
         score = llm_score(
             ctx, self.spec.id,
             facts={
@@ -62,12 +63,13 @@ class M2FinancialQualityAgent(Agent):
                     if business_type else "通用（M1 缺失）"
                 ),
             },
-            evidence=result.evidence, default=result.score,
+            evidence=result.evidence, default=result.score, trace=calib,
         )
         return ModuleResult(
             module=self.spec.id,
             status=ModuleStatus.DONE,
             score=score,
+            calibration=calib or None,
             outputs={
                 "metrics": result.metrics,
                 "signals": [sig.to_dict() for sig in result.signals],

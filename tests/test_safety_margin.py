@@ -91,6 +91,15 @@ def test_missing_data_reason_code_input_missing():
     assert r.reason_codes == ["INPUT_MISSING"]
 
 
+def test_zero_intrinsic_low_degrades_instead_of_crashing():
+    """下沿为 0 属于异常输入，M8 应降级为 unavailable，而不是除零失败。"""
+    r = run_safety_margin(48.76, {"low": 0.0, "mid": 0.0, "high": 21.96})
+    assert r.mos_state == "unavailable"
+    assert r.discount is None
+    assert r.reason_codes == ["OUT_OF_RANGE"]
+    assert any("下沿" in e for e in r.evidence)
+
+
 # ---------- backlog 6.x：确定性分级 / 分批建仓 / 卖出纪律 ----------
 
 def test_certainty_discount_wide_moat_lowers_required():

@@ -37,26 +37,29 @@ def test_moat_rule_proxy_tiers():
 
 
 def test_moat_peer_relative_not_absolute():
-    """同行相对性：同一份高盈利财务数据，消费垄断基准下是「宽」，金融基准下不是。
-    （修复旧版绝对阈值偏爱高毛利行业、低估银行的问题。）"""
-    fin = {"records": [{"period": f"{2026 - i}1231", "roe": 20, "grossprofit_margin": 60,
+    """同行相对性：同一份高盈利财务数据，白酒细分基准下是「宽」，银行细分基准下不是。
+    （修复旧版绝对阈值偏爱高毛利行业、低估银行/保险的问题。）"""
+    fin = {"records": [{"period": f"{2026 - i}1231", "roe": 20, "grossprofit_margin": 80,
                         "netprofit_margin": 30, "debt_to_assets": 0.2} for i in range(10)]}
-    consumer = assess_moat(fin, industry="白酒", business_type="consumer_monopoly")
+    liquor = assess_moat(fin, industry="白酒", business_type="consumer_monopoly")
     bank = assess_moat(fin, industry="银行", business_type="financial")
-    assert consumer.rule_tier == "宽"
-    assert bank.rule_tier != "宽"          # 金融基准：毛利率维度不适用，不再被高毛利撑成「宽」
+    assert liquor.rule_tier == "宽"
+    assert liquor.peer.benchmark == "liquor"   # 行业细分基准（白酒 GM 中位 70）
+    assert bank.rule_tier != "宽"              # 银行基准：毛利率维度不适用，不再被高毛利撑成「宽」
     assert bank.peer is not None
+    assert bank.peer.benchmark == "bank"
     assert bank.peer.margin_key == "netprofit_margin"  # 金融用净利率口径
 
 
 def test_moat_peer_context_and_sources():
     """同行对比上下文 + 来源代理信号：高利润率→无形资产，低杠杆→成本/规模优势。"""
-    fin = {"records": [{"period": f"{2026 - i}1231", "roe": 20, "grossprofit_margin": 60,
+    fin = {"records": [{"period": f"{2026 - i}1231", "roe": 20, "grossprofit_margin": 80,
                         "debt_to_assets": 0.2} for i in range(10)]}
     r = assess_moat(fin, industry="白酒", business_type="consumer_monopoly")
     assert r.peer is not None
+    assert r.peer.benchmark == "liquor"        # 行业细分优先于生意类型
     assert r.peer.roe_company == 20.0
-    assert r.peer.roe_median == 18.0
+    assert r.peer.roe_median == 20.0           # 白酒细分基准 ROE 中位
     srcs = {s.source for s in r.sources}
     assert "无形资产" in srcs
     assert "成本/规模优势" in srcs
@@ -83,6 +86,23 @@ def test_moat_cyclical_uses_through_cycle_roe():
     assert not r.erosion_signals, "周期行业 ROE 波动不应进侵蚀信号（避免污染 M9）"
     assert r.peer.debt_note, "杠杆口径应注明 debt_to_assets 含合同负债"
     assert any("周期属性备注" in e for e in r.evidence)
+
+
+def test_moat_segment_financial_subtypes():
+    """金融子行业细分：保险/银行/券商用不同净利率中位，保险净利率低不再被银行基准误伤。"""
+    # 中国平安场景：ROE 13.5、净利率 15.1（保险正常水平）
+    fin = {"records": [{"period": f"{2026 - i}1231", "roe": 13.5, "netprofit_margin": 15.1,
+                        "grossprofit_margin": None, "debt_to_assets": None} for i in range(10)]}
+    insurance = assess_moat(fin, industry="保险", business_type="financial")
+    bank = assess_moat(fin, industry="银行", business_type="financial")
+    assert insurance.peer is not None and bank.peer is not None
+    assert insurance.peer.benchmark == "insurance"
+    assert bank.peer.benchmark == "bank"
+    assert insurance.peer.margin_median == 10.0
+    assert bank.peer.margin_median == 30.0
+    # 同样财务数：保险基准不再被「净利率低于银行中位」打成 0 分
+    assert insurance.score > bank.score
+    assert insurance.rule_tier != "无"
 
 
 def test_moat_missing_data_degrades():
@@ -123,7 +143,7 @@ def test_governance_dividend_yield_ttm_over_price():
     """股息率 = 最近 12 个月每股派息合计 ÷ 现价（含中报+年报），并写入 evidence。"""
     import datetime
 
-    y = datetime.date.today().year
+    y = datetime.datetime.now(datetime.UTC).date().year
     recs = [
         {"period": f"{y}0630", "cash_div_tax": 0.5},
         {"period": f"{y}0315", "cash_div_tax": 0.3},

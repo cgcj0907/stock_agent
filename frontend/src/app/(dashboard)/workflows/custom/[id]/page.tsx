@@ -8,10 +8,13 @@ import type { CustomWorkflow } from "@/types/custom-workflow";
 
 export default async function CustomWorkflowRunPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ code?: string; name?: string }>;
 }) {
   const { id } = await params;
+  const { code, name } = await searchParams;
   const user = await getCurrentUser();
   if (!user) notFound();
   let cwf: CustomWorkflow | null = null;
@@ -42,5 +45,11 @@ export default async function CustomWorkflowRunPage({
     })),
   };
 
-  return <WorkflowRunView workflow={workflow} />;
+  return (
+    <WorkflowRunView
+      workflow={workflow}
+      initialCode={code}
+      initialName={name}
+    />
+  );
 }

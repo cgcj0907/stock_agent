@@ -152,6 +152,7 @@ class M7MarketAgent(Agent):
             result.evidence.append(
                 f"⚠️ 高估 + 情绪过热（热度 {result.sentiment_heat:.0%} ≥ 66%）：margin_adjustment 额外 +5pct"
             )
+        calib: dict = {}
         score = llm_score(
             ctx, self.spec.id,
             facts={
@@ -160,13 +161,13 @@ class M7MarketAgent(Agent):
                 "价格位置": result.position,
                 "情绪热度": result.sentiment_heat,
             },
-            evidence=result.evidence, default=result.score,
+            evidence=result.evidence, default=result.score, trace=calib,
         )
         sentiment_signals = [
             e for e in result.evidence if e.startswith("情绪：")
         ]
         return ModuleResult(
-            module=self.spec.id, status=ModuleStatus.DONE, score=score,
+            module=self.spec.id, status=ModuleStatus.DONE, score=score, calibration=calib or None,
             outputs={
                 "pe_percentile": result.pe_percentile,
                 "pb_percentile": result.pb_percentile,

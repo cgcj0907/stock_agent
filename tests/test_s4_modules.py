@@ -323,6 +323,7 @@ def test_risk_consumes_moat_erosion_risks():
             "handoff": {
                 "moat_width": "medium",
                 "moat_durability": "low",
+                "moat_trend": "eroding",
                 "erosion_risks": ["新进入者低价竞争", "技术路线被替代"],
             },
         }),
@@ -334,8 +335,8 @@ def test_risk_consumes_moat_erosion_risks():
     ]
     assert len(erosion_items) == 2
     assert any("低价竞争" in it["impact"] for it in erosion_items)
-    # durability=low → 侵蚀风险升级为 high → 自动进入 M11 监控候选
-    assert all(it["severity"] == "high" for it in erosion_items)
+    # 5.13：durability=low + trend=eroding → critical（接近一票否决）→ 进 M11 监控候选
+    assert all(it["severity"] == "critical" for it in erosion_items)
     assert all(it["id"] in r.monitor_candidates for it in erosion_items)
 
 
@@ -403,6 +404,39 @@ def test_risk_consumes_m6_governance_risk_codes():
     assert reg["severity"] == "high"
     assert reg["id"] in r.monitor_candidates  # high → M11 监控候选
     assert any("信披违规" in it["impact"] for it in risk_items)
+
+
+def test_risk_moat_erosion_severity_tiers():
+    """5.13：侵蚀风险 severity 三档 —— low+eroding→critical / 单条件→high / 否则 medium。"""
+    def run(durability, trend):
+        inputs = {
+            "M5_moat": _mod("M5_moat", {
+                "width": "中",
+                "handoff": {
+                    "moat_width": "medium",
+                    "moat_durability": durability,
+                    "moat_trend": trend,
+                    "erosion_risks": ["行业竞争加剧"],
+                },
+            }),
+        }
+        r = assess_risk(inputs)
+        return next(it["severity"] for it in r.risk_items if it["trigger"] == "erosion_risk")
+
+    assert run("low", "eroding") == "critical"
+    assert run("low", "stable") == "high"
+    assert run("high", "eroding") == "high"
+    assert run("high", "stable") == "medium"
+    # 缺 trend（旧输出）→ 按 durability 兜底
+    inputs = {
+        "M5_moat": _mod("M5_moat", {
+            "width": "中",
+            "handoff": {"moat_width": "medium", "moat_durability": "low",
+                        "erosion_risks": ["行业竞争加剧"]},
+        }),
+    }
+    r = assess_risk(inputs)
+    assert next(it["severity"] for it in r.risk_items if it["trigger"] == "erosion_risk") == "high"
 
 
 def test_risk_assumption_veto():

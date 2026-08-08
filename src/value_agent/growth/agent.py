@@ -43,6 +43,7 @@ class M3GrowthAgent(Agent):
                     },
                 },
             )
+        calib: dict = {}
         score = llm_score(
             ctx, self.spec.id,
             facts={
@@ -51,10 +52,10 @@ class M3GrowthAgent(Agent):
                 "增长信心": result.growth_confidence,
                 "周期行业": result.cyclicality_flag,
             },
-            evidence=result.evidence, default=result.score,
+            evidence=result.evidence, default=result.score, trace=calib,
         )
         return ModuleResult(
-            module=self.spec.id, status=ModuleStatus.DONE, score=score,
+            module=self.spec.id, status=ModuleStatus.DONE, score=score, calibration=calib or None,
             outputs={
                 "growth_estimate": result.growth_estimate,
                 "prosperity": result.prosperity,

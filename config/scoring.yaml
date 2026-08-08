@@ -28,4 +28,5 @@ market_sentiment:
 moat:
   min_competition_evidence: 1      # LLM 宽度与规则层冲突时，升级需 ≥N 条竞争优势证据
   downgrade_requires_evidence: false  # 降级是否同样要求证据（默认否，避免卡死修正）
+  real_peer_medians: true          # 真实同行中位数（backlog 5.1，AkShare 成分股财务中位）；失败/无网回退静态基准
   allow_without_refs: true         # 无参考资料时是否放行 LLM 宽度

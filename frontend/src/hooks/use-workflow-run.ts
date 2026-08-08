@@ -37,13 +37,23 @@ export interface WorkflowStepLike {
   deps: string[];
 }
 
+export interface WorkflowRunInitial {
+  initialCompanyCode?: string;
+  initialCompanyName?: string;
+}
+
 export function useWorkflowRun(
   workflowId: string,
   stepIds: string[],
-  workflowSteps?: WorkflowStepLike[]
+  workflowSteps?: WorkflowStepLike[],
+  initial?: WorkflowRunInitial
 ) {
-  const [companyCode, setCompanyCode] = React.useState("");
-  const [companyName, setCompanyName] = React.useState("");
+  const [companyCode, setCompanyCode] = React.useState(
+    initial?.initialCompanyCode ?? ""
+  );
+  const [companyName, setCompanyName] = React.useState(
+    initial?.initialCompanyName ?? ""
+  );
   const [running, setRunning] = React.useState(false);
   const [connected, setConnected] = React.useState(false);
   const [sessionId, setSessionId] = React.useState<string | null>(null);

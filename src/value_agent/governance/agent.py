@@ -246,6 +246,7 @@ class M6GovernanceAgent(Agent):
                 handoff[grade_key] = qual[grade_key]
 
         # 最终分数（llm_score 可校准）→ 回写 handoff，统一下游口径（M4/M9/M10 读同一个数）
+        calib: dict = {}
         score = llm_score(
             ctx, self.spec.id,
             facts={
@@ -254,7 +255,7 @@ class M6GovernanceAgent(Agent):
                 "治理说明": result.note,
                 "治理风险信号": len(handoff["governance_risk_codes"]),
             },
-            evidence=evidence, default=result.score,
+            evidence=evidence, default=result.score, trace=calib,
         )
         handoff["governance_score"] = score
         handoff["capital_allocation_flag"] = _capital_allocation_flag(score)
@@ -274,6 +275,6 @@ class M6GovernanceAgent(Agent):
             outputs["llm_qualitative"] = llm_raw[:2000]
 
         return ModuleResult(
-            module=self.spec.id, status=ModuleStatus.DONE, score=score,
+            module=self.spec.id, status=ModuleStatus.DONE, score=score, calibration=calib or None,
             outputs=outputs, evidence=evidence,
         )

@@ -261,7 +261,7 @@ def test_default_run_emits_handoff_contracts(stub_data):
     expected = {
         "M1_business_model": {"valuation_route", "understandability_level"},
         "M3_growth": {"recommended_growth_rate", "growth_confidence", "cyclicality_flag", "prosperity_code"},
-        "M5_moat": {"moat_width", "moat_durability", "erosion_risks"},
+        "M5_moat": {"moat_width", "moat_durability", "moat_trend", "erosion_risks"},
         "M6_governance": {"governance_score", "capital_allocation_flag", "governance_risk_codes"},
         "M7_market": {"valuation_percentile", "market_state", "margin_adjustment"},
         "M8_safety_margin": {"mos_state", "buy_zone", "sell_zone", "reason_codes"},
@@ -368,3 +368,22 @@ def test_workflow_level_contract_consistency(stub_data):
     else:
         # 决策非 avoid/buy 时也可能无 decision_watch；存在则必须来源正确
         assert m11.get("rule_count", 0) >= 0
+
+
+# ---------- ModuleResult.calibration 往返（v2 P2 trace 落库） ----------
+def test_module_result_calibration_roundtrip():
+    calib = {
+        "module_id": "M5_moat", "base": 70.0, "final": 75.0, "outcome": "applied",
+        "notes": [], "delta": 5.0, "reasons": ["r"], "evidence_refs": [0], "new_facts": [],
+    }
+    r = ModuleResult(module="M5_moat", status=ModuleStatus.DONE, score=75.0, calibration=calib)
+    d = r.to_dict()
+    assert d["calibration"] == calib
+    r2 = ModuleResult.from_dict(d)
+    assert r2.calibration == calib
+
+
+def test_module_result_calibration_default_none_for_old_payloads():
+    """旧数据没有 calibration → from_dict 回退为 None（不报错，向后兼容）。"""
+    r = ModuleResult.from_dict({"module": "M1_business_model", "status": "done"})
+    assert r.calibration is None

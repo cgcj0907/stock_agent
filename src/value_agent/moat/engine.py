@@ -58,6 +58,101 @@ PEER_BENCHMARKS: dict[str, dict] = {
     },
 }
 
+# 行业细分基准（静态中位代理）：生意类型(6 类)仍偏粗，同类型内行业差异大
+# （白酒 vs 调味品、银行 vs 保险 vs 券商、煤炭 vs 钢铁…）。解析顺序：
+#   行业细分（按 industry 关键词命中）> 生意类型基准（PEER_BENCHMARKS）> generic。
+# 每个细分归属一个 business_type（决定是否按周期处理、用毛利率还是净利率口径）。
+# 这些仍是静态代理，真实同行中位数数据源接入后可整体替换（backlog 5.1）。
+INDUSTRY_SEGMENT_BENCHMARKS: dict[str, dict] = {
+    # ---- 消费垄断 / 消费 ----
+    "liquor": {"keywords": ("白酒", "酒"), "business_type": "consumer_monopoly",
+               "label": "白酒", "roe_median": 20.0, "margin_key": "grossprofit_margin",
+               "margin_median": 70.0, "debt_median": 0.35},
+    "condiment": {"keywords": ("调味", "酱油"), "business_type": "consumer_monopoly",
+                  "label": "调味品", "roe_median": 18.0, "margin_key": "grossprofit_margin",
+                  "margin_median": 35.0, "debt_median": 0.30},
+    "home_appliance": {"keywords": ("家电", "电器"), "business_type": "consumer_monopoly",
+                       "label": "家电", "roe_median": 18.0, "margin_key": "grossprofit_margin",
+                       "margin_median": 30.0, "debt_median": 0.55},
+    "dairy": {"keywords": ("乳品", "乳业", "乳制品"), "business_type": "consumer_monopoly",
+              "label": "乳制品", "roe_median": 15.0, "margin_key": "grossprofit_margin",
+              "margin_median": 30.0, "debt_median": 0.50},
+    "pharma": {"keywords": ("医药", "制药", "生物", "医疗", "中药", "疫苗"), "business_type": "consumer_monopoly",
+               "label": "医药", "roe_median": 12.0, "margin_key": "grossprofit_margin",
+               "margin_median": 60.0, "debt_median": 0.40},
+    "food_beverage": {"keywords": ("食品", "饮料", "啤酒"), "business_type": "consumer_monopoly",
+                      "label": "食品饮料", "roe_median": 15.0, "margin_key": "grossprofit_margin",
+                      "margin_median": 35.0, "debt_median": 0.40},
+    # ---- 成长 ----
+    "solar": {"keywords": ("光伏", "太阳能"), "business_type": "cyclical",
+              "label": "光伏", "roe_median": 10.0, "margin_key": "grossprofit_margin",
+              "margin_median": 20.0, "debt_median": 0.55},
+    "new_energy": {"keywords": ("电池", "锂电", "风电", "储能", "新能源", "电力设备"), "business_type": "growth",
+                   "label": "新能源", "roe_median": 10.0, "margin_key": "grossprofit_margin",
+                   "margin_median": 22.0, "debt_median": 0.55},
+    "semiconductor": {"keywords": ("半导体", "芯片", "集成电路", "封测"), "business_type": "growth",
+                      "label": "半导体", "roe_median": 8.0, "margin_key": "grossprofit_margin",
+                      "margin_median": 35.0, "debt_median": 0.40},
+    "software_it": {"keywords": ("软件", "计算机", "互联网", "云计算", "人工智能", "大数据"), "business_type": "growth",
+                    "label": "软件/IT", "roe_median": 10.0, "margin_key": "grossprofit_margin",
+                    "margin_median": 45.0, "debt_median": 0.40},
+    "electronics": {"keywords": ("电子",), "business_type": "growth",
+                    "label": "电子", "roe_median": 10.0, "margin_key": "grossprofit_margin",
+                    "margin_median": 25.0, "debt_median": 0.45},
+    "communication": {"keywords": ("通信", "通讯"), "business_type": "growth",
+                      "label": "通信", "roe_median": 10.0, "margin_key": "grossprofit_margin",
+                      "margin_median": 30.0, "debt_median": 0.45},
+    # ---- 周期 ----
+    "coal": {"keywords": ("煤炭", "焦煤", "煤业"), "business_type": "cyclical",
+             "label": "煤炭", "roe_median": 12.0, "margin_key": "grossprofit_margin",
+             "margin_median": 30.0, "debt_median": 0.45},
+    "steel": {"keywords": ("钢铁", "特钢", "钢材"), "business_type": "cyclical",
+              "label": "钢铁", "roe_median": 6.0, "margin_key": "grossprofit_margin",
+              "margin_median": 10.0, "debt_median": 0.60},
+    "nonferrous": {"keywords": ("有色", "金属", "黄金", "铜业", "铝业", "稀土"), "business_type": "cyclical",
+                   "label": "有色", "roe_median": 8.0, "margin_key": "grossprofit_margin",
+                   "margin_median": 15.0, "debt_median": 0.55},
+    "chemical": {"keywords": ("化工", "化学", "石化", "石油", "塑料", "橡胶", "农药", "化肥"), "business_type": "cyclical",
+                 "label": "化工", "roe_median": 8.0, "margin_key": "grossprofit_margin",
+                 "margin_median": 20.0, "debt_median": 0.50},
+    "cement_building": {"keywords": ("水泥", "建材", "玻璃", "玻纤", "建筑", "基建"), "business_type": "cyclical",
+                        "label": "建材/水泥", "roe_median": 8.0, "margin_key": "grossprofit_margin",
+                        "margin_median": 25.0, "debt_median": 0.45},
+    "shipping_port": {"keywords": ("航运", "港口", "海运", "水运"), "business_type": "cyclical",
+                      "label": "航运/港口", "roe_median": 8.0, "margin_key": "grossprofit_margin",
+                      "margin_median": 20.0, "debt_median": 0.55},
+    "real_estate": {"keywords": ("房地产", "地产", "置业", "物业"), "business_type": "cyclical",
+                    "label": "房地产", "roe_median": 6.0, "margin_key": "grossprofit_margin",
+                    "margin_median": 25.0, "debt_median": 0.75},
+    "machinery": {"keywords": ("机械", "重工", "机床", "工程机械"), "business_type": "cyclical",
+                  "label": "机械", "roe_median": 8.0, "margin_key": "grossprofit_margin",
+                  "margin_median": 25.0, "debt_median": 0.50},
+    "shipbuilding": {"keywords": ("船舶", "造船"), "business_type": "cyclical",
+                     "label": "船舶", "roe_median": 7.0, "margin_key": "grossprofit_margin",
+                     "margin_median": 12.0, "debt_median": 0.65},
+    "auto": {"keywords": ("汽车", "整车", "零部件", "汽配"), "business_type": "cyclical",
+             "label": "汽车", "roe_median": 10.0, "margin_key": "grossprofit_margin",
+             "margin_median": 18.0, "debt_median": 0.55},
+    # ---- 金融（银行/保险/券商口径差异大，必须细分）----
+    "bank": {"keywords": ("银行", "农商", "村镇银行"), "business_type": "financial",
+             "label": "银行", "roe_median": 10.0, "margin_key": "netprofit_margin",
+             "margin_median": 30.0, "debt_median": None},
+    "insurance": {"keywords": ("保险", "人寿", "财险", "再保险"), "business_type": "financial",
+                  "label": "保险", "roe_median": 10.0, "margin_key": "netprofit_margin",
+                  "margin_median": 10.0, "debt_median": None},
+    "broker": {"keywords": ("证券", "券商", "投行"), "business_type": "financial",
+               "label": "证券", "roe_median": 8.0, "margin_key": "netprofit_margin",
+               "margin_median": 30.0, "debt_median": None},
+    # ---- 资产型 / 公用 ----
+    "highway": {"keywords": ("高速", "公路"), "business_type": "asset_based",
+                "label": "高速公路", "roe_median": 10.0, "margin_key": "grossprofit_margin",
+                "margin_median": 55.0, "debt_median": 0.50},
+    "utility": {"keywords": ("公用", "电力", "燃气", "水务", "热电", "水电", "火电"), "business_type": "asset_based",
+                "label": "公用事业", "roe_median": 8.0, "margin_key": "grossprofit_margin",
+                "margin_median": 30.0, "debt_median": 0.60},
+}
+
+
 # 代理档位（财务代理评级，非最终护城河结论）
 _TIER_BANDS = ((70.0, "宽"), (50.0, "中"), (30.0, "窄"))
 
@@ -189,17 +284,39 @@ def _identify_sources(
     return sources
 
 
+def _resolve_benchmark(industry: str, business_type: str | None) -> tuple[str, str]:
+    """解析同行基准：行业细分（关键词命中）> 生意类型基准 > generic。
+
+    返回 (bench_key, effective_business_type)：bench_key 用于查基准表；
+    effective_business_type 决定 is_cyclical 等行为（沿用细分行业归属的生意类型）。
+    行业是同行比较的 ground truth：即便 M1 给了粗分类，细分行业命中时仍以行业为准。
+    """
+    ind = industry or ""
+    for key, seg in INDUSTRY_SEGMENT_BENCHMARKS.items():
+        if any(k in ind for k in seg["keywords"]):
+            return key, seg["business_type"]
+    bt = business_type or ""
+    if bt in PEER_BENCHMARKS:
+        return bt, bt
+    return "generic", bt or "generic"
+
+
 def assess_moat(
     financials: dict,
     *,
     industry: str = "",
     business_type: str | None = None,
     peer_benchmarks: dict | None = None,
+    peer_medians: dict | None = None,
 ) -> MoatResult:
-    """规则层护城河评估：相对行业基准的财务代理评级（非最终护城河结论）。
+    """规则层护城河评估：相对同行基准的财务代理评级（非最终护城河结论）。
 
     输入财务记录（period/roe/grossprofit_margin/netprofit_margin/debt_to_assets）
     与可选行业/生意类型；输出代理档位、信号、来源代理、同行上下文、侵蚀信号与周期备注。
+
+    peer_medians（可选，backlog 5.1）：真实同行中位数（来自 PeerBenchmarkProvider），
+    `{roe_median, gm_median, np_median, debt_median, peer_count, period}`；
+    提供时覆盖静态基准的对应中位（毛利率/净利率按 margin_key 选）。
     """
     recs = [r for r in financials.get("records", []) if r.get("period")]
     annual = sorted(annual_records(recs), key=lambda r: r["period"], reverse=True)
@@ -218,6 +335,7 @@ def assess_moat(
         return MoatResult("无", 0.0, [], [], None, [], [], ["无财务数据"])
 
     benchmarks = dict(PEER_BENCHMARKS)
+    benchmarks.update({k: seg for k, seg in INDUSTRY_SEGMENT_BENCHMARKS.items()})
     if peer_benchmarks:
         benchmarks.update(peer_benchmarks)
 
@@ -225,14 +343,28 @@ def assess_moat(
     gm_latest = gm[0] if gm else None
     debt_latest = debt[0] if debt else None
 
+    # 生意类型：显式传入优先，否则按行业/财务分类（兜底）
     bt = business_type or classify_business_type(
         industry or "", roe_latest, gm_latest, debt_latest
     )
-    if bt not in benchmarks:
-        bt = "generic"
-    bench = benchmarks[bt]
-    is_cyclical = bt == "cyclical"
+    # 同行基准：行业细分 > 生意类型 > generic
+    bench_key, eff_bt = _resolve_benchmark(industry or "", bt)
+    bench = dict(benchmarks.get(bench_key) or benchmarks.get("generic", {}))
+    is_cyclical = eff_bt == "cyclical"
     margin_key = bench.get("margin_key") or "grossprofit_margin"
+
+    # 真实同行中位数（backlog 5.1）：提供时覆盖静态基准对应中位
+    peer_medians = peer_medians or {}
+    if peer_medians:
+        if peer_medians.get("roe_median") is not None:
+            bench["roe_median"] = peer_medians["roe_median"]
+        real_margin = peer_medians.get(
+            "np_median" if margin_key == "netprofit_margin" else "gm_median"
+        )
+        if real_margin is not None:
+            bench["margin_median"] = real_margin
+        if peer_medians.get("debt_median") is not None:
+            bench["debt_median"] = peer_medians["debt_median"]
     margin_pool = np if margin_key == "netprofit_margin" else gm
     margin_latest = margin_pool[0] if margin_pool else None
 
@@ -354,7 +486,7 @@ def assess_moat(
         else:
             debt_note = _DEBT_NOTE
     peer = PeerContext(
-        benchmark=bt, label=bench["label"],
+        benchmark=bench_key, label=bench.get("label", bench_key),
         roe_company=roe_compare, roe_median=bench["roe_median"],
         margin_key=margin_key, margin_company=margin_latest,
         margin_median=bench.get("margin_median"),
@@ -364,9 +496,15 @@ def assess_moat(
     sources = _identify_sources(roe, gm, debt, bench, margin_key, rd_ratio=rd_ratio or None)
 
     evidence = [
-        f"规则层=财务代理评级：{tier}（{score:.0f}/100），基准={bench['label']}（{bt}）",
+        f"规则层=财务代理评级：{tier}（{score:.0f}/100），基准={bench.get('label', bench_key)}（{bench_key}）",
         f"信号：{signals if signals else '无明显优势信号'}",
     ]
+    if peer_medians:
+        src = (
+            f"同行中位：真实动态（{peer_medians.get('peer_count', '?')} 家，"
+            f"{peer_medians.get('period', '?')}）"
+        )
+        evidence.append(src)
     if is_cyclical and (roe_compare != roe_latest or margin_compare != margin_latest or debt_compare != debt_latest):
         evidence.append(
             "周期行业：ROE/利润率/杠杆用近 8 年跨周期均值参与相对评分（去周期位置）"

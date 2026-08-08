@@ -38,3 +38,30 @@ def test_self_check_flags_degraded_as_low_accuracy():
     check = _self_check(session)
     assert check["accuracy"] == "low"
     assert any("降级" in n for n in check["notes"])
+
+
+def test_decision_snapshot_includes_calibration_trace():
+    """v2 P2：决策快照含 calibration_trace（每模块校准轨迹落库，审计可追溯）。"""
+    from value_agent.sessions.models import ModuleResult, ModuleStatus, Session
+
+    session = Session(company_code="600519")
+    session.module_results["M10_decision"] = ModuleResult(
+        module="M10_decision", status=ModuleStatus.DONE, score=65.0,
+        outputs={
+            "decision_code": "watch", "total": 65.0, "position": 0.05,
+            "conclusion": "关注", "blocked_by_veto": False, "vetoed": [],
+            "dimensions": {}, "qualitative": {"decision_reasons": []},
+            "handoff": {"decision_code": "watch", "blocked_by_veto": False, "position": 0.05},
+        },
+    )
+    session.module_results["M5_moat"] = ModuleResult(
+        module="M5_moat", status=ModuleStatus.DONE, score=75.0,
+        calibration={
+            "module_id": "M5_moat", "base": 70.0, "final": 75.0, "outcome": "applied",
+            "notes": [], "delta": 5.0, "reasons": ["r"], "evidence_refs": [0], "new_facts": [],
+        },
+    )
+    snap = build_decision_snapshot(session)
+    assert "calibration_trace" in snap
+    assert snap["calibration_trace"]["M5_moat"]["outcome"] == "applied"
+    assert snap["calibration_trace"]["M5_moat"]["delta"] == 5.0

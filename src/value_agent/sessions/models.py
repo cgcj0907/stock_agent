@@ -81,6 +81,9 @@ class ModuleResult:
     # {"confidence": 0.0, "completeness": "high|medium|low", "degraded": false, "reason_codes": []}
     # 构造/校验见 value_agent.core.contracts（build_meta / validate_meta）。
     meta: dict = field(default_factory=dict)
+    # v2 LLM 校准轨迹（docs/12-v2-upgrade.md §8.3，P2 落库）：
+    # {"module_id", "base", "final", "outcome", "notes", "delta", "reasons", "evidence_refs", "new_facts"}
+    calibration: dict | None = None
     started_at: datetime | None = None
     finished_at: datetime | None = None
 
@@ -93,6 +96,7 @@ class ModuleResult:
             "evidence": self.evidence,
             "llm_explanation": self.llm_explanation,
             "meta": self.meta,
+            "calibration": self.calibration,
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "finished_at": self.finished_at.isoformat() if self.finished_at else None,
         }
@@ -107,6 +111,7 @@ class ModuleResult:
             evidence=d.get("evidence", []),
             llm_explanation=d.get("llm_explanation"),
             meta=d.get("meta", {}),
+            calibration=d.get("calibration"),
             started_at=_parse_dt(d.get("started_at")),
             finished_at=_parse_dt(d.get("finished_at")),
         )

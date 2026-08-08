@@ -124,6 +124,7 @@ def _load_moat_config() -> dict:
         "min_competition_evidence": 1,   # LLM 冲突升级需至少 N 条竞争优势证据
         "downgrade_requires_evidence": False,  # 降级是否同样要求证据
         "allow_without_refs": True,      # 无参考资料时是否放行 LLM 宽度
+        "real_peer_medians": True,       # 真实同行中位数（backlog 5.1）；失败/无网回退静态基准
     }
     for path in (Path("config/scoring.yaml"),
                  Path(__file__).resolve().parents[3] / "config" / "scoring.yaml"):
@@ -171,6 +172,20 @@ def _synthesize_width(
             ),
         )
     return llm_width, "llm", llm_width != rule_tier, ""
+
+
+def _fetch_peer_medians(code: str, industry: str) -> dict | None:
+    """真实同行中位数（backlog 5.1）：可配置开关；任何失败 → None（回退静态基准）。"""
+    if not _load_moat_config().get("real_peer_medians", True):
+        return None
+    try:
+        from value_agent.moat.peer_benchmarks import PeerBenchmarkProvider
+
+        med = PeerBenchmarkProvider().medians(code, industry)
+        return med.to_dict() if med else None
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("M5 真实同行中位数拉取失败（%s），回退静态基准", type(exc).__name__)
+        return None
 
 
 class M5MoatAgent(Agent):
@@ -222,8 +237,18 @@ class M5MoatAgent(Agent):
         if m1 and m1.outputs and m1.outputs.get("business_type"):
             business_type = m1.outputs["business_type"]
 
+        # 真实同行中位数（可选）：失败/未配置 → None → 引擎用静态基准兜底
+        peer_medians = None
         try:
-            result: MoatResult = assess_moat(fin, industry=industry, business_type=business_type)
+            peer_medians = _fetch_peer_medians(code, industry)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("M5 同行中位获取异常（%s），回退静态基准", type(exc).__name__)
+
+        try:
+            result: MoatResult = assess_moat(
+                fin, industry=industry, business_type=business_type,
+                peer_medians=peer_medians,
+            )
         except Exception as exc:  # noqa: BLE001
             return degraded_module_result(
                 self.spec.id,
@@ -254,6 +279,8 @@ class M5MoatAgent(Agent):
             "moat_width": _moat_width_code(result.rule_tier),
             "moat_durability": _moat_durability(result.rule_tier),
             "erosion_risks": list(result.erosion_signals),
+            # 5.13：趋势默认由规则层侵蚀信号推导（LLM 给出合法 trend 时覆盖）
+            "moat_trend": "eroding" if result.erosion_signals else "stable",
         }
 
         if ctx.llm is not None:
@@ -292,6 +319,8 @@ class M5MoatAgent(Agent):
             handoff["moat_durability"] = qual["durability"]
         if qual.get("erosion_risks"):
             handoff["erosion_risks"] = qual["erosion_risks"]
+        if qual.get("trend"):
+            handoff["moat_trend"] = qual["trend"]
         handoff["moat_width"] = _moat_width_code(width)
         if width_note:
             evidence.append(f"⚠️ {width_note}")
@@ -325,6 +354,7 @@ class M5MoatAgent(Agent):
             # 3.2：raw 仅调试用，截断防 API payload 膨胀
             outputs["llm_qualitative"] = llm_raw[:2000]
 
+        calib: dict = {}
         score = llm_score(
             ctx, self.spec.id,
             facts={
@@ -335,10 +365,10 @@ class M5MoatAgent(Agent):
                 "侵蚀风险数": len(handoff["erosion_risks"]),
                 "竞争优势证据数": len(qual.get("competition_evidence") or []),
             },
-            evidence=evidence, default=result.score,
+            evidence=evidence, default=result.score, trace=calib,
         )
         return ModuleResult(
-            module=self.spec.id, status=ModuleStatus.DONE, score=score,
+            module=self.spec.id, status=ModuleStatus.DONE, score=score, calibration=calib or None,
             outputs=outputs, evidence=evidence,
         )
 

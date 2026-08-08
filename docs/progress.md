@@ -15,6 +15,68 @@
 | S5 M10 决策报告 | ✅ 评分卡+备忘录完成（M10/M11 占位） |
 | S6 M11 + 回测 | ✅ 完成 2026-08-04 |
 
+> ✅ 2026-08-08 **冗余代码清理 + docs 优化**：
+> ① 清理死代码：删除废弃的 `parse_llm_score`（v1 绝对分解析，含 3 条测试）、零引用的 `calibration_policy_for`/`cninfo_disclosure_url`/`register_many`；
+> ② 去重：`scripts/validate_moat_tiers.py` 的本地 `spearman` 改为复用 `backtest/calibration_ab.py`（删 24 行重复实现）；
+> ③ docs 优化：`docs/README.md` 修正编号冲突（templates/progress → 13/14）+ 顶部最新状态横幅 + 12 篇标注「已落地」；`docs/04-development-guide.md` 里程碑路线图补 S7 V2（P1–P5 落地表）；
+> ④ 全量 **468 通过**（471 − 3 个删除的废弃测试）；ruff 通过。
+
+> ✅ 2026-08-08 **函数注册表补全（docs/12-v2-upgrade.md §5）**：
+> ① `financials.quality`——M2 财务质量引擎登记为工具（records + business_type/financial_subtype → score/metrics/signals[to_dict]/evidence/details）；
+> ② `market.percentile`——M7 价格分位登记（valuation_history → pe/pb 分位 + position + score），样本不足优雅降级；
+> ③ 注册表工具总数 12 → **14**（估值方法 ×12 + M2 + M7）；
+> ④ 全量 **471 通过**（468 + 3）；ruff 通过。
+
+> ✅ 2026-08-08 **backlog 落地：模块级评分的 PIT 组合级回测（docs/12-v2-upgrade.md §8.1）**：
+> ① `backtest/module_score.py::module_pit_score`——M1 规则分类（快照无 industry 按财务特征兜底）→ M2 财务质量引擎（分行业口径）
+> + M4 估值引擎（方法路由 → 内在价值 vs 现价便宜度，`cheapness_score` 0.8~1.2 线性映射），纯确定性、无 LLM；
+> ② `run_backtest` 新增 `score_fn` 参数（默认 pit_score 不变），模块评分可接入同一 PIT 月度调仓框架；
+> ③ `scripts/backtest_module.py`——对比基线（pit_score）vs 模块流水线（module_pit_score）的 PIT 超额（年化），
+> 本地库 schema 过期时给出重新入库提示；
+> ④ 全量 **468 通过**（464 + 4）；ruff 通过。
+
+> ✅ 2026-08-08 **V2 P5：接线 + 函数注册表（V2 收尾，docs/12-v2-upgrade.md §5/§6.6）**：
+> ① `core/scoring.py::confidence_from_completeness`——completeness → 校准置信度（high→±5 / medium→±10 / low→±15，非法回落 medium）；
+> ② M1 接线：新增 meta（build_meta）——数据问题→low、plan 冲突回退→medium、采纳/覆盖→high；`llm_score` 传 confidence（plan 采纳时校准上限收紧到 ±5，测试验证 delta -12 被截断到 -5）；
+> ③ M4 接线：数据降级→low、valuation_confidence≥0.7→high、否则 medium；正常路径也补 meta（降级路径保持不变）；
+> ④ 函数注册表 `src/value_agent/tools/`：ToolRegistry（register/execute/execute_plan）+ 输入/输出 schema 校验 + 12 个估值方法登记（MethodResult→dict 适配），plan-then-execute 执行器就位；
+> ⑤ 全量 **464 通过**（451 + 13：tools ×10、wiring ×3）；ruff 通过。**V2（P1–P5）全部完成。**
+
+> ✅ 2026-08-08 **V2 P4：画像 planner 试点（M1→M4，docs/12-v2-upgrade.md §4）**：
+> ① 新增 `planner/` 包：`CompanyProfile` 模型 + `parse_profile`（schema/枚举校验）+ `resolve_profile`（冲突回退：
+> 画像与规则分类冲突且 confidence≠high → business_type 回退规则、high → 覆盖记 override）+ `stability_rate`（plan 稳定性指标）；
+> ② M1 接线：LLM 分类调用升级为一次输出完整画像（business_type/financial_subtype/cyclicality/primary_metric/confidence/special_flags），
+> 画像字段 + `plan_trace` 进 M1 handoff（M4 读 business_type/financial_subtype 路由，M7 后续消费 primary_metric）；
+> ③ M4 接线：evidence 记录「M1 画像路由：plan=…」落审计；
+> ④ `scripts/planner_stability.py`——对同一公司重复跑 M1 N 次，验收 business_type 一致率 ≥ 0.8；
+> ⑤ M1 测试更新：LLM 覆盖规则需显式 `confidence: high`（冲突默认回退规则，审慎原则）；
+> ⑥ 全量 **451 通过**（438 + 13）；ruff 通过。
+
+> ✅ 2026-08-08 **V2 P3：校准 A/B 回放闭环（docs/12-v2-upgrade.md §8）**：
+> ① `backtest/calibration_ab.py`——纯函数分析模块：从会话抽取校准样本（base=规则分/final=校准后分，跳过 disabled）、
+> 前向收益（as_of 后 6 个月，覆盖度不足判缺失）、斯皮尔曼相关（规则 vs 校准）、档位翻转率（↑/↓）、delta 均值与 |Δ| 饱和、结果分布；
+> ② `scripts/calibration_ab.py`——replay 脚本：读 data/sessions.db（SqliteStore）+ data/market.db，输出每模块 A/B 报告
+> 与数据驱动建议（`enabled: false` / 收紧 cap），支持 `--json`、`--collect`（对 watchlist 建语料）、`--sessions-db/--market-db`；
+> ③ 建议逻辑（§8.2）：相关增益 < -0.05 → 关闭；平均 |Δ| > 8 → 收紧 cap；平均 Δ 偏置 > 3 → 提示校准；n<10 → 保持现状；
+> ④ 演示验证：合成语料 10 公司×3 模块 → M6 恶化建议关闭、M3 delta 偏大建议收紧 cap 输出正确；
+> ⑤ 全量 **438 通过**（425 + 13）；ruff 通过。
+
+> ✅ 2026-08-08 **V2 P2：校准策略配置化 + trace 落库（docs/12-v2-upgrade.md §6.5/§8.3）**：
+> ① 新增 `config/llm_calibration.yaml`——校准策略（分模块 enabled/cap/require_evidence_for_up）+ 档位保护参数（margin/min_new_facts_to_cross）唯一事实来源，代码常量兜底，契约测试锁一致（防漂移）；
+> ② `ModuleResult` 新增 `calibration` 字段（P1 校准轨迹），11 个 agent 调用 `llm_score(trace=...)` 并把轨迹挂到结果，随 `Session.to_dict()` 持久化；
+> ③ 决策快照（`build_decision_snapshot`）新增 `calibration_trace`——每模块 {base, final, outcome, notes, delta, reasons, evidence_refs, new_facts}；
+> ④ `llm_score` 全路径 trace：disabled（禁用/无 LLM）/ fallback（解析失败/调用异常）也记录 outcome，审计可追溯「为什么没校准」；
+> ⑤ 全量 **425 通过**（417 + 8）；ruff 通过。
+
+> ✅ 2026-08-08 **V2 P1：评分校准层 v2 落地（delta 制，docs/12-v2-upgrade.md §6）**：
+> ① 绝对分替换 → **delta 制**：LLM 输出 `{delta, reasons, evidence_refs, new_facts}`，最终分 = clamp(规则分 + delta, 0, 100)，永不直接采纳 LLM 绝对分；
+> ② 证据锚定：抬分（delta>0）必须引用素材下标或提供 new_facts，否则拒绝回退规则分；压分只需理由（审慎原则）；
+> ③ 动态上限：模块策略 cap × 置信度 cap（high ±5 / medium ±10 / low ±15，confidence 未给出时只用模块 cap）；
+> ④ 分模块差异化：纯数值模块（M2/M7/M8）禁用校准；语义模块（M1/M5/M6）±15；M3/M9/M4/M11 默认 ±10；M10 ±15（与 decision/engine CALIBRATION_CAP 双层保护）；
+> ⑤ 档位边界保护：抬分跨档且贴近阈值（<5 分）时需 ≥2 条 new_facts，否则封顶在档内（压分不设此保护）；
+> ⑥ 校准轨迹（trace）收集：`llm_score(trace=...)` 填充 outcome/notes，M10 校准 notes 并入 evidence（审计可追溯）；
+> ⑦ 全量 **417 通过**（原 350 + 新增校准测试 20 余条）；ruff 通过（整库 3 条 pre-existing 告警在未触碰文件，非本次引入）。
+
 > ✅ 2026-08-07 **M10 决策输出修复（从「综合评分器」走向「可信最终决策器」）**：
 > ① 修高优先级漏洞——`M10DecisionAgent.run()` 原先用 `apply_band(total, vetoed)` 重算结论，
 > 不带 `mos_state` 约束，导致 M8 安全边际门禁（expensive → 禁止 buy）在真实 Agent 输出里被冲掉；
@@ -90,6 +152,16 @@
 > 生产分支恒不触发，测试靠手工塞 `"score"` 掩盖）+ 消费 `governance_risk_codes`（severity 进 Risk Registry、high 进监控候选）；
 > ④ `handoff.governance_score` = 最终分数（含 LLM 评分校准），M4/M9/M10 同口径；
 > ⑤ 新增 11 个测试（M6 引擎 ×4、M6 agent ×5、M9 消费 ×2），全量 284 通过。
+
+> ✅ 2026-08-07 **603049 除零事故修复（M8 降级 + M4 源头双保险）**：
+> 事故链：中策橡胶（次新股，2025-06 上市）资产负债表缺失 → `bvps=0.0`（非 None）→ 周期股主方法
+> `pb_band` 未挡 `bvps<=0`、产出估值 0.0 → 加权中位数被压成 0 → `intrinsic={low:0, mid:0, high:21.96}`
+> → M8 `1−price/low` 除零崩溃 → 安全边际分析失败。
+> ① **M8 防御层**：`low<=0` 视为异常输入降级 `unavailable` + `reason_codes=[OUT_OF_RANGE]`，
+> agent 侧 `meta.degraded=true` / completeness=low（前端可识别），不再抛异常；
+> ② **M4 源头**：`pb_band` 补 `bvps<=0` 防护（与 graham_number/nav 对齐），汇总层只认**正值**估值
+> （0 是缺数不是估值），复跑同构场景 mid 由 0 → 43.75；③ 回归测试 +4
+> （pb_band 零值 ×2、引擎级 603049 场景、M8 零下沿降级 ×2），384 全绿。
 
 > ✅ 2026-08-07 **M8 契约断点补齐（reason_codes 枚举 + 高估态真实输出 + M10 消费 mos_state）**：
 > ① `ReasonCode` 补 `PRICE_ABOVE_INTRINSIC`（此前文档 §4 M8 有、枚举缺失，validate_meta 会拒收）；
@@ -230,6 +302,17 @@
 - [x] M5 护城河 v2（两层制：规则层降级为「财务代理评级」+ 同行基准相对评分 + 来源识别 +
       侵蚀信号；LLM 定性回填 handoff durability/erosion_risks；宽度冲突处理；M9 真正消费
       erosion_risks）2026-08-07
+- [x] M5 护城河 v3（行业细分基准：INDUSTRY_SEGMENT_BENCHMARKS ~25 细分，解析顺序
+      细分>生意类型>generic；金融拆银行/保险/券商净利率口径，修掉「保险净利率被银行中位误伤」
+      （中国平安 43窄→70宽）；周期行业 ROE/利润率/杠杆近 8 年跨周期均值；M1 依赖显式化；
+      宽度合成门槛可配置 + competition_evidence 内容校验 + 参考池情绪词扩充）2026-08-07
+- [x] M5 护城河 v3.1（真实同行中位数：moat/peer_benchmarks.py，AkShare 行业成分股财务中位，
+      peer_medians 覆盖静态细分基准，real_peer_medians 开关 + 失败回退静态表；引擎/agent/测试接入）2026-08-07
+- [x] M5 护城河 v3.2（provider 慢网加固：单次超时/总预算/并行拉取防挂死；5.9 档位横截面验证
+      scripts/validate_moat_tiers.py（真实数据 评分 vs 长期 ROE 秩相关 0.709）；光伏周期误判修复
+      （拆 solar 细分，隆基 无→窄））2026-08-08
+- [x] M5 护城河 v3.3（5.13：M5 回填 handoff.moat_trend，M9 侵蚀风险 severity 三档：
+      low+eroding→critical / 单条件→high / 否则 medium，闭环 LLM trend 消费）2026-08-08
 - [x] M6 治理与资本配置（分红持续性代理评分）2026-08-04
 - [x] M6 治理与资本配置 v2（治理事件非分红证据 + 结构化风险码 + LLM 风险回填 + 分数口径统一）2026-08-07
 - [x] M2 财务质量 v2（12.1 分行业口径：按 M1 生意类型/金融细类路由，覆盖

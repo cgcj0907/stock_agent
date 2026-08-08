@@ -18,7 +18,7 @@ from value_agent.sessions.models import Session, SessionStatus
 class _FakeLLM:
     """流式 + 阻塞双实现：qualitative 为 LLM 定性 JSON，score 为 llm_score 的评分 JSON。"""
 
-    def __init__(self, qualitative: str, score: str = '{"score": 70, "reason": "ok"}'):
+    def __init__(self, qualitative: str, score: str = '{"delta": 0, "reasons": ["ok"]}'):
         self._qualitative = qualitative
         self._score = score
 
@@ -120,10 +120,10 @@ def test_dividend_yield_computed_in_outputs(monkeypatch):
 
 def test_llm_score_unifies_handoff_governance_score(monkeypatch):
     """llm_score 校准后，handoff.governance_score 与最终分数一致（M4/M9/M10 同口径）。"""
-    llm = _FakeLLM('{"shareholder_alignment": "x"}', score='{"score": 82, "reason": "好"}')
+    llm = _FakeLLM('{"shareholder_alignment": "x"}', score='{"delta": 1, "reasons": ["好"], "evidence_refs": [0]}')
     res = _run(monkeypatch, llm)
-    assert res.score == 82.0
-    assert res.outputs["handoff"]["governance_score"] == 82.0
+    assert res.score == 79.0  # 规则 78 + delta 1
+    assert res.outputs["handoff"]["governance_score"] == 79.0
     assert res.outputs["handoff"]["capital_allocation_flag"] == "good"
 
 

@@ -1,0 +1,29 @@
+# LLM 评分校准策略（docs/12-v2-upgrade.md §6.5）—— 唯一事实来源，代码兜底（core/scoring.py）
+#
+# 约定（2026-08-08 起）：
+# 1. 此文件是校准策略唯一事实来源，代码 CALIBRATION_POLICY/DEFAULT_CALIBRATION 仅为兜底，
+#    tests/test_scoring.py 锁定两者一致（防漂移）。
+# 2. enabled: false → 该模块不做 LLM 校准（LLM 只给定性理由，不动分）；
+#    cap: 校准偏移上限（±分）；require_evidence_for_up: 抬分（delta>0）是否必须引用证据或 new_facts。
+# 3. band_protection：档位边界保护参数（§6.3 规则 5）——
+#    抬分跨档且 base 距档位阈值 < margin 时，需 ≥ min_new_facts_to_cross 条 new_facts，否则封顶在档内。
+#
+# 设计口径（docs/12-v2-upgrade.md §6.4）：
+#   - 纯数值模块（M2/M7/M8）：禁用校准（有公式，LLM 无权动分）
+#   - 语义模块（M1/M5/M6）：±15，抬分须证据
+#   - M3/M9/M4/M11：默认 ±10
+#   - M10 决策：±15（与 decision/engine.py CALIBRATION_CAP 双层保护），veto / M8 门禁不可让渡
+calibration:
+  M2_financial_quality: {enabled: false, cap: 0}
+  M7_market:            {enabled: false, cap: 0}
+  M8_safety_margin:     {enabled: false, cap: 0}
+  M1_business_model:    {enabled: true, cap: 15, require_evidence_for_up: true}
+  M5_moat:              {enabled: true, cap: 15, require_evidence_for_up: true}
+  M6_governance:        {enabled: true, cap: 15, require_evidence_for_up: true}
+  M10_decision:         {enabled: true, cap: 15, require_evidence_for_up: true}
+default:                {enabled: true, cap: 10, require_evidence_for_up: true}
+
+# 档位边界保护（§6.3 规则 5）
+band_protection:
+  margin: 5                  # 距档位阈值 < margin 视为「贴近」（80/65/50）
+  min_new_facts_to_cross: 2  # 跨档所需最少 new_facts

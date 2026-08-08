@@ -24,6 +24,7 @@ import {
 
 import { Badge } from "@/components/ui/badge";
 import { M4Outputs } from "@/components/workflow/m4-outputs";
+import { getSectionTitleClass } from "@/components/workflow/section-tone";
 import { fieldLabel } from "@/lib/labels";
 
 // ---------- 通用工具 ----------
@@ -210,12 +211,7 @@ function Section({
   tone?: "primary" | "rose" | "violet";
   children: React.ReactNode;
 }) {
-  const titleCls =
-    tone === "rose"
-      ? "text-rose-600/80 dark:text-rose-400/80"
-      : tone === "violet"
-        ? "text-violet-600/80 dark:text-violet-300/80"
-        : "text-primary/70";
+  const titleCls = getSectionTitleClass(title, tone);
   return (
     <div className="flex flex-col gap-1.5 border-t border-border/40 pt-2.5">
       <div className={`flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider ${titleCls}`}>

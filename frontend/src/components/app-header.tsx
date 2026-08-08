@@ -54,7 +54,7 @@ export function AppHeader() {
           <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder="搜索公司 / 会话…"
-            className="h-8 w-56 rounded-lg bg-muted/50 pl-8 text-sm focus-visible:ring-emerald-500/40"
+            className="h-8 w-56 rounded-lg bg-muted/50 pl-8 text-sm focus-visible:ring-ring/40"
           />
         </div>
         <ThemeToggle />

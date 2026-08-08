@@ -129,12 +129,13 @@ class M9RiskAgent(Agent):
         else:
             evidence.append("未配置 LLM（LLM_API_KEY），红队定性待接入")
 
+        calib: dict = {}
         score = llm_score(
             ctx, self.spec.id,
             facts={"风险项数": len(result.risk_items), "否决项数": len(result.vetoes)},
-            evidence=evidence, default=result.score,
+            evidence=evidence, default=result.score, trace=calib,
         )
         return ModuleResult(
-            module=self.spec.id, status=ModuleStatus.DONE, score=score,
+            module=self.spec.id, status=ModuleStatus.DONE, score=score, calibration=calib or None,
             outputs=outputs, evidence=evidence,
         )

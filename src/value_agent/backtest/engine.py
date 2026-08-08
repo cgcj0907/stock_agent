@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import statistics
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from value_agent.data.snapshots import create_snapshot
@@ -78,8 +79,13 @@ def run_backtest(
     start: str,
     end: str,
     top_n: int = 5,
+    score_fn: Callable[[dict], float] = pit_score,
 ) -> BacktestResult:
-    """每月：PIT 评分选 top_n → 等权持有一个月 → 统计净值与指标。"""
+    """每月：PIT 评分选 top_n → 等权持有一个月 → 统计净值与指标。
+
+    score_fn：快照 → 0-100 分（默认简化 pit_score；可传 module_pit_score 等模块级评分，
+    见 docs/12-v2-upgrade.md §8.1 backlog——模块评分的 PIT 组合级回测）。
+    """
     months = _months(start, end)
     equity, bench_equity, curve, monthly, bench, trades = 1.0, 1.0, [], [], [], []
 
@@ -92,7 +98,7 @@ def run_backtest(
             snap = create_snapshot(storage, code, as_of=as_of)
             if not snap["tables"]["financials"]:
                 continue
-            scored.append((code, pit_score(snap)))
+            scored.append((code, score_fn(snap)))
         scored.sort(key=lambda x: -x[1])
         picks = [c for c, _ in scored[:top_n]]
 

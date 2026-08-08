@@ -57,6 +57,7 @@ class M10DecisionAgent(Agent):
         inputs = {aid: ctx.inputs[aid] for aid in self.spec.inputs if aid in ctx.inputs}
         result = run_decision(inputs)
         total = result.total
+        calib_trace: dict = {}
         if not result.vetoed:  # 一票否决时保持回避，不让 LLM 覆盖
             total = llm_score(
                 ctx, self.spec.id,
@@ -67,6 +68,7 @@ class M10DecisionAgent(Agent):
                     "否决项": result.vetoed,
                 },
                 evidence=result.evidence, default=result.total,
+                trace=calib_trace,
             )
         # 用最终总分（含 LLM 校准）走同一决策函数：否决/M8 门禁统一生效
         final = run_decision(inputs, total_override=total)
@@ -95,6 +97,7 @@ class M10DecisionAgent(Agent):
             module=self.spec.id,
             status=ModuleStatus.DONE,
             score=final.total,
+            calibration=calib_trace or None,
             outputs={
                 # 顶层字段（memo/快照/前端向后兼容）
                 "dimensions": final.dimensions,
@@ -119,5 +122,5 @@ class M10DecisionAgent(Agent):
                     "total": final.total,
                 },
             },
-            evidence=final.evidence,
+            evidence=list(final.evidence) + [f"LLM 校准：{n}" for n in calib_trace.get("notes", [])],
         )

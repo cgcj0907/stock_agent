@@ -436,6 +436,24 @@ def test_pb_band_method():
     assert r.high == pytest.approx(round(19.91 * 2.1, 2))    # p75
     assert pb_band(19.91, []).value is None
     assert pb_band(None, [1.0]).value is None
+    # 603049 事故根因：bvps=0（资产负债表缺失）时不得产出 0.0 假估值，必须跳过
+    assert pb_band(0.0, [1.5, 1.6, 1.7, 1.8]).value is None
+    assert pb_band(-1.0, [1.5, 1.6]).value is None
+
+
+def test_cyclical_zero_bvps_does_not_collapse_mid():
+    """603049 事故回归：bvps=0（次新股资产负债表缺失）时，pb_band 不再产出 0.0，
+    加权中位数不被压成 0 → intrinsic.low/mid 保持正值（此前 low=0 会触发 M8 除零）。"""
+    r = run_valuation(
+        eps=3.5, bvps=0.0, dividend=None,
+        pe_history=[12.0, 13.0, 11.0, 14.0, 12.5],
+        pb_history=[1.5, 1.6, 1.4, 1.7, 1.5, 1.6],
+        business_type="cyclical",
+    )
+    assert r.methods["pb_band"].value is None          # 资产锚跳过而非给 0
+    assert r.intrinsic["mid"] is not None and r.intrinsic["mid"] > 0
+    assert r.intrinsic["low"] is not None and r.intrinsic["low"] >= 0
+    assert not (r.intrinsic["mid"] == 0 and r.intrinsic["high"] and r.intrinsic["high"] > 0)
 
 
 def test_relative_median_pe_normalized_mode():

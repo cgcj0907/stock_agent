@@ -1,7 +1,7 @@
 """命令行入口：python -m value_agent <command>
 
 命令：
-  analyze CODE [--workflow id] [--memo path] [--store memory|sqlite]
+  analyze CODE [--workflow id] [--memo path] [--store memory|sqlite|supabase]
   sessions list
   agents list
   workflows list
@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 
 from value_agent.agents import AgentRegistry
@@ -49,6 +50,13 @@ def _make_store(kind: str):
         settings = load_settings()
         path = settings.get("storage", {}).get("path", "data/sessions.db")
         return SqliteStore(path)
+    if kind == "supabase":
+        dsn = os.getenv("DATABASE_URL", "")
+        if not dsn:
+            raise SystemExit("--store supabase 需要 DATABASE_URL（.env 或环境变量）")
+        from value_agent.sessions.supabase_store import SupabaseStore
+
+        return SupabaseStore(dsn)
     return InMemoryStore()
 
 
@@ -281,11 +289,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("code", help="股票代码，如 600519")
     p.add_argument("--workflow", default="default", help="工作流 id（default 或 config/workflows 下的文件名）")
     p.add_argument("--memo", default=None, help="备忘录输出路径（可选）")
-    p.add_argument("--store", choices=["memory", "sqlite"], default="memory")
+    p.add_argument("--store", choices=["memory", "sqlite", "supabase"], default="memory")
     p.set_defaults(func=cmd_analyze)
 
     p = sub.add_parser("sessions", help="列出会话")
-    p.add_argument("--store", choices=["memory", "sqlite"], default="memory")
+    p.add_argument("--store", choices=["memory", "sqlite", "supabase"], default="memory")
     p.set_defaults(func=cmd_sessions)
 
     p = sub.add_parser("agents", help="列出已注册智能体（兼容 `agent list`）")

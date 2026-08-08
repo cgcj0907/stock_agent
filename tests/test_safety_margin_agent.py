@@ -79,3 +79,31 @@ def test_m8_buy_zone_reason_codes_empty():
     res = _run({})
     assert res.outputs["mos_state"] == "attractive"
     assert res.outputs["handoff"]["reason_codes"] == []
+
+
+def test_m8_zero_intrinsic_low_returns_unavailable_instead_of_failed():
+    """M4 给出 low=0 时，M8 应降级返回 unavailable，而不是抛异常。"""
+    session = Session(id="s1", company_code="603049", status=SessionStatus.CREATED)
+    ctx = AgentContext(
+        session=session,
+        assumptions={},
+        inputs={
+            "M4_valuation": _mod(
+                "M4_valuation",
+                {
+                    "intrinsic_value": {"low": 0.0, "mid": 0.0, "high": 21.96},
+                    "current_price": 48.76,
+                    "business_type": "cyclical",
+                },
+            ),
+            "M7_market": _mod("M7_market", {}),
+        },
+        data=None,
+        llm=None,
+    )
+
+    res = M8SafetyMarginAgent().run(ctx)
+
+    assert res.status == ModuleStatus.DONE
+    assert res.outputs["mos_state"] == "unavailable"
+    assert res.outputs["handoff"]["reason_codes"] == ["OUT_OF_RANGE"]

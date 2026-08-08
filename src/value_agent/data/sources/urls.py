@@ -39,11 +39,6 @@ def baidu_valuation_url(code: str) -> str:
     return f"https://gushitong.baidu.com/stock/ab-{code}"
 
 
-def cninfo_disclosure_url(code: str) -> str:
-    """巨潮资讯个股披露页（对应 stock_dividend_cninfo 分红/公告）。"""
-    return f"https://www.cninfo.com.cn/new/disclosure/stock?stockCode={code}"
-
-
 _SOURCE_URL_FN = {
     "company": lambda code: eastmoney_f10_url(code, "CompanySurvey"),
     "financials": sina_financial_indicators_url,

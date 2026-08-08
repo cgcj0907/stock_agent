@@ -50,8 +50,23 @@ docs: 更新 progress.md（S2 完成）
 
 ```mermaid
 flowchart LR
-    S0["S0 数据层"] --> S1["S1 会话与骨架"] --> S2["S2 硬核三模块<br/>M2/M4/M8"] --> S3["S3 认知质量<br/>M1/M5/M6"] --> S4["S4 成长市场<br/>M3/M7/M9"] --> S5["S5 决策报告<br/>M10"] --> S6["S6 监控回测<br/>M11/backtest"]
+    S0["S0 数据层"] --> S1["S1 会话与骨架"] --> S2["S2 硬核三模块<br/>M2/M4/M8"] --> S3["S3 认知质量<br/>M1/M5/M6"] --> S4["S4 成长市场<br/>M3/M7/M9"] --> S5["S5 决策报告<br/>M10"] --> S6["S6 监控回测<br/>M11/backtest"] --> S7["S7 V2 升级 ✅<br/>校准/规划/回测"]
 ```
+
+### S7 V2 升级（已落地 2026-08-08）
+
+> 目标：LLM 评分从「绝对分替换」升级为「规则分锚 + 有界校准」，并引入画像 Planner、函数注册表与回测闭环。
+> 设计与验收见 [12-v2-upgrade.md](12-v2-upgrade.md)。
+
+| 阶段 | 内容 | 落地 |
+|---|---|---|
+| P1 | 评分校准 v2：delta 制 + 证据校验 + 动态上限 + 档位保护 | ✅ |
+| P2 | 校准策略配置化（`config/llm_calibration.yaml`）+ trace 落库 | ✅ |
+| P3 | 校准 A/B 回放（`scripts/calibration_ab.py`）+ 模块 PIT 回测（`scripts/backtest_module.py`） | ✅ |
+| P4 | 画像 Planner（`src/value_agent/planner/`）+ M1→M4 接线 + plan 稳定性 | ✅ |
+| P5 | 接线（completeness→校准上限）+ 函数注册表（`src/value_agent/tools/`） | ✅ |
+
+**维护提示**：校准策略改 `config/llm_calibration.yaml`（不用改代码）；LLM 校准开/关、cap 大小由校准 A/B 数据驱动。
 
 ### S0 数据层（≈2–3 周）
 

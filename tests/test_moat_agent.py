@@ -16,7 +16,7 @@ from value_agent.sessions.models import ModuleResult, ModuleStatus, Session, Ses
 class _FakeLLM:
     """流式 + 阻塞双实现：qualitative 为 LLM 定性 JSON，score 为 llm_score 的评分 JSON。"""
 
-    def __init__(self, qualitative: str, score: str = '{"score": 70, "reason": "ok"}'):
+    def __init__(self, qualitative: str, score: str = '{"delta": 0, "reasons": ["ok"]}'):
         self._qualitative = qualitative
         self._score = score
 
@@ -34,7 +34,14 @@ class _NoRefs:
         return []
 
 
-def _run(monkeypatch, llm, *, business_type=None):
+class _NeutralData(StubData):
+    """行业为空的数据桩：不命中任何行业细分，用于验证 M1 business_type 软读。"""
+
+    def company_info(self, code: str) -> dict:
+        return {"name": f"测试公司{code}", "industry": "", "code": code}
+
+
+def _run(monkeypatch, llm, *, business_type=None, data=None):
     monkeypatch.setattr("value_agent.moat.agent.CompanyReferences", _NoRefs)
     session = Session(id="s1", company_code="600519", company_name="贵州茅台", status=SessionStatus.CREATED)
     inputs = {}
@@ -45,7 +52,7 @@ def _run(monkeypatch, llm, *, business_type=None):
         )
     ctx = AgentContext(
         session=session, assumptions={}, inputs=inputs,
-        data=StubData(), llm=llm,
+        data=data or StubData(), llm=llm,
     )
     return M5MoatAgent().run(ctx)
 
@@ -60,14 +67,16 @@ def test_llm_qualitative_backfills_handoff(monkeypatch):
     )
     res = _run(monkeypatch, llm)
     assert res.status.value == "done"
-    # 两层合成：StubData(ROE18/GM45/杠杆0.35, 白酒) 规则代理=中；LLM=宽 → 采用 LLM + 冲突标记
+    # 两层合成：StubData(ROE18/GM45/杠杆0.35, 白酒) 规则代理=窄（白酒细分基准 GM 中位 70）；
+    # LLM=宽（附竞争优势证据）→ 采用 LLM + 冲突标记
     assert res.outputs["width"] == "宽"
     assert res.outputs["width_source"] == "llm"
     assert res.outputs["width_conflict"] is True
-    assert res.outputs["rule_proxy"]["tier"] == "中"
+    assert res.outputs["rule_proxy"]["tier"] == "窄"
     # handoff 真正回填（M9 消费）
     assert res.outputs["handoff"]["moat_width"] == "wide"
     assert res.outputs["handoff"]["moat_durability"] == "high"
+    assert res.outputs["handoff"]["moat_trend"] == "stable"  # LLM trend 回填
     assert res.outputs["handoff"]["erosion_risks"] == ["新进入者低价竞争"]
     # LLM 定性字段清洗保留
     assert res.outputs["llm_qualitative"]["moat_sources"] == ["无形资产", "网络效应"]
@@ -81,20 +90,20 @@ def test_llm_invalid_fields_fall_back_to_rule(monkeypatch):
         '"erosion_risks": "not a list", "evidence": 123}'
     )
     res = _run(monkeypatch, llm)
-    assert res.outputs["width"] == "中"          # 规则代理档位
+    assert res.outputs["width"] == "窄"          # 规则代理档位（白酒细分基准）
     assert res.outputs["width_source"] == "rule_proxy"
     assert res.outputs["width_conflict"] is False
-    assert res.outputs["handoff"]["moat_durability"] == "medium"  # 规则映射：中→medium
-    assert res.outputs["handoff"]["erosion_risks"] == []          # Stub 数据稳定，规则无侵蚀信号
-    assert "llm_qualitative" not in res.outputs                  # 字段全非法 → 不写入
+    assert res.outputs["handoff"]["moat_durability"] == "low"  # 规则映射：窄→low
+    assert res.outputs["handoff"]["erosion_risks"] == []       # Stub 数据稳定，规则无侵蚀信号
+    assert "llm_qualitative" not in res.outputs                # 字段全非法 → 不写入
     assert any("字段全部非法" in e for e in res.evidence)
 
 
 def test_llm_width_match_no_conflict(monkeypatch):
     """LLM 宽度与规则一致 → 采用 LLM 但无冲突标记。"""
-    llm = _FakeLLM('{"width": "中", "durability": "medium", "erosion_risks": []}')
+    llm = _FakeLLM('{"width": "窄", "durability": "low", "erosion_risks": []}')
     res = _run(monkeypatch, llm)
-    assert res.outputs["width"] == "中"
+    assert res.outputs["width"] == "窄"
     assert res.outputs["width_source"] == "llm"
     assert res.outputs["width_conflict"] is False
 
@@ -102,13 +111,15 @@ def test_llm_width_match_no_conflict(monkeypatch):
 def test_no_llm_uses_rule_proxy_only(monkeypatch):
     """未配置 LLM → 完全退化为规则代理评级，字段集合与正常态一致。"""
     res = _run(monkeypatch, None)
-    assert res.outputs["width"] == "中"
+    assert res.outputs["width"] == "窄"
     assert res.outputs["width_source"] == "rule_proxy"
     assert res.outputs["width_conflict"] is False
-    assert res.outputs["handoff"]["moat_width"] == "medium"
-    assert res.outputs["handoff"]["moat_durability"] == "medium"
+    assert res.outputs["handoff"]["moat_width"] == "narrow"
+    assert res.outputs["handoff"]["moat_durability"] == "low"
+    assert res.outputs["handoff"]["moat_trend"] == "stable"  # 规则层无侵蚀信号 → stable
     assert res.outputs["handoff"]["erosion_risks"] == []
-    assert res.outputs["rule_proxy"]["peer"]["benchmark"] == "consumer_monopoly"  # 白酒→消费垄断基准
+    assert res.outputs["rule_proxy"]["peer"]["benchmark"] == "liquor"  # 白酒→白酒细分基准
+    assert res.outputs["rule_proxy"]["peer"]["margin_median"] == 70.0
     assert any("未配置 LLM" in e for e in res.evidence)
 
 
@@ -121,7 +132,7 @@ def test_llm_conflict_without_competitive_evidence_falls_back(monkeypatch):
         '"evidence": ["主力资金净流入、股价上涨"], "reference_indices": []}'
     )
     res = _run(monkeypatch, llm)
-    assert res.outputs["width"] == "中"              # 规则代理（未采纳 LLM 的宽）
+    assert res.outputs["width"] == "窄"              # 规则代理（未采纳 LLM 的宽）
     assert res.outputs["width_source"] == "rule_proxy"
     assert res.outputs["width_conflict"] is False
     # 定性内容仍回填（sources/erosion），只是不参与宽度
@@ -129,6 +140,21 @@ def test_llm_conflict_without_competitive_evidence_falls_back(monkeypatch):
     assert res.outputs["handoff"]["moat_durability"] == "medium"
     assert res.outputs["handoff"]["erosion_risks"] == ["行业竞争加剧"]
     assert any("未给出竞争优势类证据" in e for e in res.evidence)
+
+
+def test_rule_erosion_signals_map_to_eroding_trend(monkeypatch):
+    """规则层侵蚀信号非空 → handoff.moat_trend=eroding（LLM 缺省时喂给 M9）。"""
+    class _DecliningData(StubData):
+        def financials(self, code: str, years: int = 10) -> dict:
+            # 最新期(2026) ROE 最低、持续下滑 → 触发规则层侵蚀信号
+            recs = [{"period": f"{2026 - i}1231", "roe": 6.5 + i * 1.5,
+                     "grossprofit_margin": 45.0, "netprofit_margin": 25.0,
+                     "debt_to_assets": 0.35} for i in range(10)]
+            return {"records": recs}
+
+    res = _run(monkeypatch, None, data=_DecliningData())
+    assert res.outputs["rule_proxy"]["erosion_signals"], "下滑数据应触发规则侵蚀信号"
+    assert res.outputs["handoff"]["moat_trend"] == "eroding"
 
 
 def test_filter_competitive_refs_drops_sentiment_news():
@@ -149,8 +175,8 @@ def test_filter_competitive_refs_drops_sentiment_news():
 
 
 def test_m1_business_type_soft_read(monkeypatch):
-    """M1 已运行（business_type=financial）→ 规则层改用金融基准（净利率口径）。"""
-    res = _run(monkeypatch, None, business_type="financial")
+    """M1 已运行（business_type=financial）且行业无细分命中 → 规则层用金融基准（净利率口径）。"""
+    res = _run(monkeypatch, None, business_type="financial", data=_NeutralData())
     assert res.outputs["rule_proxy"]["peer"]["benchmark"] == "financial"
     assert res.outputs["rule_proxy"]["peer"]["margin_key"] == "netprofit_margin"
 

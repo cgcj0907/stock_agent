@@ -534,7 +534,9 @@ def run_valuation(
     evidence += ks.evidence
     evidence += q_evidence
 
-    values = [(name, m.value) for name, m in methods.items() if m.value is not None]
+    # 只认正值估值：0 不是估值而是缺数（如 bvps=0 时 pb_band 曾产出 0.0），
+    # 混进加权中位数会把 mid/low 压成 0（603049 除零事故的源头）
+    values = [(name, m.value) for name, m in methods.items() if m.value is not None and m.value > 0]
     if not values:
         intrinsic = {"low": None, "high": None, "mid": None, "std": None, "method_agreement": None}
         score, conf, agreement = 0.0, 0.0, 0.0

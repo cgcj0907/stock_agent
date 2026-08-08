@@ -254,6 +254,12 @@ def build_decision_snapshot(session: Session) -> dict:
             },
         },
         "meta": m10.meta,
+        # v2 校准轨迹（docs/12-v2-upgrade.md §8.3）：每模块 {base, final, outcome, notes, delta, ...}
+        "calibration_trace": {
+            aid: r.calibration
+            for aid, r in session.module_results.items()
+            if r.calibration
+        },
     }
 
 

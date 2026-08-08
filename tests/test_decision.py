@@ -176,7 +176,7 @@ def test_agent_llm_cannot_override_m8_expensive_gate():
     res = _results(_all_modules(90.0))
     res["M8_safety_margin"] = _expensive_m8()
     result = M10DecisionAgent().run(
-        _m10_ctx(res, llm=_FakeLLM('{"score": 90, "reason": "综合优秀"}'))
+        _m10_ctx(res, llm=_FakeLLM('{"delta": 6.7, "reasons": ["综合优秀"], "evidence_refs": [0]}'))
     )
     out = result.outputs
     assert out["total"] == 90.0  # LLM 校准 90 在 ±15 内生效（规则分 ~83.3）
@@ -271,9 +271,9 @@ def test_agent_outputs_core_facts_and_llm_reasons():
     """8.7 core_facts 分组 + 8.3 LLM 定性理由并入 decision_reasons。"""
     class _ReasonLLM(_FakeLLM):
         def chat(self, system: str, user: str) -> str:
-            if "reasons" in user:
-                return '{"reasons": ["估值保护充分", "治理风险已被定价"]}'
-            return '{"score": 88, "reason": "综合优秀"}'
+            if "delta" in user:  # 评分校准调用（v2 delta 契约）
+                return '{"delta": -2, "reasons": ["综合优秀"]}'
+            return '{"reasons": ["估值保护充分", "治理风险已被定价"]}'
 
     res = _results(_all_modules(90.0))
     res["M8_safety_margin"] = _attractive_m8()

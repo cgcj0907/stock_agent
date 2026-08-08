@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from value_agent.agents.base import DATA_SOURCE_HINT, Agent, AgentContext, AgentSpec
 from value_agent.core.contracts import ReasonCode, build_meta
-from value_agent.core.scoring import llm_score
+from value_agent.core.scoring import confidence_from_completeness, llm_score
 from value_agent.sessions.models import ModuleResult, ModuleStatus
 
 from .engine import METHOD_WEIGHTS, load_routing, run_valuation
@@ -258,6 +258,15 @@ class M4ValuationAgent(Agent):
         else:
             llm_evidence.append("未配置 LLM（LLM_API_KEY），当前为规则引擎结果")
 
+        # v2 P5 接线：数据降级 / 估值置信度 → meta.completeness → 校准上限
+        if fetch_notes:
+            completeness = "low"
+        elif result.valuation_confidence >= 0.7:
+            completeness = "high"
+        else:
+            completeness = "medium"
+
+        calib: dict = {}
         score = llm_score(
             ctx, self.spec.id,
             facts={
@@ -269,12 +278,23 @@ class M4ValuationAgent(Agent):
                 "估值置信度": result.valuation_confidence,
                 "质量乘数": result.quality_multiplier,
             },
-            evidence=result.evidence, default=result.coverage_score,
+            evidence=result.evidence, default=result.coverage_score, trace=calib,
+            confidence=confidence_from_completeness(completeness),
         )
+        # P4 试点：M1 画像路由落审计（plan_trace：adopted/override/conflict_fallback/fallback_rule）
+        m1_plan = ((m1.outputs.get("handoff") or {}).get("plan_trace")
+                   if m1 and m1.outputs else None)
+        plan_note = None
+        if m1_plan:
+            plan_note = (
+                f"M1 画像路由：{business_type}（plan={m1_plan.get('outcome')}，"
+                f"financial_subtype={financial_subtype or 'other'}）"
+            )
         evidence = fetch_notes + result.evidence + llm_evidence
+        if plan_note:
+            evidence.append(plan_note)
         if fetch_notes:
             evidence.append(DATA_SOURCE_HINT)
-        meta = {}
         if fetch_notes:
             meta = build_meta(
                 result.coverage_score / 100.0,
@@ -282,10 +302,13 @@ class M4ValuationAgent(Agent):
                 degraded=True,
                 reason_codes=[ReasonCode.DATA_UNAVAILABLE.value],
             )
+        else:
+            meta = build_meta(0.9 if completeness == "high" else 0.6, completeness)
         return ModuleResult(
             module=self.spec.id,
             status=ModuleStatus.DONE,
             score=score,
+            calibration=calib or None,
             outputs={
                 "business_type": result.business_type,
                 "methods": methods_to_list(result.methods, result.method_confidences),

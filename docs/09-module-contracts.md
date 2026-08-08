@@ -166,20 +166,27 @@ DIV_ZERO           # 除零/不可计算
 - 降级：`intrinsic_range=None` + `reason_codes=[DATA_UNAVAILABLE]`；**字段集合与正常态一致**（缺值置 None/空）
 
 ### M5 护城河（fact）—— 两层制：规则代理评级 × LLM 定性
-- 依赖：无（读 financials + company_info 行业；可选软读 M1 已产出的 business_type，不声明依赖）
+- 依赖：**M1**（business_type 口径统一，`spec.inputs=[M1_business_model]`，工作流 deps 已对齐；
+  另读 financials + company_info 行业）
 - `core_facts`：
   - `width`（宽|中|窄|无）：**两层合成后的最终护城河宽度**（M4/M9/M10 消费）
   - `width_source`：`rule_proxy | llm`；`width_conflict`：规则层与 LLM 不一致时 True
   - `rule_proxy`：规则层财务代理评级
     `{tier, score, signals, sources[], peer, erosion_signals[], cycle_notes[]}`
-    - 规则层**不再自称护城河结论**：按相对行业基准（PEER_BENCHMARKS 静态行业中位代理，
-      待接真实同行中位数）的 ROE/利润率/杠杆相对评分；金融用净利率口径、跳过杠杆维度；
-    - `sources[]`：可计算来源代理（无形资产/成本规模；转换成本/网络效应待 LLM 定性）；
+    - 规则层**不再自称护城河结论**：按同行基准相对评分（ROE/利润率/杠杆）。
+      基准解析顺序：**真实同行中位数（`peer_medians`，backlog 5.1：AkShare 行业成分股
+      财务中位，`moat/peer_benchmarks.py`）> 行业细分 `INDUSTRY_SEGMENT_BENCHMARKS`
+      （~26 个细分：白酒/家电/银行/保险/券商/煤炭/钢铁/船舶/光伏/新能源/半导体…，按 industry
+      关键词命中）> 生意类型 `PEER_BENCHMARKS`（6 类兜底）> generic**；
+      金融细分子行业用净利率口径、跳过杠杆维度（银行 30% / 保险 10% / 券商 30%，
+      避免保险净利率被银行中位误伤）；真实中位拉取失败/未配置时自动回退静态基准；
+    - `sources[]`：可计算来源代理（无形资产/成本规模 + 可选研发费用率 `rd_ratio`；
+      转换成本/网络效应待 LLM 定性）；
     - `erosion_signals[]`：结构侵蚀信号（利润率压缩/杠杆抬升；非周期行业含 ROE 下滑/波动大）；
     - `cycle_notes[]`：周期行业属性备注（ROE 波动/下滑对周期股是行业属性，**不进 erosion_risks**，
-      避免污染 M9）；周期基准下 ROE 用**跨周期均值**参与相对评分（去周期位置）；
+      避免污染 M9）；周期基准下 ROE/利润率/杠杆用**近 8 年跨周期均值**参与相对评分（去周期位置）；
     - `peer.debt_note`：debt_to_assets 含合同负债（客户预收），订单型/预收型行业
-      高负债率≠高杠杆风险（口径明示，不做机械扣分）
+      高负债率≠高杠杆风险（口径明示，不做机械扣分；有 `contract_liability_ratio` 时按占比细分）
 - `qualitative`（LLM，可选）：`moat_sources[]`（五类）、`width`（修正建议）、`durability`、
   `trend`（widening|stable|eroding）、`erosion_risks[]`、`competition_evidence[]`、
   `evidence[]`；枚举白名单清洗后回填
@@ -190,6 +197,8 @@ DIV_ZERO           # 除零/不可计算
 - `handoff`：
   - `moat_width [req]`：`wide | medium | narrow | none`（M10 用，替代中文"宽/中/窄/无"）
   - `moat_durability [req]`：`high | medium | low`（LLM 合法输出优先，否则规则映射）
+  - `moat_trend [req]`：`widening | stable | eroding`（5.13：LLM 合法输出优先，否则规则侵蚀信号
+    非空→eroding / 否则 stable；M9 用于侵蚀风险 severity 细化）
   - `erosion_risks [req]`：字符串数组（LLM 合法输出优先，否则规则侵蚀信号；**M9 风险聚合消费**）
 - 消费方：M4（kill switch/质量乘数）、M9（width + erosion_risks + durability）、M10
 

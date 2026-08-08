@@ -145,44 +145,46 @@ export function MemoCard({
 
   return (
     <Card className="overflow-hidden rounded-2xl">
-      {/* Hero */}
-      <div className="relative bg-gradient-to-r from-emerald-600 via-teal-600 to-teal-700 px-6 py-6 text-white">
-        <div className="pointer-events-none absolute inset-0 opacity-10 bg-grid-faint" />
-        <div className="relative flex flex-wrap items-center gap-2.5">
-          <h3 className="text-xl font-bold tracking-wide">{companyName || companyCode}</h3>
-          <Badge className="rounded-full border border-white/30 bg-white/15 text-white">
+      {/* 头部：安静的报告式头图，品牌色只保留在关键信号上 */}
+      <div className="border-b px-6 py-6">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <h3 className="text-xl font-bold tracking-tight">{companyName || companyCode}</h3>
+          <Badge variant="outline" className="rounded-md px-2 font-mono text-[10px]">
             {companyCode}
           </Badge>
-          <Badge className="ml-auto rounded-full bg-white text-emerald-700 shadow-sm">
+          <Badge
+            variant={status === "completed" ? "default" : "secondary"}
+            className="ml-auto rounded-full"
+          >
             {status === "completed" ? "已完成" : status}
           </Badge>
         </div>
-        <div className="relative mt-4 flex flex-wrap items-end gap-7">
+        <div className="mt-5 flex flex-wrap items-end gap-8">
           {m10?.total != null && (
             <div>
-              <div className="text-3xl font-extrabold tabular-nums leading-none">
+              <div className="text-3xl font-extrabold tabular-nums leading-none text-foreground">
                 {m10.total}
               </div>
-              <div className="mt-1 text-xs text-white/80">加权总分</div>
+              <div className="mt-1 text-xs text-muted-foreground">加权总分</div>
             </div>
           )}
           {m10?.position != null && (
             <div>
-              <div className="text-3xl font-extrabold tabular-nums leading-none">
+              <div className="text-3xl font-extrabold tabular-nums leading-none text-foreground">
                 {fmtPct(m10.position)}
               </div>
-              <div className="mt-1 text-xs text-white/80">建议仓位</div>
+              <div className="mt-1 text-xs text-muted-foreground">建议仓位</div>
             </div>
           )}
           {iv?.mid != null && (
             <div>
-              <div className="text-3xl font-extrabold tabular-nums leading-none">
+              <div className="text-3xl font-extrabold tabular-nums leading-none text-foreground">
                 {iv.mid}
               </div>
-              <div className="mt-1 text-xs text-white/80">内在价值中值（元）</div>
+              <div className="mt-1 text-xs text-muted-foreground">内在价值中值（元）</div>
             </div>
           )}
-          {dateStr && <div className="ml-auto text-xs text-white/70">{dateStr}</div>}
+          {dateStr && <div className="ml-auto text-xs text-muted-foreground">{dateStr}</div>}
         </div>
       </div>
 
@@ -205,11 +207,11 @@ export function MemoCard({
 
       {/* 执行摘要 */}
       {(m10 || iv) && (
-        <div className="border-b px-6 py-5">
+        <div id="memo-summary" className="scroll-mt-28 border-b px-6 py-5">
           <SectionTitle icon={ClipboardList} title="执行摘要" />
           {m10?.conclusion && (
-            <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 dark:border-emerald-800 dark:bg-emerald-950/40">
-              <span className="text-sm font-bold text-emerald-800 dark:text-emerald-300">
+            <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-l-4 border-l-primary bg-muted/40 px-4 py-3">
+              <span className="text-sm font-bold text-foreground">
                 结论：{m10.conclusion}
               </span>
               {m10?.vetoed && m10.vetoed.length > 0 && (
@@ -323,7 +325,7 @@ export function MemoCard({
 
       {/* 模块结果 */}
       {doneModules.length > 0 && (
-        <div className="border-b px-6 py-5">
+        <div id="memo-module-results" className="scroll-mt-28 border-b px-6 py-5">
           <SectionTitle icon={BarChart3} title="模块执行结果" />
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
@@ -375,7 +377,7 @@ export function MemoCard({
 
       {/* M2 财务质量 */}
       {metrics && Object.keys(metrics).length > 0 && (
-        <div className="border-b px-6 py-5">
+        <div id="memo-m2" className="scroll-mt-28 border-b px-6 py-5">
           <SectionTitle icon={Calculator} title="财务质量（M2）" />
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             <Kpi label="ROE 最新" value={metrics.roe_latest != null ? `${fmt(metrics.roe_latest)}%` : "—"} />
@@ -398,7 +400,7 @@ export function MemoCard({
 
       {/* M4 方法 */}
       {m4?.methods && Object.keys(m4.methods).length > 0 && (
-        <div className="border-b px-6 py-5">
+        <div id="memo-m4" className="scroll-mt-28 border-b px-6 py-5">
           <SectionTitle icon={ChartLine} title="估值方法（M4）" />
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {m4.methods.map((m, i) => {
@@ -421,7 +423,7 @@ export function MemoCard({
 
       {/* M11 监控规则 */}
       {rules.length > 0 && (
-        <div className="border-b px-6 py-5">
+        <div id="memo-m11" className="scroll-mt-28 border-b px-6 py-5">
           <SectionTitle icon={RadioTower} title="监控规则（M11）" />
           <div className="flex flex-col gap-2">
             {rules.map((r, i) => {
@@ -521,3 +523,12 @@ function Kpi({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
+
+
+export const MEMO_ANCHORS: { id: string; label: string }[] = [
+  { id: "memo-summary", label: "执行摘要" },
+  { id: "memo-module-results", label: "模块执行结果" },
+  { id: "memo-m2", label: "M2 财务质量" },
+  { id: "memo-m4", label: "M4 估值方法" },
+  { id: "memo-m11", label: "M11 监控规则" },
+];

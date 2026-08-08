@@ -201,7 +201,7 @@ def pb_band(bvps: float, pb_history: list[float]) -> MethodResult:
 
     重资产/周期股盈利波动大，PE 失真，用 PB（每股净资产相对稳定）更稳。
     """
-    if bvps is None or not pb_history:
+    if bvps is None or bvps <= 0 or not pb_history:
         return MethodResult("pb_band", None, note="缺每股净资产或 PB 历史")
     pbs = sorted(p for p in pb_history if p is not None and p > 0)
     if not pbs:

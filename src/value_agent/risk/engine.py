@@ -221,10 +221,16 @@ def assess_risk(inputs: dict[str, ModuleResult], assumptions: dict | None = None
         if not str(er).strip():
             continue
         n += 1
-        # 5.13：侵蚀风险 + 低持久性 → high；趋势明确侵蚀 + 规则层「利润率压缩+杠杆抬升」双信号 → critical
-        sev = "high" if durability == "low" else "medium"
-        if trend == "eroding":
+        # 5.13：侵蚀风险 severity 细化（读 M5 handoff 的 durability + trend）
+        #   durability=low 且 trend=eroding → critical（接近一票否决的护城河风险）
+        #   durability=low 或 trend=eroding → high（进 M11 监控候选）
+        #   否则 → medium
+        if durability == "low" and trend == "eroding":
+            sev = "critical"
+        elif durability == "low" or trend == "eroding":
             sev = "high"
+        else:
+            sev = "medium"
         items.append(_risk_item(
             n, "护城河", sev, "M5_moat", "erosion_risk",
             str(er), mitigation="跟踪护城河来源指标与竞争格局变化",

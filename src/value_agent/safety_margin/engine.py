@@ -123,6 +123,14 @@ def run_safety_margin(
             reason_codes=[ReasonCode.INPUT_MISSING.value],
             evidence=["缺少现价或内在价值下沿，无法计算安全边际"],
         )
+    if low <= 0:
+        return SafetyMarginResult(
+            price=price, intrinsic=intrinsic, discount=None, required_discount=req,
+            buy_price=None, sell_price=None,
+            status="数据不足", mos_state="unavailable", score=50.0,
+            reason_codes=[ReasonCode.OUT_OF_RANGE.value],
+            evidence=[f"内在价值下沿无效（low={low}），无法计算安全边际"],
+        )
 
     discount = 1 - price / low
     buy_price = low * (1 - req)

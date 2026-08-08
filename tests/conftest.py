@@ -7,6 +7,22 @@ from __future__ import annotations
 
 import pytest
 
+# 先加载 agents 包（agents/__init__ → builtin → 全部内置 agent），
+# 避免后续直接 import moat.agent 等触发「builtin → moat.agent」循环导入。
+import value_agent.agents.base  # noqa: F401
+
+
+@pytest.fixture(autouse=True)
+def _no_real_peer_medians(monkeypatch):
+    """单测不联网：M5 真实同行中位数拉取替换为空实现（回退静态基准）。
+
+    真实 provider（moat/peer_benchmarks.py）有独立单测（注入假 akshare）；
+    这里只保证全量测试不触发网络、不慢。
+    """
+    monkeypatch.setattr(
+        "value_agent.moat.agent._fetch_peer_medians", lambda code, industry: None
+    )
+
 
 class StubData:
     """数据桩：实现 DataManager 的查询接口，返回固定记录。"""
