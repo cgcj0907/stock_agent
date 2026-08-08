@@ -14,7 +14,20 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { SourceLinks } from "@/components/workflow/source-links";
+import {
+  MethodCompareChart,
+  RadarScoreChart,
+  ValueBandChart,
+} from "@/components/workflow/memo-charts";
 import type { ModuleResultView } from "@/hooks/use-workflow-run";
+
+const DIM_ORDER = [
+  "business_moat",
+  "financial_quality",
+  "growth_prosperity",
+  "valuation_margin",
+  "governance_risk",
+];
 
 const DIM_LABELS: Record<string, string> = {
   business_moat: "护城河",
@@ -23,14 +36,6 @@ const DIM_LABELS: Record<string, string> = {
   valuation_margin: "估值边际",
   governance_risk: "治理风险",
 };
-const DIM_BARS: Record<string, string> = {
-  business_moat: "bg-emerald-500",
-  financial_quality: "bg-sky-500",
-  growth_prosperity: "bg-violet-500",
-  valuation_margin: "bg-amber-500",
-  governance_risk: "bg-rose-500",
-};
-
 const SEVERITY: Record<string, { label: string; cls: string }> = {
   info: {
     label: "提示",
@@ -122,14 +127,6 @@ export function MemoCard({
   const dims = m10?.dimensions ?? {};
   const rules = m11?.monitor_rules ?? [];
   const metrics = m2?.metrics ?? {};
-
-  const bandPct =
-    iv && iv.low != null && iv.high != null && iv.high > iv.low && m4?.current_price != null
-      ? Math.max(
-          0,
-          Math.min(100, ((m4.current_price - iv.low) / (iv.high - iv.low)) * 100)
-        )
-      : null;
 
   const dateStr = createdAt
     ? new Date(createdAt).toLocaleDateString("zh-CN", {
@@ -225,25 +222,20 @@ export function MemoCard({
           <div className="grid gap-4 md:grid-cols-2">
             {Object.keys(dims).length > 0 && (
               <div className="rounded-xl border p-4">
-                <div className="mb-3 text-xs font-semibold text-muted-foreground">
+                <div className="mb-1 text-xs font-semibold text-muted-foreground">
                   五维评分
                 </div>
-                {Object.entries(dims).map(([k, v]) => (
-                  <div key={k} className="mb-2 flex items-center gap-2 text-xs">
-                    <span className="w-[74px] text-muted-foreground">
-                      {DIM_LABELS[k] ?? k}
+                <RadarScoreChart dims={dims} />
+                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                  {DIM_ORDER.map((k) => (
+                    <span key={k}>
+                      {DIM_LABELS[k] ?? k}{" "}
+                      <b className="text-foreground tabular-nums">
+                        {dims[k] ?? "—"}
+                      </b>
                     </span>
-                    <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
-                      <div
-                        className={`h-full rounded-full ${DIM_BARS[k] ?? "bg-emerald-500"}`}
-                        style={{ width: `${Math.max(0, Math.min(100, v))}%` }}
-                      />
-                    </div>
-                    <span className="w-9 text-right font-semibold tabular-nums">
-                      {v}
-                    </span>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
             )}
             {iv && (
@@ -251,19 +243,18 @@ export function MemoCard({
                 <div className="mb-3 text-xs font-semibold text-muted-foreground">
                   内在价值区间
                 </div>
-                <div className="relative mx-1 mt-5 h-2 rounded-full bg-gradient-to-r from-emerald-200 via-emerald-300 to-amber-300">
-                  {bandPct != null && (
-                    <span
-                      className="absolute -top-[5px] h-[18px] w-[3px] rounded bg-sky-500 shadow-[0_0_0_3px_#e0f2fe]"
-                      style={{ left: `calc(${bandPct}% - 1px)` }}
-                      title={`现价 ${m4.current_price}`}
-                    />
-                  )}
-                </div>
-                <div className="mt-2 flex justify-between text-[11px] text-muted-foreground tabular-nums">
-                  <span>低 {iv.low}</span>
-                  <span>中 {iv.mid}</span>
-                  <span>高 {iv.high}</span>
+                {iv.low != null && iv.mid != null && iv.high != null && iv.high > iv.low ? (
+                  <ValueBandChart
+                    low={iv.low}
+                    mid={iv.mid}
+                    high={iv.high}
+                    currentPrice={m4?.current_price}
+                  />
+                ) : null}
+                <div className="mt-1 flex justify-between text-[11px] text-muted-foreground tabular-nums">
+                  <span>低 {iv.low ?? "—"}</span>
+                  <span>中 {iv.mid ?? "—"}</span>
+                  <span>高 {iv.high ?? "—"}</span>
                 </div>
                 {(m4?.valuation_confidence != null || m4?.quality_multiplier != null) && (
                   <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
@@ -417,6 +408,9 @@ export function MemoCard({
                 </div>
               );
             })}
+          </div>
+          <div className="mt-3">
+            <MethodCompareChart methods={m4.methods} />
           </div>
         </div>
       )}

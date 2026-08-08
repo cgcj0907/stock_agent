@@ -4,10 +4,11 @@ import * as React from "react";
 import { usePathname } from "next/navigation";
 import { Search } from "lucide-react";
 
+import { OPEN_PALETTE_EVENT } from "@/components/command-palette";
+
 import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
-import { Input } from "@/components/ui/input";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 const TITLES: Record<string, string> = {
@@ -50,13 +51,17 @@ export function AppHeader() {
         </BreadcrumbList>
       </Breadcrumb>
       <div className="ml-auto flex items-center gap-2">
-        <div className="relative hidden md:block">
-          <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="搜索公司 / 会话…"
-            className="h-8 w-56 rounded-lg bg-muted/50 pl-8 text-sm focus-visible:ring-ring/40"
-          />
-        </div>
+        <button
+          type="button"
+          onClick={() => window.dispatchEvent(new Event(OPEN_PALETTE_EVENT))}
+          className="relative hidden h-8 w-56 items-center gap-2 rounded-lg bg-muted/50 pl-8 text-sm text-muted-foreground transition-colors hover:bg-muted/70 md:flex"
+        >
+          <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2" />
+          <span className="truncate">搜索公司 / 会话…</span>
+          <kbd className="ml-auto mr-1.5 rounded border border-border bg-card px-1 font-mono text-[10px]">
+            ⌘K
+          </kbd>
+        </button>
         <ThemeToggle />
       </div>
     </header>

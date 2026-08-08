@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { AppHeader } from "@/components/app-header";
+import { CommandPalette } from "@/components/command-palette";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { createClient } from "@/lib/supabase/server";
@@ -29,6 +30,7 @@ export default async function DashboardLayout({
         <AppHeader />
         <main className="flex-1 p-4 md:p-6">{children}</main>
       </SidebarInset>
+      <CommandPalette />
     </SidebarProvider>
   );
 }
