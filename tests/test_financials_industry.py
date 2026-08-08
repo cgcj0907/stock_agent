@@ -4,6 +4,8 @@
 变动，OCF/NP<0.8 或负债率 90%+ 都是行业常态；旧逻辑会把 M2 打到 <30 触发一票否决，
 与 2024/2025 年报（OCF/NP 3.0/4.9、ROE 14%）明显矛盾。
 """
+import pytest
+
 from value_agent.financials.quality import (
     DEFAULT_PROFILE,
     FinancialProfile,
@@ -67,6 +69,42 @@ def test_same_data_under_standard_profile_still_triggers():
     assert any("杠杆过高" in s for s in r.details["杠杆"])
 
 
+def _cm_records_with_quarterly_noise():
+    """消费垄断（如家电制造）：年报 OCF/NP 健康，Q1/Q3 有季节性噪音。"""
+    recs = [_rec(f"{y}1231", ocf_to_np=1.2) for y in range(2026, 2016, -1)]
+    recs.append(_rec("20260331", ocf_to_np=0.40))
+    recs.append(_rec("20250930", ocf_to_np=0.55))
+    return recs
+
+
+def test_consumer_monopoly_annual_only_ignores_quarterly_noise():
+    """v2.2：消费垄断（家电制造）现金流比仅用年报——季度季节性不误触发 OCF_NP_DIVERGENCE。"""
+    recs = _cm_records_with_quarterly_noise()
+    r = analyze_financial_quality(recs, business_type="consumer_monopoly")
+    codes = {sig.code for sig in r.signals}
+    assert "OCF_NP_DIVERGENCE" not in codes, r.signals
+    assert r.metrics["ocf_to_np_min"] >= 1.0  # 仅年报口径
+    # 标签不再是误导性的"金融口径"
+    assert not any("金融口径" in s for s in r.details["现金流"])
+
+
+def test_consumer_monopoly_quarterly_noise_triggers_under_all_periods():
+    """对照：若现金流比用全部期（含季度），家电制造会被季度季节性误触发。"""
+    recs = _cm_records_with_quarterly_noise()
+    r = analyze_financial_quality(recs)  # 无 business_type → 通用口径（全部期）
+    codes = {sig.code for sig in r.signals}
+    assert "OCF_NP_DIVERGENCE" in codes
+    assert r.metrics["ocf_to_np_min"] == pytest.approx(0.40)
+
+
+def test_cyclical_cashflow_label_not_financial():
+    """v2.2：周期行业 lenient 文案显示'周期口径'而非'金融口径'。"""
+    recs = [_rec(f"{y}1231", ocf_to_np=1.2) for y in range(2026, 2016, -1)]
+    r = analyze_financial_quality(recs, business_type="cyclical")
+    assert not any("金融口径" in s for s in r.details["现金流"])
+    assert any("周期口径" in s for s in r.details["现金流"])
+
+
 def test_bad_insurance_still_flagged_low_severity():
     """金融口径下真正差的现金流（年度 min<0.5）仍出低severity信号，不因行业豁免而漏报。"""
     recs = [_rec(f"{y}1231", ocf_to_np=0.2) for y in range(2026, 2016, -1)]
@@ -90,8 +128,12 @@ def test_resolve_profile_precedence():
     assert resolve_profile() == DEFAULT_PROFILE
     assert resolve_profile("financial").cashflow_mode == "lenient"
     assert resolve_profile("financial", "insurance").cashflow_annual_only is True
-    # 非金融生意类型不受影响
-    assert resolve_profile("consumer_monopoly") == DEFAULT_PROFILE
+    # 消费垄断：标准阈值（0.8）但仅年报（v2.2，防家电等制造型季度季节性误报）
+    cm = resolve_profile("consumer_monopoly")
+    assert cm.cashflow_mode == "standard"
+    assert cm.cashflow_threshold == 0.8
+    assert cm.cashflow_annual_only is True
+    assert cm.leverage_mode == "standard"
 
 
 def test_routing_config_matches_code_defaults():

@@ -189,7 +189,7 @@ def analyze_financial_quality(
 
     score_profit, p_notes, p_metrics = _profitability(roe, np, debt)
     score_stable, s_notes = _stability(roe)
-    score_cash, c_notes, c_metrics = _cashflow(ocf_to_np, ocfps, eps, profile)
+    score_cash, c_notes, c_metrics = _cashflow(ocf_to_np, ocfps, eps, profile, business_type)
     score_health, h_notes, h_metrics = _health(debt, profile)
     score_risk, signals = _risks(recs, roe, debt, ocf_to_np, ocfps, eps, profile)
 
@@ -285,7 +285,24 @@ def _stability(roe: list[float]):
     return score, [note]
 
 
-def _cashflow(ocf_to_np: list[float], ocfps: list[float], eps: list[float], profile: FinancialProfile):
+def _cashflow_label(business_type: str | None, profile: FinancialProfile) -> str:
+    """现金流口径标签（v2.2：不再对所有 lenient 行业写死'金融口径'）。"""
+    if profile.leverage_mode == "industry":
+        return "金融"
+    return {
+        "cyclical": "周期",
+        "growth": "成长",
+        "financial": "金融",
+        "bank": "金融",
+        "broker": "金融",
+        "insurance": "金融",
+    }.get(business_type, "行业")
+
+
+def _cashflow(
+    ocf_to_np: list[float], ocfps: list[float], eps: list[float],
+    profile: FinancialProfile, business_type: str | None = None,
+):
     """现金流质量 20 分。
 
     standard：经营现金流/净利润 ≥1 为优、<0.8 预警（通用行业）。
@@ -295,6 +312,7 @@ def _cashflow(ocf_to_np: list[float], ocfps: list[float], eps: list[float], prof
     """
     notes: list[str] = []
     mode = profile.cashflow_mode
+    label = _cashflow_label(business_type, profile)
     if mode == "skip":
         return (
             W_CASH / 2,
@@ -306,13 +324,13 @@ def _cashflow(ocf_to_np: list[float], ocfps: list[float], eps: list[float], prof
         good = sum(1 for v in ocf_to_np if v >= 1.0)
         if mode == "lenient":
             if ratio >= 0.8:
-                score, note = W_CASH, f"经营现金流/净利润 最低 {ratio:.2f}（金融口径，{good}/{len(ocf_to_np)} 期达标）"
+                score, note = W_CASH, f"经营现金流/净利润 最低 {ratio:.2f}（{label}口径，{good}/{len(ocf_to_np)} 期达标）"
             elif ratio >= profile.cashflow_threshold:
-                score, note = 16, f"经营现金流/净利润 最低 {ratio:.2f}（金融口径偏低但在容忍线内）"
+                score, note = 16, f"经营现金流/净利润 最低 {ratio:.2f}（{label}口径偏低但在容忍线内）"
             elif ratio >= 0.3:
-                score, note = 12, f"⚠️ 经营现金流/净利润 最低 {ratio:.2f}（金融口径偏低，需结合营运利润/内含价值验证）"
+                score, note = 12, f"⚠️ 经营现金流/净利润 最低 {ratio:.2f}（{label}口径偏低，需结合营运利润/内含价值验证）"
             else:
-                score, note = 8, f"⚠️ 经营现金流/净利润 最低 {ratio:.2f}（金融口径显著偏低，盈利含金量存疑）"
+                score, note = 8, f"⚠️ 经营现金流/净利润 最低 {ratio:.2f}（{label}口径显著偏低，盈利含金量存疑）"
         else:
             if ratio >= 1.0:
                 score, note = W_CASH, f"经营现金流/净利润 ≥1（{good}/{len(ocf_to_np)} 期）"

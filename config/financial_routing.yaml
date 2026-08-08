@@ -27,10 +27,12 @@ routing:
     leverage_mode: standard
     ocf_divergence_severity: medium
 
-  # ---- 消费垄断：现金流应强、杠杆应低，通用规则即可（显式声明便于调参）----
+  # ---- 消费垄断：现金流应强、杠杆应低，保持 0.8 硬阈值（严格）----
+  # v2.2：仅用年报——消费垄断里也含家电等制造型（LLM 主判可能把耐用消费品归入此类），
+  # 季度 OCF/NP 受备货/票据结算季节性影响（如美的 Q1 0.55 vs 年报 1.07），全部期会误触发背离
   consumer_monopoly:
     cashflow_mode: standard
-    cashflow_annual_only: false
+    cashflow_annual_only: true
     cashflow_threshold: 0.8
     leverage_mode: standard
     ocf_divergence_severity: medium

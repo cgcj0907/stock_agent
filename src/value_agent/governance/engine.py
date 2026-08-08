@@ -75,13 +75,23 @@ def _event_brief(label: str, ev: dict) -> str:
     return "；".join(bits)
 
 
+def _period_date(period: str) -> datetime.date | None:
+    """把 'YYYYMMDD' 财报期转 date（避免 naive datetime 构造，DTZ007）。"""
+    try:
+        return datetime.date(int(period[:4]), int(period[4:6]), int(period[6:8]))
+    except (TypeError, ValueError, IndexError):
+        return None
+
+
 def _ttm_dividend(records: list[dict], anchor: datetime.date) -> float:
     """最近 12 个月（截至最新分红报告期）的每股派息合计（TTM 口径）。"""
     start = anchor - datetime.timedelta(days=365)
     total = 0.0
     for r in records:
         try:
-            d = datetime.datetime.strptime(str(r.get("period")), "%Y%m%d").date()
+            d = _period_date(str(r.get("period")))
+            if d is None:
+                continue
         except (TypeError, ValueError):
             continue
         if start < d <= anchor:  # 开区间：避免把整一年前的年报重复计入
@@ -142,8 +152,8 @@ def assess_governance(
             price = None
     if price and price > 0 and recs:
         try:
-            anchor = datetime.datetime.strptime(str(recs[0]["period"]), "%Y%m%d").date()
-            ttm = _ttm_dividend(recs, anchor)
+            anchor = _period_date(str(recs[0]["period"]))
+            ttm = _ttm_dividend(recs, anchor) if anchor is not None else 0.0
         except (TypeError, ValueError):
             ttm = 0.0
         if ttm > 0:

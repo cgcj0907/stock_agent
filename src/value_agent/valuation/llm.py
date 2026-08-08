@@ -150,10 +150,20 @@ def apply_calibration(
     """把校准应用到参数/权重 → (params, weights, confidence_delta)。
 
     v2.1：business_type 由 M1 画像单一决策，本层不再返回类型覆盖。
+    v2.2：交叉校验 r−g ≥ 2%（与 DDM_MIN_SPREAD 对齐）——LLM 常把折现率/增速校准到薄价差
+    （如 g=8%、r=9%），会导致 DDM 必跳过、DCF 对永续项过度敏感；优先抬高折现率到 g+2%
+    （受上限约束），否则下调增速。
     """
     p = {**params}
     p.update(calib.get("parameter_adjustments") or {})
     w = {**weights}
     w.update(calib.get("method_weight_adjustments") or {})
+    gr, dr = p.get("growth_rate"), p.get("discount_rate")
+    if gr is not None and dr is not None and dr - gr < 0.02:
+        new_dr = min(0.12, round(gr + 0.02, 4))  # 折现率上限 0.12（CALIB_BOUNDS）
+        if new_dr - gr >= 0.02:
+            p["discount_rate"] = new_dr
+        else:
+            p["growth_rate"] = max(0.0, round(dr - 0.02, 4))
     delta = _to_float(calib.get("valuation_confidence_delta"), 0.0)
     return p, w, delta

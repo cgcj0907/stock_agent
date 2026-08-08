@@ -34,6 +34,15 @@ def _row_value(row, *names):
     return None
 
 
+def _first_positive(row, *names):
+    """按候选列名取首个正数值（0/负/空视为缺失，避免东财个别字段返回 0.0 的坏值）。"""
+    for n in names:
+        v = to_float(row.get(n))
+        if v is not None and v > 0:
+            return v
+    return None
+
+
 def _sina_symbol(code: str) -> str:
     """新浪/腾讯日线接口需要交易所前缀（sh/sz），如 600900 → sh600900。"""
     return ("sh" if str(code).startswith(("6", "9", "5")) else "sz") + str(code).zfill(6)
@@ -527,7 +536,11 @@ def _merge_financial_statements(code: str, records: list[dict], ak) -> None:
                 "total_assets": to_float(_row_value(r, "资产总计", "资产合计", "TOTAL_ASSETS")),
                 "current_assets": to_float(_row_value(r, "流动资产合计", "CURRENT_ASSET_BALANCE", "TOTAL_CURRENT_ASSETS")),
                 "total_liabilities": to_float(_row_value(r, "负债合计", "TOTAL_LIABILITIES")),
-                "equity_parent": to_float(_row_value(r, "归属于母公司股东权益合计", "PARENT_EQUITY_BALANCE")),
+                # 东财 PARENT_EQUITY_BALANCE 对部分标的（如 000333 美的）返回 0.0，
+                # 用 TOTAL_PARENT_EQUITY 兜底并跳过 0/负值（BVPS 坏值事故根因）
+                "equity_parent": _first_positive(
+                    r, "归属于母公司股东权益合计", "TOTAL_PARENT_EQUITY", "PARENT_EQUITY_BALANCE"
+                ),
                 "short_loan": to_float(_row_value(r, "短期借款", "SHORT_LOAN")),
                 "long_loan": to_float(_row_value(r, "长期借款", "LONG_LOAN")),
                 "bond": to_float(_row_value(r, "应付债券", "BOND_PAYABLE")),
@@ -574,10 +587,12 @@ def _merge_financial_statements(code: str, records: list[dict], ak) -> None:
         if i.get("net_profit_parent") is not None and eps and eps > 0:
             shares = i["net_profit_parent"] / eps
         if shares and shares > 0:
-            if b.get("equity_parent") is not None:
-                rec["bvps"] = round(b["equity_parent"] / shares, 4)
-            if b.get("current_assets") is not None and b.get("total_liabilities") is not None:
-                rec["ncav_ps"] = round((b["current_assets"] - b["total_liabilities"]) / shares, 4)
+            eq_parent = b.get("equity_parent")
+            if eq_parent is not None and eq_parent > 0:
+                rec["bvps"] = round(eq_parent / shares, 4)
+            ca, tl = b.get("current_assets"), b.get("total_liabilities")
+            if ca is not None and tl is not None and ca > 0 and tl > 0:
+                rec["ncav_ps"] = round((ca - tl) / shares, 4)
         # 有息负债率 / 合同负债占比（5.2）
         total_assets = b.get("total_assets")
         if total_assets and total_assets > 0:

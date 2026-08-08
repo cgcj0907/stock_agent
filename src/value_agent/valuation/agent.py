@@ -159,9 +159,10 @@ class M4ValuationAgent(Agent):
         price_recs = sorted((price or {}).get("records", []), key=lambda r: r.get("trade_date") or "", reverse=True)
         close = price_recs[0].get("close") if price_recs else None
         pb = next((r["pb"] for r in val_recs if r.get("pb")), None)
-        # 1.1：优先用财务报表 BVPS（资产负债表明细派生），价格/PB 反推作兜底
+        # 1.1：优先用财务报表 BVPS（资产负债表明细派生），价格/PB 反推作兜底。
+        # v2.2：BVPS=0/负（东财坏值，如 000333）也视为缺失走兜底，避免格雷厄姆数等资产方法被跳过
         bvps = annual_rec.get("bvps") if annual_rec else None
-        if bvps is None:
+        if bvps is None or bvps <= 0:
             bvps = close / pb if (close and pb) else None
         ncav_ps = annual_rec.get("ncav_ps") if annual_rec else None
         # 仅取正 PE：亏损期 PE 为负，会让中位数失真（相对估值无意义）

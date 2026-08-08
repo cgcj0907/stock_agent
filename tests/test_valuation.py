@@ -367,6 +367,30 @@ def test_llm_apply_calibration_merges():
     assert delta == 0.05
 
 
+def test_llm_apply_calibration_enforces_rate_spread():
+    """v2.2：r−g < 2%（LLM 校准 g=8%、r=9%）→ 抬高折现率到 g+2%，避免 DDM 必跳过/薄价差 DCF。"""
+    from value_agent.valuation.engine import METHOD_WEIGHTS, default_params
+    from value_agent.valuation.llm import apply_calibration
+
+    calib = {"parameter_adjustments": {"growth_rate": 0.08, "discount_rate": 0.09}}
+    p, _w, _delta = apply_calibration(default_params(), METHOD_WEIGHTS, calib)
+    assert p["discount_rate"] == 0.10  # 9% → 10%（= g 8% + 2%）
+    assert p["growth_rate"] == 0.08
+    assert p["discount_rate"] - p["growth_rate"] >= 0.02 - 1e-9
+
+
+def test_llm_apply_calibration_spread_caps_discount_rate():
+    """v2.2：g 过高导致折现率抬不动（>12% 上限）时，下调增速保证 r−g ≥ 2%。"""
+    from value_agent.valuation.engine import METHOD_WEIGHTS, default_params
+    from value_agent.valuation.llm import apply_calibration
+
+    calib = {"parameter_adjustments": {"growth_rate": 0.12, "discount_rate": 0.12}}
+    p, _w, _delta = apply_calibration(default_params(), METHOD_WEIGHTS, calib)
+    assert p["growth_rate"] == 0.10  # 12% → 10%（= r 12% − 2%）
+    assert p["discount_rate"] == 0.12
+    assert p["discount_rate"] - p["growth_rate"] >= 0.02 - 1e-9
+
+
 def test_engine_confidence_delta():
     r = run_valuation(eps=4.5, bvps=31.7, pe_history=[21.0, 21.3], dividend=2.2, confidence_delta=0.05)
     r0 = run_valuation(eps=4.5, bvps=31.7, pe_history=[21.0, 21.3], dividend=2.2)
@@ -503,6 +527,26 @@ def test_m4_agent_cyclical_includes_pb_and_normalized_pe():
     assert methods["relative_median_pe"]["applicable"]
     # StubData 全为年度 eps=5.0 → 正常化 EPS 也是 5.0，PE 25 → 125；PB=20×5=100
     assert methods["relative_median_pe"]["value"] == pytest.approx(125.0)
+
+
+def test_m4_agent_bvps_zero_falls_back_to_price_pb():
+    """v2.2：BVPS=0（东财坏值，如 000333）→ 用 close/pb 兜底，格雷厄姆数不再被跳过。"""
+    from tests.conftest import StubData
+    from value_agent.valuation.agent import M4ValuationAgent
+
+    class _ZeroBvps(StubData):
+        def financials(self, code, years=10):
+            d = super().financials(code, years)
+            for r in d["records"]:
+                r["bvps"] = 0.0
+                r["ncav_ps"] = None
+            return d
+
+    res = M4ValuationAgent().run(_m4_ctx(_ZeroBvps(), inputs=_quality_inputs()))
+    methods = {m["method"]: m for m in res.outputs["methods"]}
+    assert methods["graham_number"]["applicable"], res.evidence
+    # 兜底 BVPS = close/pb ≈ 101.65/5.0 ≈ 20.33 → 格雷厄姆数 = √(22.5×5×20.33) ≈ 47.8
+    assert methods["graham_number"]["value"] == pytest.approx(47.8, abs=0.6)
 
 
 def test_m4_agent_llm_skips_unrouted_weight():

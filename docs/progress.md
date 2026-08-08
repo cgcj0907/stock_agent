@@ -15,6 +15,18 @@
 | S5 M10 决策报告 | ✅ 评分卡+备忘录完成（M10/M11 占位） |
 | S6 M11 + 回测 | ✅ 完成 2026-08-04 |
 
+> ✅ 2026-08-08 **M1 生意类型改 LLM 主判（v2.1）+ 三个数据/口径修复（v2.2）**：
+> ① v2.1：`planner/validator.py::resolve_profile` 冲突策略由「规则为准」改为「LLM 主判」——
+>   与规则冲突且 confidence=high，或 medium+理由 → 采纳 LLM（`override`）；low 或 medium 无理由 → 回退规则；
+>   `plan_trace` 新增 `llm_vs_rule`（consistent/conflict）；M1 prompt 改「规则候选 + 最终裁判」去锚定；
+>   **M4 删除 `business_type_override`**（类型由 M1 画像单一决策，M2/M4/M7 消费同一份）；
+> ② v2.2 数据/口径修复：`akshare_source.py` 归母权益加 `TOTAL_PARENT_EQUITY` 兜底并跳过 0/负值（修 000333 BVPS=0→29.77，
+>   格雷厄姆数不再缺失）；`valuation/agent.py` BVPS≤0 走 close/pb 兜底；`financial_routing.yaml` 消费垄断现金流比
+>   改为**仅年报**（家电等制造型季度季节性不再误触发 OCF_NP_DIVERGENCE，美的 M2 72→91）；`valuation/llm.py`
+>   校准加 r−g≥2% 交叉校验（防 DDM 必跳过/薄价差 DCF）；`financials/quality.py` 现金流口径文案按生意类型输出
+>   （不再对周期/成长写死「金融口径」）；
+> ③ 全量 **481 通过**；ruff 通过。
+
 > ✅ 2026-08-08 **冗余代码清理 + docs 优化**：
 > ① 清理死代码：删除废弃的 `parse_llm_score`（v1 绝对分解析，含 3 条测试）、零引用的 `calibration_policy_for`/`cninfo_disclosure_url`/`register_many`；
 > ② 去重：`scripts/validate_moat_tiers.py` 的本地 `spearman` 改为复用 `backtest/calibration_ab.py`（删 24 行重复实现）；

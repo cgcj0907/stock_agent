@@ -16,6 +16,10 @@ import { getCurrentUser } from "@/lib/supabase/auth";
 import { WORKFLOWS } from "@/lib/workflows/catalog";
 import type { CustomWorkflow } from "@/types/custom-workflow";
 
+function getWorkflowSummary(id: string) {
+  return id === "default" ? "完整链路" : "快速筛查";
+}
+
 export default async function WorkflowsPage() {
   let custom: CustomWorkflow[] = [];
   try {
@@ -45,45 +49,75 @@ export default async function WorkflowsPage() {
         {WORKFLOWS.map((wf) => (
           <Card
             key={wf.id}
-            className="group overflow-hidden rounded-2xl transition-all hover:-translate-y-0.5 hover:shadow-md"
+            className="group rounded-2xl border-foreground/10 bg-background transition-all duration-200 hover:-translate-y-0.5 hover:border-foreground/20 hover:shadow-[0_18px_40px_-32px_rgba(0,0,0,0.8)]"
           >
-            <div className={`h-1.5 bg-gradient-to-r ${wf.accent}`} />
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <CardTitle className="text-base">{wf.name}</CardTitle>
-                <Badge variant="secondary" className="rounded-md font-mono text-[10px]">
-                  {wf.id}
-                </Badge>
+            <CardHeader className="gap-4 pb-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-foreground/10 bg-muted/35 text-foreground">
+                    <Workflow className="size-4" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <CardTitle className="text-base tracking-[-0.01em]">
+                        {wf.name}
+                      </CardTitle>
+                      <Badge
+                        variant="secondary"
+                        className="rounded-full border border-foreground/10 bg-background px-2 py-0 font-mono text-[10px] text-muted-foreground"
+                      >
+                        {wf.id}
+                      </Badge>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      {getWorkflowSummary(wf.id)}
+                    </p>
+                  </div>
+                </div>
+                <div className="hidden rounded-full border border-dashed border-foreground/10 px-2.5 py-1 text-[10px] text-muted-foreground md:block">
+                  {wf.steps.length} 步
+                </div>
               </div>
               <CardDescription className="text-xs leading-5">
                 {wf.description}
               </CardDescription>
             </CardHeader>
-            <CardContent className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <GitBranch className="size-3.5" />
-                {wf.steps.length} 步 · {wf.steps.map((s) => s.id).join(" → ")}
+            <CardContent className="flex flex-col gap-4">
+              <div className="rounded-xl border border-foreground/10 bg-muted/25 p-3">
+                <div className="mb-2 flex items-center gap-2 text-[11px] font-medium text-foreground/80">
+                  <GitBranch className="size-3.5 text-muted-foreground" />
+                  分析路径
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {wf.steps.map((step) => (
+                    <span
+                      key={step.id}
+                      className="rounded-md border border-foreground/10 bg-background px-2 py-1 font-mono text-[10px] text-foreground/80"
+                    >
+                      {step.id}
+                    </span>
+                  ))}
+                </div>
               </div>
-              <Button asChild size="sm" className="rounded-full">
-                <Link href={`/workflows/${wf.id}`}>
-                  开始分析 <ArrowRight className="size-3.5" />
-                </Link>
-              </Button>
+
+              <div className="flex items-center justify-between gap-3 border-t border-foreground/10 pt-1">
+                <div className="text-xs text-muted-foreground">
+                  {wf.steps.length} 步工作流，按既定顺序推进
+                </div>
+                <Button
+                  asChild
+                  size="sm"
+                  variant="outline"
+                  className="rounded-full border-foreground/15 bg-background px-3"
+                >
+                  <Link href={`/workflows/${wf.id}`}>
+                    开始分析 <ArrowRight className="size-3.5" />
+                  </Link>
+                </Button>
+              </div>
             </CardContent>
           </Card>
         ))}
-
-        <Card className="rounded-2xl border-dashed opacity-70">
-          <CardContent className="flex h-full min-h-32 flex-col items-center justify-center gap-2 p-6 text-center">
-            <Workflow className="size-6 text-muted-foreground" />
-            <div>
-              <p className="text-sm font-medium">自定义工作流</p>
-              <p className="text-xs text-muted-foreground">
-                M4.5 里程碑：拖拽编排你自己的分析流
-              </p>
-            </div>
-          </CardContent>
-        </Card>
       </div>
 
       <CustomWorkflowSection initial={custom} />

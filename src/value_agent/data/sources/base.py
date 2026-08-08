@@ -1,6 +1,7 @@
 """数据源抽象：业务代码只依赖此接口，不感知具体数据源。"""
 from __future__ import annotations
 
+import math
 from abc import ABC, abstractmethod
 
 
@@ -16,7 +17,7 @@ def to_float(value, divisor: float = 1.0) -> float | None:
         f = float(str(value).replace("%", "").replace(",", ""))
     except (TypeError, ValueError):
         return None
-    if f != f:  # NaN
+    if math.isnan(f):  # NaN
         return None
     return f / divisor
 
