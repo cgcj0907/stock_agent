@@ -95,3 +95,42 @@ def test_governance_events_table_roundtrip(tmp_path):
     ])
     assert len(storage.records_before("governance_events", "600519")) == 1
     assert storage.records_before("governance_events", "600519")[0]["ratio"] == 0.8
+
+
+def test_daily_price_existing_rows_are_not_overwritten(tmp_path):
+    """只追加策略：已存在的交易日保留首次入库值，新日期正常插入。"""
+    storage = SqliteMarketStorage(str(tmp_path / "market.db"))
+    storage.upsert("daily_price", "600519", [
+        {"trade_date": "20260731", "open": 99.5, "close": 100.0, "high": 101.0, "low": 98.5, "volume": 1_000_000},
+    ])
+
+    # 再次写入同一交易日（值不同）+ 一个新交易日 → 旧行应保持原值
+    storage.upsert("daily_price", "600519", [
+        {"trade_date": "20260731", "open": 1.0, "close": 2.0, "high": 3.0, "low": 0.5, "volume": 999},
+        {"trade_date": "20260803", "open": 100.2, "close": 101.5, "high": 102.0, "low": 99.8, "volume": 1_200_000},
+    ])
+
+    rows = storage.records_before("daily_price", "600519")
+    by_date = {r["trade_date"]: r for r in rows}
+    assert sorted(by_date) == ["20260731", "20260803"]
+    assert by_date["20260731"]["close"] == 100.0, "已存在交易日应保留首次入库值"
+    assert by_date["20260803"]["close"] == 101.5, "新交易日应正常插入"
+
+
+def test_valuation_history_existing_rows_are_not_overwritten(tmp_path):
+    """估值历史同属只追加表：已存在交易日保留首次入库值，新日期正常插入。"""
+    storage = SqliteMarketStorage(str(tmp_path / "market.db"))
+    storage.upsert("valuation_history", "600519", [
+        {"trade_date": "20260731", "pe": 22.0, "pe_ttm": 21.0, "pb": 3.1},
+    ])
+
+    storage.upsert("valuation_history", "600519", [
+        {"trade_date": "20260731", "pe": 99.0, "pe_ttm": 99.0, "pb": 99.0},
+        {"trade_date": "20260803", "pe": 22.4, "pe_ttm": 21.3, "pb": 3.2},
+    ])
+
+    rows = storage.records_before("valuation_history", "600519")
+    by_date = {r["trade_date"]: r for r in rows}
+    assert sorted(by_date) == ["20260731", "20260803"]
+    assert by_date["20260731"]["pe"] == 22.0, "已存在交易日应保留首次入库值"
+    assert by_date["20260803"]["pe"] == 22.4, "新交易日应正常插入"

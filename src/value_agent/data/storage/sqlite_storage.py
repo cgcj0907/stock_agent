@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 import sqlite3
 
-from .base import DATE_COLUMN, NUMERIC_COLUMNS, SCHEMA, MarketStorage
+from .base import DATE_COLUMN, INSERT_ONLY_TABLES, NUMERIC_COLUMNS, SCHEMA, MarketStorage
 
 
 def _ddl(table: str) -> str:
@@ -34,14 +34,28 @@ class SqliteMarketStorage(MarketStorage):
     def upsert(self, table: str, code: str, records: list[dict]) -> int:
         if not records:
             return 0
+        if table in INSERT_ONLY_TABLES:
+            # 只追加：取该股在表内的最新日期，仅写入比它新的行（历史行一律保留首次入库值）
+            date_col = DATE_COLUMN.get(table)
+            latest = self.latest(table, code)
+            records = [
+                r for r in records
+                if latest is None or str(r.get(date_col) or "") > latest
+            ]
+            if not records:
+                return 0
         cols = [c for c in SCHEMA[table]["columns"] if c != "code"]
         placeholders = ", ".join("?" * (len(cols) + 1))
         conflict = ", ".join(SCHEMA[table]["pk"])
-        updates = ", ".join(f"{c}=excluded.{c}" for c in SCHEMA[table]["columns"] if c not in SCHEMA[table]["pk"])
+        if table in INSERT_ONLY_TABLES:
+            on_conflict = f"ON CONFLICT ({conflict}) DO NOTHING"
+        else:
+            updates = ", ".join(f"{c}=excluded.{c}" for c in SCHEMA[table]["columns"] if c not in SCHEMA[table]["pk"])
+            on_conflict = f"ON CONFLICT ({conflict}) DO UPDATE SET {updates}"
         sql = (
             f"INSERT INTO {table} ({', '.join(['code'] + cols)}) "
             f"VALUES ({placeholders}) "
-            f"ON CONFLICT ({conflict}) DO UPDATE SET {updates}"
+            f"{on_conflict}"
         )
         rows = [[code] + [r.get(c) for c in cols] for r in records]
         self._conn.executemany(sql, rows)

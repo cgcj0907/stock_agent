@@ -53,6 +53,11 @@ SCHEMA: dict[str, dict] = {
     },
 }
 
+# 只追加、不覆盖的表：写库前先取该股在表内的最新日期，仅写入比它新的行；
+# 历史行保留首次入库值，绝不覆盖。行情属于时间序列快照，重跑全量/重复拉取不应改写历史。
+# 财报等结构化表仍走覆盖更新（ingest_company 可修正已入库财报）。
+INSERT_ONLY_TABLES: frozenset[str] = frozenset({"daily_price", "valuation_history"})
+
 # 各表用于"最新日期"的列（YYYYMMDD 字符串，字典序即时间序）
 DATE_COLUMN: dict[str, str] = {
     "financials": "period",
