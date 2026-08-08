@@ -13,11 +13,14 @@ from dataclasses import dataclass, field
 @dataclass
 class MethodResult:
     name: str
-    value: float | None  # 每股内在价值（元），None=不适用/数据缺失
+    value: float | None  # 每股估值（元），None=不适用/数据缺失
     low: float | None = None
     high: float | None = None
     params: dict = field(default_factory=dict)
     note: str = ""
+    # 估值时点口径：None=当前内在价值（现值）；N=第 N 年后的估值（如唐朝法 3 年后）。
+    # v2.3：未来口径不进入「当前内在价值」加权区间，只作参考展示。
+    horizon_years: int | None = None
 
 
 # 现金化比率夹逼区间：OCF/净利 的正常区间（0.5~1.5），防止一次性损益把 DCF 基数拉爆/打穿
@@ -111,6 +114,7 @@ def tang(eps: float, g: float, risk_free: float, *, pe_cap: float | None = None)
     return MethodResult(
         "tang", round(fair, 2),
         params={"fair_pe": round(pe_fair, 1), "pe_cap": pe_cap, "eps3": round(eps3, 2), "buy": round(buy, 2), "sell": round(sell, 2)},
+        horizon_years=3,  # v2.3：唐朝法输出的是三年后合理估值，非现值
     )
 
 

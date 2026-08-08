@@ -17,6 +17,11 @@ from value_agent.financials.quality import annual_records
 
 WACC = 0.10  # 再投资质量参照（可被 wacc 参数覆盖，4.6）
 
+# 周期特征正常化（生产稽核 2026-08-08：江西铜业 20%、中远海控 10% 均为景气高点外推）：
+# 周期股增速封顶 + 成长质量折扣——景气 EPS CAGR 不可持续，避免 M4/M10 被高估。
+CYCLICAL_GROWTH_CAP = 0.10
+CYCLICAL_SCORE_FACTOR = 0.9
+
 
 @dataclass
 class GrowthResult:
@@ -142,6 +147,15 @@ def assess_growth(
     else:
         cyclicality_flag = False
 
+    # 周期特征正常化：景气高点的历史 EPS CAGR 不能外推为长期增速
+    cyclical_note = ""
+    if cyclicality_flag and growth > CYCLICAL_GROWTH_CAP:
+        cyclical_note = (
+            f"周期特征（ROE 波动 CV>0.3）：增速从 {growth:.1%} "
+            f"正常化至 {CYCLICAL_GROWTH_CAP:.0%}，避免景气高点外推"
+        )
+        growth = CYCLICAL_GROWTH_CAP
+
     # 评分：增速 40 + 再投资质量 30 + 财务空间 15 + 稳定性 15
     score = 40.0 if growth >= 0.15 else 35.0 if growth >= 0.10 else 25.0 if growth >= 0.05 else 12.0
     roe_latest = roe[-1] if roe else None
@@ -151,6 +165,9 @@ def assess_growth(
         score += 15.0 if debt[-1] <= 0.4 else 10.0 if debt[-1] <= 0.6 else 5.0
     if len(eps_vals) >= 3 and statistics.stdev(eps_vals) / abs(statistics.mean(eps_vals)) <= 0.2:
         score += 15.0
+    if cyclicality_flag:
+        # 周期股成长质量天然低于稳定成长（盈利跟随景气波动），整体打折
+        score *= CYCLICAL_SCORE_FACTOR
 
     scenarios = _growth_scenarios(growth, growth_confidence)
     evidence = [
@@ -160,6 +177,10 @@ def assess_growth(
         f"再投资质量：ROE {roe_latest}% vs WACC {wacc:.0%}" if roe_latest is not None else "再投资质量：缺 ROE",
         f"景气度评级：{prosperity}" + (f"（{down_reason}）" if down_reason else ""),
     ]
+    if cyclical_note:
+        evidence.append(cyclical_note)
+    if cyclicality_flag:
+        evidence.append(f"周期股成长质量折扣 ×{CYCLICAL_SCORE_FACTOR:.0%}")
     return GrowthResult(
         growth_estimate=round(growth, 4), prosperity=prosperity,
         prosperity_code=prosperity_code, growth_confidence=growth_confidence,

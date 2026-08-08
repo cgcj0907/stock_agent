@@ -4,6 +4,8 @@
 """
 from __future__ import annotations
 
+import re
+import time
 from collections.abc import Iterable
 
 from .models import (
@@ -17,6 +19,29 @@ from .models import (
 )
 from .state_machine import transition
 from .store import SessionStore
+
+# A 股代码：6 位数字（容忍 sh/sz/bj 前缀、点号与空白，如 "SH600519" / "600519.SH"）
+_CODE_RE = re.compile(r"^\d{6}$")
+
+
+def normalize_company_code(raw: str) -> str:
+    """规范化并校验 A 股代码；非法输入抛 ValueError（调用方转 400/友好报错）。"""
+    if raw is None or not str(raw).strip():
+        raise ValueError("缺少公司代码")
+    code = re.sub(r"[\s.]+", "", str(raw).strip().lower())
+    for prefix in ("sh", "sz", "bj"):
+        code = code.removeprefix(prefix)
+    for suffix in ("sh", "sz", "bj"):
+        code = code.removesuffix(suffix)
+    if not _CODE_RE.fullmatch(code):
+        raise ValueError(f"无效的 A 股代码: {raw!r}（应为 6 位数字，如 600519）")
+    return code
+
+
+# 进程内 LLM 配置缓存：密钥不落库（Session.to_dict 剔除 api_key），
+# 仅缓存「创建 → 立即运行」短生命周期；进程重启后回退全局 LLM（优雅降级）。
+_LLM_CACHE_TTL_SECONDS = 6 * 3600
+_LLM_CACHE_MAX = 512
 
 
 def _dedupe_monitor_hits(hits: list[dict], max_items: int = 20) -> list[dict]:
@@ -107,6 +132,32 @@ def _ordered(modules: Iterable[ModuleName]) -> list[ModuleName]:
 class SessionManager:
     def __init__(self, store: SessionStore) -> None:
         self._store = store
+        # session_id -> (monotonic_ts, llm_config)：密钥的进程内临时存储
+        self._llm_config_cache: dict[str, tuple[float, dict]] = {}
+
+    def _cache_llm_config(self, session_id: str, cfg: dict | None) -> None:
+        if not cfg or not cfg.get("api_key"):
+            return
+        now = time.monotonic()
+        self._llm_config_cache[session_id] = (now, dict(cfg))
+        if len(self._llm_config_cache) > _LLM_CACHE_MAX:
+            expired = [
+                sid
+                for sid, (ts, _) in self._llm_config_cache.items()
+                if now - ts > _LLM_CACHE_TTL_SECONDS
+            ]
+            for sid in expired:
+                self._llm_config_cache.pop(sid, None)
+
+    def _take_llm_config(self, session_id: str) -> dict | None:
+        item = self._llm_config_cache.get(session_id)
+        if item is None:
+            return None
+        ts, cfg = item
+        if time.monotonic() - ts > _LLM_CACHE_TTL_SECONDS:
+            self._llm_config_cache.pop(session_id, None)
+            return None
+        return cfg
 
     # ---- 创建 ----
     def create_session(
@@ -122,6 +173,7 @@ class SessionManager:
         model_version: str = "0.1.0",
         monitor_hits: list[dict] | None = None,
     ) -> Session:
+        company_code = normalize_company_code(company_code)
         session = Session(
             company_code=company_code,
             company_name=company_name,
@@ -135,6 +187,7 @@ class SessionManager:
         )
         for module in PIPELINE_ORDER:
             session.module_results[module.value] = ModuleResult(module=module.value)
+        self._cache_llm_config(session.id, llm_config)
         self._store.save(session)
         return session
 
@@ -219,7 +272,13 @@ class SessionManager:
         return session
 
     def persist(self, session: Session) -> None:
+        # 任意落库（步骤推进/终态）都刷新「最近活动」时间，保证 list 排序与断点续跑可见性
+        session.updated_at = _now()
         self._store.save(session)
 
     def load(self, session_id: str) -> Session:
-        return self._store.load(session_id)
+        session = self._store.load(session_id)
+        cached = self._take_llm_config(session_id)
+        if cached and not (session.llm_config or {}).get("api_key"):
+            session.llm_config = cached
+        return session

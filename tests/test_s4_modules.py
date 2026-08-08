@@ -714,3 +714,49 @@ def test_governance_control_event_high_concentration():
     ]})
     assert any(c["code"] == "CONTROL_RISK" for c in r.risk_codes)
     assert any("股权集中度" in c["description"] for c in r.risk_codes if c["code"] == "CONTROL_RISK")
+
+
+def test_growth_cyclical_caps_and_discounts():
+    """生产稽核回归（江西铜业/中远海控）：周期特征（ROE 波动 CV>0.3）时
+    增速封顶 10% + 评分打折，杜绝景气高点 EPS CAGR 外推成 20% 长期增速。"""
+    roe_seq = [3, 22, 5, 25, 4, 26, 6, 24, 5, 23]  # 大幅波动 → CV>0.3
+    recs = [
+        {"period": f"{2026 - i}1231", "eps": round(2.0 * (1.2 ** (9 - i)), 4),
+         "roe": roe_seq[i], "debt_to_assets": 0.4}
+        for i in range(10)
+    ]
+    r = assess_growth({"records": recs})
+    assert r.cyclicality_flag is True
+    assert r.growth_estimate <= 0.10                    # 封顶 10%
+    assert r.scenarios["neutral"] <= 0.10
+    assert any("正常化" in e for e in r.evidence)
+
+    stable = [
+        {"period": f"{2026 - i}1231", "eps": round(2.0 * (1.2 ** (9 - i)), 4),
+         "roe": 22, "debt_to_assets": 0.4}
+        for i in range(10)
+    ]
+    rs = assess_growth({"records": stable})
+    assert rs.cyclicality_flag is False
+    assert r.score < rs.score                            # 周期成长质量打折
+
+
+def test_risk_max_severity_is_most_severe():
+    """生产稽核回归：max_severity 应取**最严重**等级，不得按编号 max() 取到最轻。
+
+    600362 江西铜业含 medium/high 风险项却报 max_severity=low，M10 仓位风险修正失效。
+    """
+    inputs = {
+        "M2_financial_quality": _mod("M2_financial_quality", {
+            "metrics": {"debt_to_assets_latest": 0.3},
+            "signals": [
+                {"code": "OCF_NP_DIVERGENCE", "severity": "medium", "metric": "ocf_to_np_min",
+                 "message": "经营现金流与净利润背离", "evidence": "x"},
+                {"code": "LOSS_YEAR", "severity": "high", "metric": "roe",
+                 "message": "存在亏损年份", "evidence": "x"},
+            ],
+            "handoff": {"quality_score": 60, "risk_signal_codes": ["OCF_NP_DIVERGENCE", "LOSS_YEAR"]},
+        }, 60),
+    }
+    r = assess_risk(inputs)
+    assert r.max_severity == "high"  # 最严重是 high（此前错误返回 medium/low）

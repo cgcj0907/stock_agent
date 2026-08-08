@@ -141,12 +141,16 @@ def cmd_analyze(args: argparse.Namespace) -> int:
     manager, engine = _engine(args.store)
     data = DataManager()
     info = data.company_info(args.code)
-    session = manager.create_session(
-        args.code,
-        company_name=info.get("name", ""),
-        workflow_id=args.workflow,
-        monitor_hits=manager.prior_monitor_hits(args.code),
-    )
+    try:
+        session = manager.create_session(
+            args.code,
+            company_name=info.get("name", ""),
+            workflow_id=args.workflow,
+            monitor_hits=manager.prior_monitor_hits(args.code),
+        )
+    except ValueError as exc:
+        print(f"[error] {exc}")
+        return 1
     session.data_snapshot_id = f"snap_{args.code}_{session.created_at:%Y%m%d%H%M%S}"
     manager.persist(session)
     flow = _load_workflow(args.workflow)

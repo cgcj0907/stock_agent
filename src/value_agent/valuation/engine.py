@@ -537,21 +537,42 @@ def run_valuation(
     # 只认正值估值：0 不是估值而是缺数（如 bvps=0 时 pb_band 曾产出 0.0），
     # 混进加权中位数会把 mid/low 压成 0（603049 除零事故的源头）
     values = [(name, m.value) for name, m in methods.items() if m.value is not None and m.value > 0]
+    # v2.3：区分「当前估值」与「未来估值」——未来口径（如唐朝法 3 年后）不进入
+    # 当前内在价值区间，只作参考展示（避免把三年后价格误当今天的价值）。
+    present = [(name, m.value) for name, m in methods.items()
+               if m.value is not None and m.value > 0 and m.horizon_years is None]
+    future = [(name, m) for name, m in methods.items()
+              if m.value is not None and m.value > 0 and m.horizon_years is not None]
+    if future and present:
+        evidence.append(
+            "未来估值（非现值）不进入当前内在价值区间："
+            + "；".join(f"{name}={m.value:.2f}（{m.horizon_years}年后）" for name, m in future)
+        )
     if not values:
         intrinsic = {"low": None, "high": None, "mid": None, "std": None, "method_agreement": None}
         score, conf, agreement = 0.0, 0.0, 0.0
         method_confidences = {}
     else:
-        names = [n for n, _ in values]
-        vals = [v for _, v in values]
+        agg = present or values  # 极端兜底：无现值方法时退化为全部（含未来值）
+        names = [n for n, _ in agg]
+        vals = [v for _, v in agg]
         wlist = [w[n] for n in names]
         mid = _weighted_median(vals, wlist)
         wmean = _weighted_mean(vals, wlist)
         wstd = _weighted_std(vals, wlist, wmean)
         agreement = max(0.0, 1.0 - (wstd / mid)) if mid > 0 else 0.0
         raw_min, raw_max = min(vals), max(vals)
+        band_low = mid - wstd
+        if band_low <= 0:
+            # 方法分歧过大（加权离散度 ≥ 中值）时 ±std 带下穿 0：下沿退化为最保守方法值，
+            # 杜绝 low=0（此前 000831/600519 都输出 low=0，导致 M8 直接 OUT_OF_RANGE 放弃）
+            band_low = raw_min
+            evidence.append(
+                "⚠️ 方法分歧过大（加权离散度 ≥ 中值）：下沿退化为最保守方法值 "
+                f"{raw_min:.2f}，避免 0 值污染安全边际"
+            )
         intrinsic = {
-            "low": round(max(0.0, mid - wstd) * final_mult, 2),
+            "low": round(band_low * final_mult, 2),
             "mid": round(mid * final_mult, 2),
             "high": round((mid + wstd) * final_mult, 2),
             "std": round(wstd * final_mult, 2),
@@ -561,21 +582,25 @@ def run_valuation(
         if raw_min > 0 and raw_max / raw_min > 3:  # 方法间分歧过大，降低可估性评分
             score = max(0.0, score - 10)
             evidence.append(f"⚠️ 方法间分歧过大（极差 {raw_min:.0f}~{raw_max:.0f}），可估性降分")
-        # 综合置信度
-        confs = [
-            method_confidence(
+        # 综合置信度：现值池；方法级置信度覆盖全部适用方法（含未来口径，供展示）
+        all_names = [n for n, _ in values]
+        all_confs = {
+            n: method_confidence(
                 n,
                 pe_n=len(pe_history),
                 growth_conf=p.get("growth_confidence"),
                 cash_proxy=(cash_proxy_used and n == "dcf"),
             )
-            for n in names
-        ]
-        method_confidences = dict(zip(names, confs))
-        conf = _valuation_confidence(confs, wlist, agreement, len(values) / len(allowed) if allowed else 0.0)
+            for n in all_names
+        }
+        method_confidences = dict(all_confs)
+        conf = _valuation_confidence(
+            [all_confs[n] for n in names], wlist,
+            agreement, len(values) / len(allowed) if allowed else 0.0,
+        )
         conf = round(min(1.0, max(0.0, conf + confidence_delta)), 3)
         evidence.append(
-            f"加权汇总：中位 {intrinsic['mid']} 元，离散度 ±{intrinsic['std']}（一致性 {agreement:.2f}），"
+            f"加权汇总（现值口径）：中位 {intrinsic['mid']} 元，离散度 ±{intrinsic['std']}（一致性 {agreement:.2f}），"
             f"乘数 {final_mult} → 区间 {intrinsic['low']} ~ {intrinsic['high']} 元"
         )
         evidence.append(f"估值置信度：{conf}（方法 {len(values)}/{len(allowed)}，一致性 {agreement:.2f}）")

@@ -45,6 +45,45 @@ def test_relative_median_pe():
     assert r.value == pytest.approx(4.5 * 21.15, abs=0.01)
 
 
+def test_tang_marked_future_horizon():
+    """v2.3：唐朝法输出三年后估值（horizon_years=3），不混入现值。"""
+    from value_agent.valuation.methods import tang
+
+    r = tang(4.5, 0.10, 0.04)
+    assert r.horizon_years == 3
+    assert r.value == pytest.approx(round(4.5 * 1.1**3 * 25, 2))  # 三年后合理估值
+    r2 = tang(4.5, 0.10, 0.04, pe_cap=18.0)
+    assert r2.horizon_years == 3
+
+
+def test_intrinsic_excludes_future_horizon_methods():
+    """v2.3：当前内在价值区间只用现值口径方法；唐朝法（三年后）单独展示不进入加权池。"""
+    from value_agent.valuation.engine import _weighted_median
+
+    r = run_valuation(eps=4.5, bvps=31.7, pe_history=[21.0, 21.3], dividend=2.2)
+    assert r.methods["tang"].horizon_years == 3
+    assert r.methods["tang"].value is not None  # 仍展示唐朝法值
+    present = [(n, m.value) for n, m in r.methods.items()
+               if m.value is not None and m.value > 0 and m.horizon_years is None]
+    assert "tang" not in [n for n, _ in present]
+    assert len(present) >= 2
+    expected_mid = _weighted_median([v for _, v in present], [r.weights[n] for n, _ in present])
+    assert r.intrinsic["mid"] == pytest.approx(round(expected_mid, 2))
+    assert any("未来估值（非现值）不进入当前内在价值区间" in e for e in r.evidence)
+
+
+def test_methods_to_list_includes_horizon():
+    """v2.3：方法列表带 horizon_years，前端/备忘录可标注"三年后"。"""
+    from value_agent.valuation.agent import methods_to_list
+
+    r = run_valuation(eps=4.5, bvps=31.7, pe_history=[21.0, 21.3], dividend=2.2)
+    rows = methods_to_list(r.methods, r.method_confidences)
+    tang_row = next(x for x in rows if x["method"] == "tang")
+    assert tang_row["horizon_years"] == 3
+    dcf_row = next(x for x in rows if x["method"] == "dcf")
+    assert dcf_row["horizon_years"] is None
+
+
 def test_engine_intrinsic_range_and_score():
     r = run_valuation(eps=4.5, bvps=31.7, pe_history=[21.0, 21.3], dividend=2.2)
     assert r.intrinsic["low"] < r.intrinsic["mid"] < r.intrinsic["high"]
@@ -752,3 +791,19 @@ def test_run_valuation_executes_nav_ncav():
     assert r.methods["nav"].value == pytest.approx(24.0)
     assert r.methods["ncav"].value == pytest.approx(9.0)
     assert r.intrinsic["mid"] is not None
+
+
+def test_extreme_method_disagreement_keeps_low_positive():
+    """生产稽核回归（000831 中国稀土）：盈利法与 pb_band 分歧 >8 倍时，
+    内在价值下沿不得为 0（此前 mid−std 下穿被钳成 0，M8 直接 OUT_OF_RANGE 放弃）。"""
+    r = run_valuation(
+        eps=0.17, bvps=4.79, dividend=None,
+        pe_history=[42.0, 44.0, 40.0, 45.0, 41.0, 43.0, 46.0, 39.0, 47.0, 42.0],
+        pb_history=[6.8, 7.2, 6.5, 7.5, 6.9, 7.1, 7.3, 6.7, 7.4, 7.0],
+        business_type="cyclical",
+    )
+    # pb_band(≈34) 与盈利法(≈4) 分歧极大 → 加权离散度 ≥ 中值
+    assert r.method_agreement is None or r.method_agreement == 0.0
+    assert r.intrinsic["low"] is not None and r.intrinsic["low"] > 0
+    assert r.intrinsic["low"] < r.intrinsic["mid"] < r.intrinsic["high"]
+    assert any("下沿退化为最保守方法值" in e for e in r.evidence)

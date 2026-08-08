@@ -21,7 +21,15 @@ class SupabaseStore(SessionStore):
                 "未安装 psycopg2-binary：`pip install psycopg2-binary`"
             ) from exc
         self._Json = Json
-        self._conn = psycopg2.connect(dsn)
+        # keepalives + 连接超时：避免 pooler 静默断连导致操作无限挂起
+        self._conn = psycopg2.connect(
+            dsn,
+            connect_timeout=15,
+            keepalives=1,
+            keepalives_idle=30,
+            keepalives_interval=10,
+            keepalives_count=5,
+        )
         self._conn.autocommit = True
         with self._conn.cursor() as cur:
             cur.execute(
@@ -77,3 +85,8 @@ class SupabaseStore(SessionStore):
         session.messages.append(message)
         session.updated_at = message.created_at
         self.save(session)
+
+    def close(self) -> None:
+        """释放数据库连接（脚本/批处理结束时调用）；已关闭时无操作。"""
+        if self._conn is not None and not self._conn.closed:
+            self._conn.close()

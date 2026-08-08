@@ -194,3 +194,83 @@ def test_prior_monitor_hits_caps_items(manager):
     _complete(s)
     assert len(manager.prior_monitor_hits("600519")) == 20          # 默认上限
     assert len(manager.prior_monitor_hits("600519", max_items=5)) == 5
+
+
+# ---------- 生产数据暴露的问题修复（2026-08-08 Supabase sessions 稽核） ----------
+
+def test_to_dict_never_persists_api_key(manager):
+    """安全：llm_config.api_key 明文不得进入序列化 payload（曾全部落库泄漏）。"""
+    session = manager.create_session(
+        "600519",
+        llm_config={"provider": "deepseek", "base_url": "https://x/v1",
+                    "model": "deepseek-chat", "api_key": "sk-secret-123456"},
+    )
+    d = session.to_dict()
+    assert d["llm_config"]["provider"] == "deepseek"
+    assert d["llm_config"]["base_url"] == "https://x/v1"
+    assert "api_key" not in d["llm_config"]
+
+    # 无配置时 llm_config 序列化为 None
+    assert manager.create_session("600519").to_dict()["llm_config"] is None
+
+
+def _sqlite_manager(tmp_path) -> tuple[SessionManager, Session]:
+    """用 SqliteStore 建真实持久化管理器（InMemoryStore 存对象不序列化，无法验证落库脱敏）。"""
+    from value_agent.sessions.store import SqliteStore
+
+    manager = SessionManager(SqliteStore(str(tmp_path / "sessions.db")))
+    session = manager.create_session(
+        "600519",
+        llm_config={"provider": "deepseek", "base_url": "https://x/v1",
+                    "model": "deepseek-chat", "api_key": "sk-secret-123456"},
+    )
+    return manager, session
+
+
+def test_load_restores_cached_llm_config(tmp_path):
+    """运行期密钥来自进程内缓存：create 后同进程 load 仍可用（创建→立即运行流）。"""
+    manager, session = _sqlite_manager(tmp_path)
+    # 存储层 round-trip 后 payload 不含密钥
+    stored = manager._store.load(session.id)
+    assert "api_key" not in (stored.llm_config or {})
+    # manager.load 从缓存补回密钥
+    reloaded = manager.load(session.id)
+    assert (reloaded.llm_config or {}).get("api_key") == "sk-secret-123456"
+
+
+def test_load_without_cache_has_no_api_key(tmp_path):
+    """进程重启/缓存过期：load 到的会话不含 api_key，回退全局 LLM（不报错）。"""
+    from value_agent.sessions.store import SqliteStore
+
+    _, session = _sqlite_manager(tmp_path)
+    fresh = SessionManager(SqliteStore(str(tmp_path / "sessions.db")))  # 无缓存的新管理器
+    reloaded = fresh.load(session.id)
+    assert "api_key" not in (reloaded.llm_config or {})
+
+
+def test_create_session_rejects_invalid_company_code(manager):
+    """公司代码必须为 6 位数字：拦截 6002579 这类脏代码产生的垃圾会话。"""
+    with pytest.raises(ValueError):
+        manager.create_session("6002579")
+    with pytest.raises(ValueError):
+        manager.create_session("abc123")
+    with pytest.raises(ValueError):
+        manager.create_session("")
+
+
+def test_create_session_normalizes_company_code(manager):
+    """容忍 sh/sz 前缀、点号与空白，统一归一化为 6 位代码。"""
+    for raw, expect in (
+        ("SH600519", "600519"),
+        ("600519.SH", "600519"),
+        (" sz000333 ", "000333"),
+    ):
+        s = manager.create_session(raw)
+        assert s.company_code == expect
+
+
+def test_persist_bumps_updated_at(manager, session):
+    """步骤推进落库应刷新 updated_at（此前整段运行 updated_at 不变）。"""
+    before = session.updated_at
+    manager.persist(session)
+    assert session.updated_at >= before

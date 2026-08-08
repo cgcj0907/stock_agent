@@ -375,3 +375,27 @@ def test_default_workflow_uses_short_step_ids():
     assert flow.step("M1").agent_id == "M1_business_model"
     assert "M1_business_model" not in ids
     assert set(ids) == {f"M{i}" for i in range(1, 12)}
+
+
+def test_engine_preserves_started_at(engine):
+    """生产数据稽核：所有模块 started_at 曾为 None（引擎占位被 agent 结果覆盖）。
+
+    修复后：agent 返回的结果不带 started_at 时，沿用引擎记录的启动时间。
+    """
+    manager = SessionManager(InMemoryStore())
+    session = manager.create_session("600519", "贵州茅台")
+    flow = Workflow(
+        id="t",
+        name="计时流",
+        steps=[
+            WorkflowStep(id="M2", agent_id="M2_financial_quality"),
+            WorkflowStep(id="M4", agent_id="M4_valuation", deps=["M2"]),
+        ],
+    )
+    engine.run(session, flow)
+    for aid in ("M2_financial_quality", "M4_valuation"):
+        r = session.module_results[aid]
+        assert r.status == ModuleStatus.DONE
+        assert r.started_at is not None, f"{aid} started_at 不应为 None"
+        assert r.finished_at is not None
+        assert r.finished_at >= r.started_at

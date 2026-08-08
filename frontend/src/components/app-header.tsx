@@ -18,6 +18,7 @@ const TITLES: Record<string, string> = {
   "/conversations": "对话记录",
   "/settings": "通用设置",
   "/settings/llm": "LLM 配置",
+  "/settings/profile": "个人资料",
 };
 
 export function AppHeader() {

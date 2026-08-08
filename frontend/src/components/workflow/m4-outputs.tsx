@@ -13,6 +13,8 @@ interface MethodView {
   reason?: string;
   note?: string;
   confidence?: number;
+  /** v2.3：估值时点口径——null/undefined=现值；3=三年后估值（唐朝法，不进入当前内在价值区间） */
+  horizon_years?: number | null;
 }
 
 interface IntrinsicView {
@@ -160,9 +162,21 @@ function MethodTable({ methods }: { methods: MethodView[] }) {
               key={m.method}
               className="border-b border-border/40 last:border-0"
             >
-              <td className="px-2.5 py-1.5 font-semibold">{fieldLabel(m.method ?? "")}</td>
+              <td className="px-2.5 py-1.5 font-semibold">
+                <span className="flex items-center gap-1.5">
+                  {fieldLabel(m.method ?? "")}
+                  {m.applicable && m.horizon_years != null && (
+                    <span className="rounded bg-amber-500/15 px-1 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-300">
+                      {m.horizon_years}年后
+                    </span>
+                  )}
+                </span>
+              </td>
               <td className="px-2.5 py-1.5 text-right tabular-nums">
                 {m.applicable ? fmt(m.value) : "跳过"}
+                {m.applicable && m.horizon_years != null && (
+                  <span className="ml-1 text-[10px] text-muted-foreground">未来值</span>
+                )}
               </td>
               <td className="px-2.5 py-1.5 text-right tabular-nums text-muted-foreground">
                 {m.applicable ? fmt(m.confidence) : "—"}
@@ -322,7 +336,7 @@ export function M4Outputs({ outputs }: { outputs: Record<string, unknown> }) {
       {/* 内在价值区间 */}
       {iv && (
         <div className="flex flex-col gap-1.5 border-t border-border/40 pt-2.5">
-          <SectionTitle icon={Gauge}>内在价值区间</SectionTitle>
+          <SectionTitle icon={Gauge}>内在价值区间（现值口径）</SectionTitle>
           <IntrinsicBand iv={iv} price={o.current_price} />
         </div>
       )}

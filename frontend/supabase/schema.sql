@@ -6,9 +6,40 @@ create table if not exists public.profiles (
   id uuid primary key references auth.users (id) on delete cascade,
   display_name text not null default '',
   avatar_url text,
+  education_level text not null default '',
+  education_major text not null default '',
+  education_note text not null default '',
+  career_stage text not null default '',
+  annual_income_range text not null default '',
+  investable_assets_range text not null default '',
+  loss_tolerance_range text not null default '',
+  capital_availability text not null default '',
+  income_dependency_level text not null default '',
+  investment_goal text not null default '',
+  holding_period text not null default '',
+  risk_tolerance text not null default '',
+  investment_style text not null default '',
+  circle_of_competence text[] not null default '{}',
+  decision_preference text not null default '',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.profiles add column if not exists education_level text not null default '';
+alter table public.profiles add column if not exists education_major text not null default '';
+alter table public.profiles add column if not exists education_note text not null default '';
+alter table public.profiles add column if not exists career_stage text not null default '';
+alter table public.profiles add column if not exists annual_income_range text not null default '';
+alter table public.profiles add column if not exists investable_assets_range text not null default '';
+alter table public.profiles add column if not exists loss_tolerance_range text not null default '';
+alter table public.profiles add column if not exists capital_availability text not null default '';
+alter table public.profiles add column if not exists income_dependency_level text not null default '';
+alter table public.profiles add column if not exists investment_goal text not null default '';
+alter table public.profiles add column if not exists holding_period text not null default '';
+alter table public.profiles add column if not exists risk_tolerance text not null default '';
+alter table public.profiles add column if not exists investment_style text not null default '';
+alter table public.profiles add column if not exists circle_of_competence text[] not null default '{}';
+alter table public.profiles add column if not exists decision_preference text not null default '';
 
 -- 2) 开启行级安全（RLS）——配合 Publishable key 的前端访问
 alter table public.profiles enable row level security;

@@ -342,10 +342,12 @@ def assess_risk(inputs: dict[str, ModuleResult], assumptions: dict | None = None
         m4=out("M4_valuation"),
     )
     veto_flags = [v["id"] for v in vetoes]
+    # 严重度取**最严重**（critical=0 最小）：此前用 max() 按编号取到最轻等级，
+    # 导致 600362（含 medium/high 项）max_severity=low，M10 仓位风险修正失效。
     max_severity = (
         "critical"
         if vetoes
-        else max(items, key=lambda it: SEVERITY_ORDER.get(it["severity"], 3)).get("severity", "low")
+        else min(items, key=lambda it: SEVERITY_ORDER.get(it["severity"], SEVERITY_ORDER["low"])).get("severity", "low")
         if items
         else "low"
     )

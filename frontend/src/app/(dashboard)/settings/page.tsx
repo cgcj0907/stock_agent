@@ -39,17 +39,22 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
-          <Card className="overflow-hidden rounded-2xl opacity-60">
-            <div className="h-0.5 bg-primary/70" />
+        <Card className="rounded-2xl">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <UserRound className="size-4 text-emerald-600 dark:text-emerald-400" />
               个人资料
             </CardTitle>
-            <CardDescription>昵称与头像（M2 后续迭代）</CardDescription>
+            <CardDescription>维护投资者画像、教育背景与资金档位</CardDescription>
           </CardHeader>
           <CardContent>
-            <p className="text-sm text-muted-foreground">即将上线</p>
+            <Link
+              href="/settings/profile"
+              className="group inline-flex items-center gap-1 text-sm font-medium text-emerald-600 underline-offset-4 hover:underline dark:text-emerald-400"
+            >
+              去填写
+              <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
+            </Link>
           </CardContent>
         </Card>
       </div>

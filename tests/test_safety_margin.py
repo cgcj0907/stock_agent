@@ -117,13 +117,28 @@ def test_certainty_discount_none_moat_high_risk_clamped():
 
 
 def test_buy_tranches_three_tiers():
-    """6.2：分批建仓三档（0.75/0.65/0.5 × 下沿，各 1/3）。"""
+    """6.2：分批建仓三档（1.0/0.85/0.7 × 买入价，各 1/3）。"""
     r = run_safety_margin(40.0, INTRINSIC)
     assert len(r.buy_tranches) == 3
-    assert r.buy_tranches[0]["price"] == pytest.approx(56.67 * 0.75, abs=0.01)
-    assert r.buy_tranches[2]["price"] == pytest.approx(56.67 * 0.50, abs=0.01)
+    assert r.buy_tranches[0]["price"] == pytest.approx(r.buy_price, abs=0.01)
+    assert r.buy_tranches[2]["price"] == pytest.approx(r.buy_price * 0.70, abs=0.01)
     assert all(t["weight"] == pytest.approx(1 / 3) for t in r.buy_tranches)
+    assert all(t["price"] <= r.buy_price for t in r.buy_tranches)  # 档位不得高于买入价
     assert any("分批建仓" in e for e in r.evidence)
+
+
+def test_buy_tranches_never_exceed_buy_price_for_cyclical():
+    """生产稽核回归：周期股要求折扣 50% 时，档位不得高于买入价。
+
+    此前档位锚在内在价值下沿（0.75/0.65/0.5 × low），而买入价 = low×(1−req)=low×0.5，
+    第一档 0.75×low 反而比买入价高 50%（牧原 24.15 vs 16.1），M11 在买入区间外触发建仓。
+    """
+    r = run_safety_margin(
+        40.0, INTRINSIC, business_type="cyclical",
+        moat_width="narrow", risk_level="high",
+    )
+    assert r.buy_price < INTRINSIC["low"] * 0.75  # 复现原矛盾场景（要求折扣 > 25%）
+    assert all(t["price"] <= r.buy_price for t in r.buy_tranches)
 
 
 def test_sell_reference_on_high_valuation_percentile():

@@ -142,10 +142,12 @@ DIV_ZERO           # 除零/不可计算
   `total_multiplier`、`quality_tier`、`kill_switches`
 - 汇总口径（v2，2026-08-07）：**加权中位数 ± 加权标准差**（不再用 min~max 包络）；
   `low/mid/high = (中位 ∓ 离散度) × 质量乘数 × 风险折扣`
+- **当前/未来估值区分（v2.3，2026-08-08）**：`horizon_years=None` 为**现值口径**（进入内在价值区间）；
+  `horizon_years=3` 为**三年后估值**（唐朝法），只作参考展示、**不进入当前内在价值区间**
 - `methods[]`（统一方法级 schema，含每方法置信度）：
   ```python
   {"method": "dcf", "applicable": True, "value": 25.0, "low": 20.0, "high": 30.0,
-   "reason": "消费垄断+稳定增长，DCF 主用", "confidence": 0.75}
+   "reason": "消费垄断+稳定增长，DCF 主用", "confidence": 0.75, "horizon_years": None}
   ```
 - `handoff`：
   - `intrinsic_range [req]`：`{low, mid, high}`（M8/M10 消费）

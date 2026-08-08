@@ -3,7 +3,9 @@
 backlog 2026-08-07 落地：
 - 6.1 要求折扣按确定性分级：`基准 × moat 修正 × 风险修正`，夹逼 [0.2, 0.6]；
       确定性输入取 M5 moat_width + M2/M3 上游风险代理（不消费 M9，避免成环）。
-- 6.2 分批建仓区间 buy_tranches（0.75/0.65/0.5 × 下沿，各 1/3），M11 分档触发。
+- 6.2 分批建仓区间 buy_tranches（1.0/0.85/0.7 × 买入价，各 1/3），M11 分档触发；
+      档位锚定**买入价**而非内在价值下沿——否则周期股（要求折扣 50%）第一档
+      （下沿×0.75）会高于买入价（下沿×0.5），M11 在「买入区间」之外就触发建仓。
 - 6.3 卖出纪律收敛：sell_price = 上沿 × 1.1（原 1.2），M7 估值分位 > 0.9 触发卖出参考。
 """
 from __future__ import annotations
@@ -37,8 +39,8 @@ RISK_FACTOR: dict[str, float] = {
 }
 REQUIRED_CLAMP = (0.2, 0.6)  # 夹逼区间（设计 §3.8：20%~60%）
 
-# 分批建仓档位（6.2）：跌破下沿的 0.75/0.65/0.5 各建 1/3
-BUY_TRANCHE_FRACS = ((0.75, "第一档（0.75×下沿）"), (0.65, "第二档（0.65×下沿）"), (0.50, "第三档（0.50×下沿）"))
+# 分批建仓档位（6.2）：跌破买入价的 1.0/0.85/0.7 各建 1/3（全部 ≤ 买入价，与买入区间一致）
+BUY_TRANCHE_FRACS = ((1.00, "第一档（买入价）"), (0.85, "第二档（0.85×买入价）"), (0.70, "第三档（0.70×买入价）"))
 BUY_TRANCHE_WEIGHT = 1 / 3
 
 SELL_MULTIPLE = 1.1      # 卖出区间 = 上沿 × 1.1（6.3：原 1.2 收敛到上沿附近）
@@ -137,7 +139,7 @@ def run_safety_margin(
     sell_price = high * sell_multiple if high else None
     buy_tranches = [
         {
-            "price": round(low * frac, 2),
+            "price": round(buy_price * frac, 2),
             "weight": BUY_TRANCHE_WEIGHT,
             "label": label,
         }

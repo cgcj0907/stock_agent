@@ -224,7 +224,8 @@ class WorkflowEngine:
             on_llm_chunk=_llm_chunk_cb,
         )
         agent = self._registry.get(agent_id)
-        result = ModuleResult(module=agent_id, status=ModuleStatus.RUNNING, started_at=_now())
+        started_at = _now()
+        result = ModuleResult(module=agent_id, status=ModuleStatus.RUNNING, started_at=started_at)
         session.module_results[agent_id] = result
         try:
             self._manager.persist(session)
@@ -243,6 +244,9 @@ class WorkflowEngine:
             logger.exception("步骤 %s 执行失败", step.id)
             result.status = ModuleStatus.FAILED
             result.outputs = {"error": str(exc)}
+        # agent 返回的结果通常不带 started_at：沿用引擎记录的启动时间（补齐时长审计）
+        if result.started_at is None:
+            result.started_at = started_at
         result.finished_at = _now()
         session.module_results[agent_id] = result
 

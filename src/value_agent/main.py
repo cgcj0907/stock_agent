@@ -195,13 +195,20 @@ def _load_workflow(session: Session) -> Workflow:
 
 @app.post("/api/sessions")
 def create_session(req: CreateSessionRequest) -> dict:
-    session = _manager.create_session(
-        req.company_code,
-        company_name=req.company_name,
-        workflow_id=req.workflow_id,
-        workflow_steps=req.workflow_steps,
-        llm_config=req.llm_config,
-    )
+    try:
+        session = _manager.create_session(
+            req.company_code,
+            company_name=req.company_name,
+            workflow_id=req.workflow_id,
+            workflow_steps=req.workflow_steps,
+            llm_config=req.llm_config,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    # 与 CLI 对齐：继承同标的最近已完成会话的监控命中（I-2）+ 绑定 PIT 快照标识
+    session.monitor_hits = _manager.prior_monitor_hits(session.company_code)
+    session.data_snapshot_id = f"snap_{session.company_code}_{session.created_at:%Y%m%d%H%M%S}"
+    _manager.persist(session)
     return _public_session(session)
 
 

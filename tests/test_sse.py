@@ -294,3 +294,29 @@ def test_chat_stream_falls_back_without_llm(client: TestClient) -> None:
     done = [e for e in events if e["type"] == "done"]
     assert done and "未配置可用的 LLM" in done[0]["content"]
     assert events[-1]["type"] == "done"
+
+
+def test_create_session_sets_snapshot_and_validates_code(client: TestClient) -> None:
+    """API 创建会话：绑定 PIT 快照标识；非法代码返回 400；响应不含 api_key。"""
+    # 合法代码：响应带 data_snapshot_id，且 llm_config 无密钥（即便注入了 llm_config）
+    r = client.post(
+        "/api/sessions",
+        json={
+            "company_code": "600519",
+            "company_name": "贵州茅台",
+            "llm_config": {"provider": "deepseek", "base_url": "https://x/v1",
+                           "model": "deepseek-chat", "api_key": "sk-secret"},
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["data_snapshot_id"] and body["data_snapshot_id"].startswith("snap_600519_")
+    assert "api_key" not in (body.get("llm_config") or {})
+
+    # 非法代码（7 位）：400 + 明确错误，不再产生垃圾会话
+    bad = client.post(
+        "/api/sessions",
+        json={"company_code": "6002579", "company_name": "中京电子"},
+    )
+    assert bad.status_code == 400
+    assert "6002579" in bad.json()["detail"]

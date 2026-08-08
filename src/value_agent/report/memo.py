@@ -139,7 +139,11 @@ def build_memo(session: Session) -> str:
         for m in m4.outputs["methods"]:
             val = m.get("value")
             reason = m.get("reason") or m.get("note") or ""
-            lines.append(f"| {m.get('method')} | {val if val is not None else '跳过（' + reason + '）'} |")
+            horizon = m.get("horizon_years")
+            cell = val if val is not None else f"跳过（{reason}）"
+            if val is not None and horizon:
+                cell = f"{val}（{horizon}年后，非现值）"
+            lines.append(f"| {m.get('method')} | {cell} |")
         if m8 and m8.outputs.get("buy_price"):
             lines.append(
                 f"\n- 安全边际：现价 {m8.outputs.get('price')} 元，折扣率 {m8.outputs.get('discount')}，"

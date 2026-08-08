@@ -61,6 +61,8 @@ def methods_to_list(methods: dict, confidences: dict | None = None) -> list[dict
             "high": m.high,
             "reason": (m.note or _METHOD_REASON.get(name, "")),
             "confidence": confidences.get(name, 0.0) if m.value is not None else 0.0,
+            # v2.3：估值时点口径——None=现值；3=三年后估值（唐朝法，不进入当前内在价值区间）
+            "horizon_years": m.horizon_years,
         }
         for name, m in methods.items()
     ]

@@ -124,6 +124,11 @@ class Message:
 
 ---
 
+> 🛡️ 安全约定（2026-08-08 生产稽核修复）：会话级 `llm_config.api_key` **不落库、不外传**——
+> `Session.to_dict()` 序列化时剔除 `api_key`（Supabase/SQLite payload 只存 provider/base_url/model），
+> 密钥仅存进程内 `SessionManager` 缓存（TTL 6h，覆盖「创建 → 立即运行」流）；进程重启后回退全局 LLM。
+> 历史明文 Key 已由 `scripts/scrub_session_secrets.py` 清理。
+
 ## 6. API 设计
 
 ```text

@@ -169,6 +169,13 @@ class Session:
     archived_at: datetime | None = None
 
     def to_dict(self) -> dict:
+        # 安全：llm_config.api_key 属敏感凭据，序列化（落库/对外返回）时一律剔除，
+        # 绝不持久化明文 Key；运行期密钥仅存在于进程内 SessionManager 缓存。
+        llm_config = dict(self.llm_config) if self.llm_config else None
+        if llm_config:
+            llm_config.pop("api_key", None)
+            if not llm_config:
+                llm_config = None
         return {
             "id": self.id,
             "company_code": self.company_code,
@@ -180,7 +187,7 @@ class Session:
             "data_snapshot_id": self.data_snapshot_id,
             "workflow_id": self.workflow_id,
             "workflow_steps": self.workflow_steps,
-            "llm_config": self.llm_config,
+            "llm_config": llm_config,
             "model_version": self.model_version,
             "memo_versions": self.memo_versions,
             "decision_snapshots": self.decision_snapshots,

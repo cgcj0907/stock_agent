@@ -15,6 +15,36 @@
 | S5 M10 决策报告 | ✅ 评分卡+备忘录完成（M10/M11 占位） |
 | S6 M11 + 回测 | ✅ 完成 2026-08-04 |
 
+> ✅ 2026-08-08 **会话模块生产数据稽核修复（Supabase sessions）**：
+> ① 安全：`Session.to_dict` 序列化剔除 `llm_config.api_key`——明文 Key 不再落库；密钥仅存进程内缓存（TTL 6h，
+>   创建→立即运行流用），`scripts/scrub_session_secrets.py` 回填清理历史数据（Supabase 原子 SQL 已执行，0 残留）；
+> ② 数据质量：`workflow/engine.py` 保留 `started_at`（此前被 agent 返回结果覆盖，全量模块 started_at 为 None，无法审计时长）；
+> ③ 输入校验：`normalize_company_code`（6 位 A 股代码，容忍 sh/sz/bj 前缀/后缀）——拦截 `6002579` 这类脏代码
+>   产生的「全 DATA_UNAVAILABLE 却 completed」垃圾会话（API 400 / CLI 友好报错）；
+> ④ 生产接线对齐 CLI：`POST /api/sessions` 补 `data_snapshot_id`（PIT 快照标识）+ `prior_monitor_hits`（I-2 跨会话记忆）；
+> ⑤ `SessionManager.persist` 刷新 `updated_at`（步骤推进可见），`SupabaseStore` 连接加 keepalives/超时 + `close()`；
+> ⑥ 全量 **492 通过**；ruff 通过。
+
+> ✅ 2026-08-08 **跨类型公司模块合理性稽核修复（11 家真实会话回放）**：
+> ① M4 内在价值下沿：方法分歧过大（加权离散度 ≥ 中值）时 ±std 带下穿被钳成 0 —— 下沿退化为最保守方法值
+>   （000831 中国稀土 low 0→3.45、600519 茅台 0→612.77），修复 M8 因 low=0 直接 OUT_OF_RANGE 放弃的连锁问题；
+> ② M8 分批档位：档位原锚在**内在价值下沿**（0.75/0.65/0.5×low），周期股要求折扣 50% 时第一档反而比买入价高 50%
+>   （牧原 24.15 vs 16.1、铜业 12.52 vs 6.68）——改为锚定**买入价**（1.0/0.85/0.7×buy_price），档位不再超出买入区间；
+> ③ M3 周期股增速正常化：景气高点 EPS CAGR 被外推成长期增速（江西铜业 20%、中远海控 10%）——
+>   周期特征（ROE CV>0.3）时增速封顶 10% + 成长质量 ×0.9，避免 M4/M10 被高估；
+> ④ M9 max_severity 严重度取反：按编号 max() 取到**最轻**等级（江西铜业含 critical 却报 low）——
+>   改 min() 取最严重，恢复 M10 仓位风险修正（600362 low→critical、000831 medium→critical）；
+> ⑤ 全量 **496 通过**（+4 回归）；ruff 通过。
+
+> ✅ 2026-08-08 **当前/未来估值区分（v2.3）**：
+> ① `valuation/methods.py` `MethodResult` 新增 `horizon_years`（None=现值口径；3=三年后）——唐朝法标为 `horizon_years=3`；
+> ② `valuation/engine.py` 内在价值区间（low/mid/high）**只聚合现值口径方法**，未来估值（唐朝法）单独展示、不进入加权池，
+>   evidence 标注「未来估值（非现值）不进入当前内在价值区间：tang=xxx（3年后）」；方法级置信度仍覆盖全部适用方法；
+> ③ `valuation/agent.py` 方法列表输出 `horizon_years`；前端方法行显示「N年后」徽标 + 内在价值区间标题改为「现值口径」；
+>   `report/memo.py` 方法表标注「N年后，非现值」；
+> ④ 效果（美的）：区间由「混入唐朝 246 的 78.87~193.27」变为「纯现值 88.98~187.18」；r−g≥2% 钳制使 DDM 恢复可用；
+> ⑤ 全量 **484 通过**；ruff 通过。
+
 > ✅ 2026-08-08 **M1 生意类型改 LLM 主判（v2.1）+ 三个数据/口径修复（v2.2）**：
 > ① v2.1：`planner/validator.py::resolve_profile` 冲突策略由「规则为准」改为「LLM 主判」——
 >   与规则冲突且 confidence=high，或 medium+理由 → 采纳 LLM（`override`）；low 或 medium 无理由 → 回退规则；
