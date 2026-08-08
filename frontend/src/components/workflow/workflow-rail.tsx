@@ -185,7 +185,7 @@ export function WorkflowRail({
   }
 
   return (
-    <div className="flex flex-col gap-3 lg:sticky lg:top-20">
+    <div className="flex flex-col gap-3">
       {/* 运行概览 */}
       {(!showResults || running) && (running || Object.keys(statuses).length > 0) && (
         <Card className="rounded-xl">
