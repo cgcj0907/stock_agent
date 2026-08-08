@@ -79,7 +79,7 @@ function Metric({
         : "border-border/60 bg-muted/30 text-foreground";
   return (
     <div title={title} className={`rounded-lg border px-2.5 py-2 ${toneCls}`}>
-      <div className="text-[10px] font-semibold tracking-wide text-muted-foreground">
+      <div className="text-[11px] font-semibold tracking-wide text-muted-foreground">
         {label}
       </div>
       <div className="mt-0.5 text-sm font-bold tabular-nums">{value}</div>
@@ -95,7 +95,7 @@ function SectionTitle({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-primary/70">
+    <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-primary/70">
       <Icon className="size-3.5" />
       {children}
     </div>
@@ -128,12 +128,12 @@ function IntrinsicBand({ iv, price }: { iv: IntrinsicView; price?: number | null
           />
         )}
       </div>
-      <div className="mt-2 flex justify-between text-[11px] text-muted-foreground tabular-nums">
+      <div className="mt-2 flex justify-between text-xs text-muted-foreground tabular-nums">
         <span>低 {fmt(low)}</span>
         <span className="font-bold text-foreground">中 {fmt(mid)}</span>
         <span>高 {fmt(high)}</span>
       </div>
-      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
         {iv.std != null && <span>离散度 ±{fmt(iv.std)}</span>}
         {iv.method_agreement != null && (
           <span>方法一致性 {fmt(iv.method_agreement)}</span>
@@ -149,7 +149,7 @@ function MethodTable({ methods }: { methods: MethodView[] }) {
     <div className="overflow-hidden rounded-lg border">
       <table className="w-full text-xs">
         <thead>
-          <tr className="border-b bg-muted/40 text-left text-[10px] text-muted-foreground">
+          <tr className="border-b bg-muted/40 text-left text-[11px] text-muted-foreground">
             <th className="px-2.5 py-1.5 font-semibold">方法</th>
             <th className="px-2.5 py-1.5 text-right font-semibold">估值（元）</th>
             <th className="px-2.5 py-1.5 text-right font-semibold">置信度</th>
@@ -185,12 +185,12 @@ function Chips({ title, data }: { title: string; data: Record<string, unknown> }
   if (entries.length === 0) return null;
   return (
     <div className="flex flex-col gap-1">
-      <div className="text-[10px] font-semibold text-muted-foreground">{title}</div>
+      <div className="text-[11px] font-semibold text-muted-foreground">{title}</div>
       <div className="flex flex-wrap gap-1.5">
         {entries.map(([k, v]) => (
           <span
             key={k}
-            className="rounded-md border border-border/60 bg-muted/30 px-2 py-0.5 text-[11px] tabular-nums"
+            className="rounded-md border border-border/60 bg-muted/30 px-2 py-0.5 text-xs tabular-nums"
           >
             <span className="text-muted-foreground">{fieldLabel(k)}</span>{" "}
             <span className="font-semibold">{fmt(v)}</span>
@@ -206,17 +206,17 @@ function CalibrationBlock({ calib }: { calib: CalibrationView }) {
   return (
     <div className="flex flex-col gap-2.5 rounded-xl border border-violet-200/60 bg-violet-50/40 p-3 dark:border-violet-800/50 dark:bg-violet-950/20">
       <div className="flex flex-wrap items-center gap-2 text-xs">
-        <span className="text-[10px] font-bold uppercase tracking-wider text-violet-600/80 dark:text-violet-300/80">
+        <span className="text-[11px] font-bold uppercase tracking-wider text-violet-600/80 dark:text-violet-300/80">
           LLM 行业校准
         </span>
         {calib.business_type_override && (
-          <span className="rounded-md border border-violet-300/60 bg-violet-100/60 px-2 py-0.5 text-[11px] font-semibold dark:border-violet-700 dark:bg-violet-900/40">
+          <span className="rounded-md border border-violet-300/60 bg-violet-100/60 px-2 py-0.5 text-xs font-semibold dark:border-violet-700 dark:bg-violet-900/40">
             路由 → {calib.business_type_override}
             {calib.route_confidence != null && `（置信度 ${fmt(calib.route_confidence)}）`}
           </span>
         )}
         {delta != null && delta !== 0 && (
-          <span className="rounded-md border border-violet-300/60 bg-violet-100/60 px-2 py-0.5 text-[11px] font-semibold dark:border-violet-700 dark:bg-violet-900/40">
+          <span className="rounded-md border border-violet-300/60 bg-violet-100/60 px-2 py-0.5 text-xs font-semibold dark:border-violet-700 dark:bg-violet-900/40">
             置信度 {delta > 0 ? "+" : ""}
             {fmt(delta)}
           </span>
@@ -239,8 +239,8 @@ function CalibrationBlock({ calib }: { calib: CalibrationView }) {
       ) : null}
 
       {calib.industry_notes && calib.industry_notes.length > 0 && (
-        <div className="text-xs leading-5 text-foreground/80">
-          <div className="mb-0.5 text-[10px] font-semibold text-violet-600/80 dark:text-violet-300/80">
+        <div className="text-[13px] leading-5 text-foreground/80">
+          <div className="mb-0.5 text-[11px] font-semibold text-violet-600/80 dark:text-violet-300/80">
             行业判断
           </div>
           {calib.industry_notes.map((n, i) => (
@@ -250,7 +250,7 @@ function CalibrationBlock({ calib }: { calib: CalibrationView }) {
       )}
 
       {calib.risk_notes && calib.risk_notes.length > 0 && (
-        <div className="flex flex-col gap-0.5 rounded-lg border border-amber-200/70 bg-amber-50/60 px-2.5 py-2 text-xs leading-5 text-amber-800 dark:border-amber-800/50 dark:bg-amber-950/30 dark:text-amber-300">
+        <div className="flex flex-col gap-0.5 rounded-lg border border-amber-200/70 bg-amber-50/60 px-2.5 py-2 text-[13px] leading-5 text-amber-800 dark:border-amber-800/50 dark:bg-amber-950/30 dark:text-amber-300">
           <div className="flex items-center gap-1 font-semibold">
             <AlertTriangle className="size-3" /> 行业风险
           </div>
@@ -261,8 +261,8 @@ function CalibrationBlock({ calib }: { calib: CalibrationView }) {
       )}
 
       {calib.reasons && calib.reasons.length > 0 && (
-        <div className="text-[11px] leading-5 text-muted-foreground">
-          <div className="mb-0.5 text-[10px] font-semibold">判断理由</div>
+        <div className="text-xs leading-5 text-muted-foreground">
+          <div className="mb-0.5 text-[11px] font-semibold">判断理由</div>
           {calib.reasons.map((n, i) => (
             <p key={i}>{n}</p>
           ))}
@@ -313,7 +313,7 @@ export function M4Outputs({ outputs }: { outputs: Record<string, unknown> }) {
                 {kill.map((k) => (
                   <span
                     key={k}
-                    className="rounded bg-amber-500/15 px-1 py-0.5 text-[10px] font-semibold"
+                    className="rounded bg-amber-500/15 px-1 py-0.5 text-[11px] font-semibold"
                   >
                     {k}
                   </span>

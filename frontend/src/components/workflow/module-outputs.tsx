@@ -12,6 +12,7 @@ import {
   Gauge,
   GaugeCircle,
   HandCoins,
+  Info,
   Landmark,
     RadioTower,
     Scale,
@@ -26,6 +27,7 @@ import { Badge } from "@/components/ui/badge";
 import { M4Outputs } from "@/components/workflow/m4-outputs";
 import { getSectionTitleClass } from "@/components/workflow/section-tone";
 import { fieldLabel } from "@/lib/labels";
+import { groupSignals } from "@/lib/signal-polarity";
 
 // ---------- 通用工具 ----------
 
@@ -114,7 +116,7 @@ function toneOf(map: Record<string, string>, key: unknown): string {
 function ToneBadge({ text, tone, icon: Icon }: { text: unknown; tone: string; icon?: React.ComponentType<{ className?: string }> }) {
   const IconCmp = Icon ?? null;
   return (
-    <Badge variant="outline" className={`gap-1 rounded-md px-1.5 py-0.5 text-[10px] ${tone}`}>
+    <Badge variant="outline" className={`gap-1 rounded-md px-1.5 py-0.5 text-[11px] ${tone}`}>
       {IconCmp && <IconCmp className="size-3" />}
       {fmt(text)}
     </Badge>
@@ -214,7 +216,7 @@ function Section({
   const titleCls = getSectionTitleClass(title, tone);
   return (
     <div className="flex flex-col gap-1.5 border-t border-border/40 pt-2.5">
-      <div className={`flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider ${titleCls}`}>
+      <div className={`flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider ${titleCls}`}>
         {Icon && <Icon className="size-3.5 shrink-0" />}
         <span className="truncate">{title}</span>
       </div>
@@ -244,7 +246,7 @@ function Metric({
           : "border-border/60 bg-muted/30 text-foreground";
   return (
     <div title={title} className={`rounded-lg border px-2.5 py-2 ${toneCls}`}>
-      <div className="text-[10px] font-semibold tracking-wide text-muted-foreground">{label}</div>
+      <div className="text-[11px] font-semibold tracking-wide text-muted-foreground">{label}</div>
       <div className="mt-0.5 break-words text-sm font-bold tabular-nums">{value}</div>
     </div>
   );
@@ -279,7 +281,7 @@ function PercentileRow({ label, value }: { label: string; value: unknown }) {
   const v = pct(value);
   return (
     <div className="flex flex-col gap-1">
-      <div className="flex items-center justify-between text-[11px]">
+      <div className="flex items-center justify-between text-xs">
         <span className="font-medium text-foreground/70">{label}</span>
         <span className="font-semibold tabular-nums text-foreground/90">{v == null ? "—" : `${v.toFixed(0)}%`}</span>
       </div>
@@ -294,8 +296,8 @@ function KVGrid({ items, cols = 2 }: { items: Array<[string, unknown]>; cols?: 1
     <div className={`grid gap-x-3 gap-y-2 ${cols === 2 ? "grid-cols-2" : "grid-cols-1"}`}>
       {items.map(([k, v]) => (
         <div key={k} className="min-w-0">
-          <div className="truncate text-[10px] font-semibold tracking-wide text-muted-foreground">{fieldLabel(k)}</div>
-          <div className="mt-0.5 break-words text-xs leading-5 font-medium text-foreground/80">{fmt(v)}</div>
+          <div className="truncate text-[11px] font-semibold tracking-wide text-muted-foreground">{fieldLabel(k)}</div>
+          <div className="mt-0.5 break-words text-[13px] leading-5 font-medium text-foreground/80">{fmt(v)}</div>
         </div>
       ))}
     </div>
@@ -321,15 +323,15 @@ function ReferenceLink({ item }: { item: Record<string, unknown> }) {
           href={url}
           target="_blank"
           rel="noreferrer"
-          className="break-words text-xs leading-5 font-medium text-emerald-700 hover:underline dark:text-emerald-400"
+          className="break-words text-[13px] leading-5 font-medium text-emerald-700 hover:underline dark:text-emerald-400"
         >
           {title}
         </a>
       ) : (
-        <span className="break-words text-xs leading-5 font-medium text-foreground/85">{title}</span>
+        <span className="break-words text-[13px] leading-5 font-medium text-foreground/85">{title}</span>
       )}
-      {metaLine && <span className="text-[10px] leading-4 text-muted-foreground">{metaLine}</span>}
-      {snippet && <span className="text-[11px] leading-4 text-muted-foreground/80">{snippet}</span>}
+      {metaLine && <span className="text-[11px] leading-4 text-muted-foreground">{metaLine}</span>}
+      {snippet && <span className="text-xs leading-4 text-muted-foreground/80">{snippet}</span>}
     </li>
   );
 }
@@ -342,7 +344,7 @@ function BulletList({ items }: { items: unknown[] }) {
         isReference(it) ? (
           <ReferenceLink key={i} item={it} />
         ) : (
-          <li key={i} className="flex items-start gap-1.5 text-xs leading-5 text-foreground/80">
+          <li key={i} className="flex items-start gap-1.5 text-[13px] leading-5 text-foreground/80">
             <span className="mt-[5px] size-1 shrink-0 rounded-full bg-muted-foreground/50" />
             <span className="min-w-0 break-words">{fmt(it)}</span>
           </li>
@@ -370,7 +372,7 @@ function QualBlock({
     <div className="flex flex-col gap-2">
       {entries.map(([k, v]) => (
         <div key={k} className="min-w-0">
-          <div className="text-[10px] font-semibold tracking-wide text-violet-600/80 dark:text-violet-300/80">
+          <div className="text-[11px] font-semibold tracking-wide text-violet-600/80 dark:text-violet-300/80">
             {fieldLabel(k)}
           </div>
           {Array.isArray(v) ? (
@@ -378,11 +380,59 @@ function QualBlock({
           ) : isObj(v) ? (
             <KVGrid items={Object.entries(v)} cols={1} />
           ) : (
-            <div className="mt-0.5 break-words text-xs leading-5 text-foreground/80">{fmt(v)}</div>
+            <div className="mt-0.5 break-words text-[13px] leading-5 text-foreground/80">{fmt(v)}</div>
           )}
         </div>
       ))}
     </div>
+  );
+}
+
+
+function signalText(it: unknown): string {
+  if (isObj(it)) return str(it.message ?? it.desc ?? it.text ?? it.impact);
+  return str(it);
+}
+
+function SignalItems({ items, showSeverity }: { items: unknown[]; showSeverity?: boolean }) {
+  return (
+    <ul className="flex flex-col gap-1.5">
+      {items.map((sig, i) => (
+        <li key={i} className="flex items-start gap-2 text-[13px] leading-5">
+          {showSeverity && isObj(sig) && str(sig.severity) && (
+            <ToneBadge
+              text={labelOf(SEVERITY_LABEL, sig.severity)}
+              tone={toneOf(SEVERITY_TONE, sig.severity)}
+            />
+          )}
+          <span className="min-w-0 flex-1 break-words text-foreground/80">{signalText(sig)}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** 按极性分组渲染 signals：正向 / 风险 / 提示，避免把正向信号当风险块展示。 */
+export function SignalGroups({ items }: { items: unknown[] }) {
+  const groups = groupSignals(items);
+  return (
+    <>
+      {groups.positive.length > 0 && (
+        <Section icon={TrendingUp} title="正向信号" tone="primary">
+          <SignalItems items={groups.positive} />
+        </Section>
+      )}
+      {groups.risk.length > 0 && (
+        <Section icon={AlertTriangle} title="风险信号" tone="rose">
+          <SignalItems items={groups.risk} showSeverity />
+        </Section>
+      )}
+      {groups.neutral.length > 0 && (
+        <Section icon={Info} title="提示" tone="primary">
+          <SignalItems items={groups.neutral} />
+        </Section>
+      )}
+    </>
   );
 }
 
@@ -407,7 +457,7 @@ function M1Outputs({ outputs }: { outputs: Record<string, unknown> }) {
       </div>
       {oneLiner && (
         <Section icon={Building2} title="生意本质">
-          <p className="break-words text-xs leading-5 text-foreground/80">{oneLiner}</p>
+          <p className="break-words text-[13px] leading-5 text-foreground/80">{oneLiner}</p>
         </Section>
       )}
       {reasons.length > 0 && (
@@ -437,7 +487,7 @@ function M2Outputs({ outputs }: { outputs: Record<string, unknown> }) {
         <Section icon={AlertTriangle} title="风险信号" tone="rose">
           <ul className="flex flex-col gap-1.5">
             {signals.map((sig, i) => (
-              <li key={i} className="flex items-start gap-2 text-xs leading-5">
+              <li key={i} className="flex items-start gap-2 text-[13px] leading-5">
                 <ToneBadge text={labelOf(SEVERITY_LABEL, sig.severity ?? "warn")} tone={toneOf(SEVERITY_TONE, sig.severity)} />
                 <span className="min-w-0 flex-1 break-words text-foreground/80">
                   {fmt(sig.message ?? sig.desc ?? sig)}
@@ -493,7 +543,7 @@ function M5Outputs({ outputs }: { outputs: Record<string, unknown> }) {
   const qualList = qual ? (
     <QualBlock qual={qual} excludeKeys={["width"]} />
   ) : typeof outputs.llm_qualitative === "string" ? (
-    <p className="break-words whitespace-pre-wrap text-xs leading-5 text-foreground/80">{outputs.llm_qualitative}</p>
+    <p className="break-words whitespace-pre-wrap text-[13px] leading-5 text-foreground/80">{outputs.llm_qualitative}</p>
   ) : null;
 
   return (
@@ -502,7 +552,7 @@ function M5Outputs({ outputs }: { outputs: Record<string, unknown> }) {
       <div className="flex items-center gap-2.5 rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5">
         <Castle className="size-4 shrink-0 text-primary/70" />
         <div className="min-w-0 flex-1">
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
             最终护城河宽度
           </div>
           <div className={`text-lg leading-7 font-bold ${toneOf(WIDTH_TONE, outputs.width)}`}>{fmt(outputs.width) || "—"}</div>
@@ -510,13 +560,13 @@ function M5Outputs({ outputs }: { outputs: Record<string, unknown> }) {
         <div className="flex shrink-0 flex-col items-end gap-1">
           <ToneBadge text={widthSource} tone={toneOf(WIDTH_SOURCE_TONE, outputs.width_source)} />
           {widthConflict && (
-            <span className="text-[10px] text-amber-600 dark:text-amber-400">规则/LLM 冲突</span>
+            <span className="text-[11px] text-amber-600 dark:text-amber-400">规则/LLM 冲突</span>
           )}
         </div>
       </div>
 
       {widthConflict && (
-        <p className="rounded-lg border border-amber-200/70 bg-amber-50/60 px-2.5 py-1.5 text-[11px] leading-5 text-amber-800 dark:border-amber-800/50 dark:bg-amber-950/30 dark:text-amber-300">
+        <p className="rounded-lg border border-amber-200/70 bg-amber-50/60 px-2.5 py-1.5 text-xs leading-5 text-amber-800 dark:border-amber-800/50 dark:bg-amber-950/30 dark:text-amber-300">
           规则层={fmt(ruleProxy.tier)}（{fmt(ruleProxy.score)} 分）vs LLM 定性={llmWidth || "—"}，
           最终采用 <span className="font-semibold">{fmt(outputs.width)}</span>
           {outputs.width_source === "llm" && "（LLM 已附竞争优势证据）"}
@@ -525,7 +575,7 @@ function M5Outputs({ outputs }: { outputs: Record<string, unknown> }) {
 
       {/* 规则层参考（财务代理，不作为主结论） */}
       <div className="flex flex-col gap-1.5 border-t border-border/40 pt-2.5">
-        <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
           规则层参考（财务代理）
         </div>
         <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
@@ -540,11 +590,7 @@ function M5Outputs({ outputs }: { outputs: Record<string, unknown> }) {
         </div>
       </div>
 
-      {signals.length > 0 && (
-        <Section icon={ShieldAlert} title="信号" tone="rose">
-          <BulletList items={signals} />
-        </Section>
-      )}
+      {signals.length > 0 && <SignalGroups items={signals} />}
 
       {qualList && (
         <Section icon={BadgeCheck} title="LLM 定性" tone="violet">
@@ -583,13 +629,13 @@ function M6Outputs({ outputs }: { outputs: Record<string, unknown> }) {
         />
       </div>
       {str(outputs.note) && str(outputs.note) !== "—" && (
-        <p className="text-xs leading-5 text-muted-foreground">{fmt(outputs.note)}</p>
+        <p className="text-[13px] leading-5 text-muted-foreground">{fmt(outputs.note)}</p>
       )}
       {signals.length > 0 && (
         <Section icon={AlertTriangle} title="治理风险信号" tone="rose">
           <ul className="flex flex-col gap-1.5">
             {signals.map((sig, i) => (
-              <li key={i} className="flex items-start gap-2 text-xs leading-5">
+              <li key={i} className="flex items-start gap-2 text-[13px] leading-5">
                 <ToneBadge text={labelOf(SEVERITY_LABEL, sig.severity ?? "warn")} tone={toneOf(SEVERITY_TONE, sig.severity)} />
                 <span className="min-w-0 flex-1 break-words text-foreground/80">{fmt(sig.message ?? sig.desc ?? sig)}</span>
               </li>
@@ -616,7 +662,7 @@ function M7Outputs({ outputs }: { outputs: Record<string, unknown> }) {
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
         <ToneBadge text={outputs.position ?? "—"} tone={toneOf(POSITION_TONE, outputs.position)} icon={ChartLine} />
-        <span className="text-[10px] text-muted-foreground">
+        <span className="text-[11px] text-muted-foreground">
           情绪热度 {heat == null ? "—" : `${heat.toFixed(0)}%`}（{heatLabel}）
         </span>
       </div>
@@ -652,7 +698,7 @@ function M8Outputs({ outputs }: { outputs: Record<string, unknown> }) {
           icon={Scale}
         />
         {mos && (
-          <span className="text-[10px] text-muted-foreground">{MOS_LABEL[mos] ?? mos}</span>
+          <span className="text-[11px] text-muted-foreground">{MOS_LABEL[mos] ?? mos}</span>
         )}
         {outputs.sell_reference === true && (
           <ToneBadge text="卖出参考" tone={toneOf(SEVERITY_TONE, "warn")} icon={HandCoins} />
@@ -678,7 +724,7 @@ function M8Outputs({ outputs }: { outputs: Record<string, unknown> }) {
 
       {discount != null && required != null && (
         <div className="flex flex-col gap-1">
-          <div className="flex items-center justify-between text-[11px]">
+          <div className="flex items-center justify-between text-xs">
             <span className="font-medium text-foreground/70">安全边际</span>
             <span className="tabular-nums text-muted-foreground">
               要求 {(required * 100).toFixed(0)}% · 当前 {marginOk ? "达标" : "未达标"}
@@ -692,7 +738,7 @@ function M8Outputs({ outputs }: { outputs: Record<string, unknown> }) {
         <Section icon={GaugeCircle} title="分批建仓档位">
           <ul className="flex flex-col gap-1.5">
             {tranches.map((t, i) => (
-              <li key={i} className="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-muted/20 px-2.5 py-1.5 text-xs">
+              <li key={i} className="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-muted/20 px-2.5 py-1.5 text-[13px]">
                 <span className="min-w-0 flex-1 truncate text-foreground/80">{fmt(t.label ?? `档位 ${i + 1}`)}</span>
                 <span className="shrink-0 font-bold tabular-nums text-emerald-600 dark:text-emerald-400">{fmt(t.price)} 元</span>
                 <span className="shrink-0 text-muted-foreground">{fmtPct(t.weight)}</span>
@@ -723,7 +769,7 @@ function M9Outputs({ outputs }: { outputs: Record<string, unknown> }) {
         <Section icon={ShieldAlert} title="一票否决" tone="rose">
           <ul className="flex flex-col gap-1.5">
             {vetoes.map((v, i) => (
-              <li key={i} className="rounded-lg border border-red-200 bg-red-50/60 px-2.5 py-1.5 text-xs leading-5 text-red-700 dark:border-red-800/50 dark:bg-red-950/30 dark:text-red-300">
+              <li key={i} className="rounded-lg border border-red-200 bg-red-50/60 px-2.5 py-1.5 text-[13px] leading-5 text-red-700 dark:border-red-800/50 dark:bg-red-950/30 dark:text-red-300">
                 <span className="font-semibold">{fmt(v.id)}</span> {fmt(v.reason)}
               </li>
             ))}
@@ -737,17 +783,17 @@ function M9Outputs({ outputs }: { outputs: Record<string, unknown> }) {
             {riskItems.map((it, i) => (
               <li key={i} className="rounded-lg border border-border/60 bg-muted/20 px-2.5 py-2">
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="font-mono text-[10px] font-semibold text-muted-foreground">{fmt(it.id)}</span>
+                  <span className="font-mono text-[11px] font-semibold text-muted-foreground">{fmt(it.id)}</span>
                   <ToneBadge text={it.category} tone={toneOf(SEVERITY_TONE, "warn")} />
                   <ToneBadge text={labelOf(SEVERITY_LABEL, it.severity)} tone={toneOf(SEVERITY_TONE, it.severity)} />
-                  <span className="text-[10px] text-muted-foreground">{labelOf(MODULE_SHORT, it.source_module)}</span>
+                  <span className="text-[11px] text-muted-foreground">{labelOf(MODULE_SHORT, it.source_module)}</span>
                 </div>
-                <p className="mt-1 break-words text-xs leading-5 text-foreground/80">{fmt(it.impact)}</p>
+                <p className="mt-1 break-words text-[13px] leading-5 text-foreground/80">{fmt(it.impact)}</p>
                 {str(it.mitigation) && (
-                  <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">缓解：{fmt(it.mitigation)}</p>
+                  <p className="mt-0.5 text-xs leading-4 text-muted-foreground">缓解：{fmt(it.mitigation)}</p>
                 )}
                 {it.expected_loss != null && (
-                  <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
+                  <p className="mt-0.5 text-xs leading-4 text-muted-foreground">
                     期望损失 {fmt(it.expected_loss)} · 触发 {translateEnumText(fmt(it.trigger))}
                     {it.veto_candidate === true && " · 否决候选"}
                   </p>
@@ -762,7 +808,7 @@ function M9Outputs({ outputs }: { outputs: Record<string, unknown> }) {
         <Section icon={TrendingUp} title="压力情景">
           <div className="rounded-lg border border-border/60 bg-muted/20 p-2.5">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs font-semibold text-foreground/90">{fmt(scenario.scenario)}</span>
+              <span className="text-[13px] font-semibold text-foreground/90">{fmt(scenario.scenario)}</span>
               {scenario.estimated_downside_pct != null && (
                 <ToneBadge
                   text={`最大回撤 ${fmt(scenario.estimated_downside_pct)}%`}
@@ -770,10 +816,10 @@ function M9Outputs({ outputs }: { outputs: Record<string, unknown> }) {
                 />
               )}
             </div>
-            <p className="mt-1.5 text-[11px] leading-5 text-muted-foreground">{fmt(scenario.assumptions)}</p>
+            <p className="mt-1.5 text-xs leading-5 text-muted-foreground">{fmt(scenario.assumptions)}</p>
             {drivers.length > 0 && <BulletList items={drivers} />}
             {(scenario.current_price != null || scenario.suggested_position_cap != null) && (
-              <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-foreground/70">
+              <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-foreground/70">
                 {scenario.current_price != null && <span>现价 {fmt(scenario.current_price)}</span>}
                 {scenario.intrinsic_low != null && <span>内在下沿 {fmt(scenario.intrinsic_low)}</span>}
                 {scenario.estimated_downside_amount != null && (
@@ -786,9 +832,9 @@ function M9Outputs({ outputs }: { outputs: Record<string, unknown> }) {
             )}
             {monitorCandidates.length > 0 && (
               <div className="mt-1.5 flex flex-wrap items-center gap-1">
-                <span className="text-[10px] font-semibold text-muted-foreground">监控候选</span>
+                <span className="text-[11px] font-semibold text-muted-foreground">监控候选</span>
                 {monitorCandidates.map((c, i) => (
-                  <span key={i} className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-foreground/70">{fmt(c)}</span>
+                  <span key={i} className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground/70">{fmt(c)}</span>
                 ))}
               </div>
             )}
@@ -801,13 +847,13 @@ function M9Outputs({ outputs }: { outputs: Record<string, unknown> }) {
           <div className="flex flex-col gap-2.5">
             {assumptions.length > 0 && (
               <div>
-                <div className="mb-1 text-[10px] font-semibold text-violet-600/80 dark:text-violet-300/80">关键假设</div>
+                <div className="mb-1 text-[11px] font-semibold text-violet-600/80 dark:text-violet-300/80">关键假设</div>
                 <BulletList items={assumptions} />
               </div>
             )}
             {paths.length > 0 && (
               <div>
-                <div className="mb-1 text-[10px] font-semibold text-violet-600/80 dark:text-violet-300/80">永久损失路径</div>
+                <div className="mb-1 text-[11px] font-semibold text-violet-600/80 dark:text-violet-300/80">永久损失路径</div>
                 <ul className="flex flex-col gap-1.5">
                   {paths.map((p, i) => (
                     <li key={i} className="rounded-lg border border-border/60 bg-muted/20 px-2.5 py-1.5">
@@ -817,21 +863,21 @@ function M9Outputs({ outputs }: { outputs: Record<string, unknown> }) {
                           <ToneBadge text="否决候选" tone={toneOf(SEVERITY_TONE, "critical")} />
                         )}
                       </div>
-                      <p className="mt-1 break-words text-[11px] leading-5 text-foreground/80">{fmt(p.path)}</p>
+                      <p className="mt-1 break-words text-xs leading-5 text-foreground/80">{fmt(p.path)}</p>
                     </li>
                   ))}
                 </ul>
               </div>
             )}
             {str(redTeam.verdict) && (
-              <div className="rounded-lg border border-amber-200/70 bg-amber-50/60 px-2.5 py-2 text-[11px] leading-5 text-amber-800 dark:border-amber-800/50 dark:bg-amber-950/30 dark:text-amber-300">
+              <div className="rounded-lg border border-amber-200/70 bg-amber-50/60 px-2.5 py-2 text-xs leading-5 text-amber-800 dark:border-amber-800/50 dark:bg-amber-950/30 dark:text-amber-300">
                 <span className="font-semibold">反方结论：</span>
                 {fmt(redTeam.verdict)}
               </div>
             )}
             {Array.isArray(redTeam.references) && redTeam.references.length > 0 && (
               <div className="flex flex-col gap-1">
-                <div className="text-[10px] font-semibold text-violet-600/80 dark:text-violet-300/80">参考文章</div>
+                <div className="text-[11px] font-semibold text-violet-600/80 dark:text-violet-300/80">参考文章</div>
                 <BulletList items={redTeam.references} />
               </div>
             )}
@@ -873,7 +919,7 @@ function M10Outputs({ outputs }: { outputs: Record<string, unknown> }) {
           icon={Target}
         />
         {total != null && (
-          <Badge variant="outline" className="gap-1 rounded-md border-border bg-muted/50 px-1.5 py-0.5 text-[10px]">
+          <Badge variant="outline" className="gap-1 rounded-md border-border bg-muted/50 px-1.5 py-0.5 text-[11px]">
             加权总分 <span className="font-bold tabular-nums">{Math.round(total)}</span>
           </Badge>
         )}
@@ -888,14 +934,14 @@ function M10Outputs({ outputs }: { outputs: Record<string, unknown> }) {
             const v = typeof dims[d.key] === "number" ? (dims[d.key] as number) : null;
             return (
               <div key={d.key} className="flex items-center gap-2.5">
-                <span className="w-14 shrink-0 text-[11px] text-foreground/70">{d.label}</span>
+                <span className="w-14 shrink-0 text-xs text-foreground/70">{d.label}</span>
                 <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
                   <div
                     className={`h-full rounded-full ${d.bar}`}
                     style={{ width: `${v == null ? 0 : Math.max(0, Math.min(100, v))}%` }}
                   />
                 </div>
-                <span className="w-7 shrink-0 text-right text-[11px] font-semibold tabular-nums text-foreground/90">
+                <span className="w-7 shrink-0 text-right text-xs font-semibold tabular-nums text-foreground/90">
                   {v == null ? "—" : Math.round(v)}
                 </span>
               </div>
@@ -957,14 +1003,14 @@ function M11Outputs({ outputs }: { outputs: Record<string, unknown> }) {
                     tone={toneOf(SEVERITY_TONE, r.severity)}
                   />
                   <ToneBadge text={labelOf(SEVERITY_LABEL, r.severity)} tone={toneOf(SEVERITY_TONE, r.severity)} />
-                  <span className="text-[10px] text-muted-foreground">{labelOf(MODULE_SHORT, r.source_module)}</span>
-                  <span className="ml-auto rounded bg-muted px-1.5 py-0.5 text-[10px] text-foreground/70">
+                  <span className="text-[11px] text-muted-foreground">{labelOf(MODULE_SHORT, r.source_module)}</span>
+                  <span className="ml-auto rounded bg-muted px-1.5 py-0.5 text-[11px] text-foreground/70">
                     {ACTION_LABEL[str(r.action)] ?? str(r.action)}
                   </span>
                 </div>
-                <p className="mt-1 font-mono text-[11px] font-medium text-foreground/85">{translateEnumText(fmt(r.trigger))}</p>
+                <p className="mt-1 font-mono text-xs font-medium text-foreground/85">{translateEnumText(fmt(r.trigger))}</p>
                 {str(r.message || r.description) && (
-                  <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">{fmt(r.message || r.description)}</p>
+                  <p className="mt-0.5 text-xs leading-4 text-muted-foreground">{fmt(r.message || r.description)}</p>
                 )}
               </li>
             ))}

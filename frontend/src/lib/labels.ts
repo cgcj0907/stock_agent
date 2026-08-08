@@ -10,7 +10,7 @@ export const FIELD_LABELS: Record<string, string> = {
   industry: "行业",
   // M2 财务质量
   metrics: "核心指标",
-  signals: "风险信号",
+  signals: "信号",
   summary: "摘要",
   years: "年报期数",
   roe_latest: "ROE 最新",

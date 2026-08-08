@@ -21,13 +21,19 @@ import {
 } from "@/components/ui/card";
 import { AgentIcon } from "@/components/agent-icon";
 import { LlmResultView } from "@/components/workflow/llm-result-view";
-import { ModuleOutputs, MODULE_OUTPUT_COMPONENTS, moduleShort } from "@/components/workflow/module-outputs";
+import {
+  ModuleOutputs,
+  MODULE_OUTPUT_COMPONENTS,
+  moduleShort,
+  SignalGroups,
+} from "@/components/workflow/module-outputs";
 import {
   isMarkdownText,
   MarkdownValue,
 } from "@/components/workflow/markdown-value";
 import { ValueView } from "@/components/workflow/value-view";
 import { fieldLabel } from "@/lib/labels";
+import { verdictFor, type VerdictTone } from "@/lib/module-verdict";
 import type { AgentInfo } from "@/lib/agents/catalog";
 import type { ModuleResultView } from "@/hooks/use-workflow-run";
 
@@ -101,6 +107,15 @@ function scoreTone(score: number): { bar: string; text: string } {
   return { bar: "bg-red-500", text: "text-red-600 dark:text-red-400" };
 }
 
+const VERDICT_TONE_CLS: Record<VerdictTone, string> = {
+  positive:
+    "border-emerald-200/70 bg-emerald-50/60 text-emerald-800 dark:border-emerald-800/50 dark:bg-emerald-950/30 dark:text-emerald-300",
+  neutral: "border-border/60 bg-muted/40 text-foreground",
+  negative:
+    "border-rose-200/70 bg-rose-50/60 text-rose-800 dark:border-rose-800/50 dark:bg-rose-950/30 dark:text-rose-300",
+  muted: "border-border/60 bg-muted/30 text-muted-foreground",
+};
+
 function ExpandToggle({
   expanded,
   label,
@@ -115,7 +130,7 @@ function ExpandToggle({
     <button
       type="button"
       onClick={onClick}
-      className="inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+      className="inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
     >
       <Icon className="size-3" />
       {expanded ? "收起" : label}
@@ -137,6 +152,7 @@ export function ResultCard({
   );
   const score = result.score;
   const tone = score != null ? scoreTone(score) : null;
+  const verdict = verdictFor(result);
   const hasModuleView = result.module in MODULE_OUTPUT_COMPONENTS;
   const [showAllOutputs, setShowAllOutputs] = React.useState(false);
   // 分析依据默认折叠，卡片更清爽；有告警条目时在折叠头用角标提示
@@ -148,12 +164,21 @@ export function ResultCard({
 
   const warnEvidenceCount =
     result.evidence?.filter(isWarnEvidence).length ?? 0;
+  // 分析依据展开时：告警条目置顶，其余保持原顺序。
+  const orderedEvidence = React.useMemo(
+    () =>
+      [...(result.evidence ?? [])].sort(
+        (a, b) => Number(isWarnEvidence(b)) - Number(isWarnEvidence(a)),
+      ),
+    [result.evidence],
+  );
 
   const shortFields = visibleOutputs.filter(
     ([k, v]) => !isFullWidthValue(v, k) && k !== "signals" && k !== "risks" && k !== "risk_items",
   );
+  const signalFields = visibleOutputs.filter(([k]) => k === "signals");
   const riskFields = visibleOutputs.filter(
-    ([k]) => k === "signals" || k === "risks" || k === "risk_items",
+    ([k]) => k === "risks" || k === "risk_items",
   );
   const longFields = visibleOutputs.filter(
     ([k, v]) => isFullWidthValue(v, k) && k !== "signals" && k !== "risks" && k !== "risk_items",
@@ -173,12 +198,12 @@ export function ResultCard({
                 {agent?.name ?? moduleShort(result.module)}
               </span>
               {agent && (
-                <Badge variant="secondary" className="rounded-md px-1.5 text-[10px]">
+                <Badge variant="secondary" className="rounded-md px-1.5 text-xs">
                   {agent.code}
                 </Badge>
               )}
             </div>
-            <span className="font-mono text-[10px] text-muted-foreground">
+            <span className="font-mono text-xs text-muted-foreground">
               {moduleShort(result.module)}
             </span>
           </div>
@@ -205,6 +230,19 @@ export function ResultCard({
       </CardHeader>
 
       <CardContent className="flex flex-1 flex-col gap-2.5">
+        {verdict && (
+          <div
+            className={`flex items-center gap-2 rounded-lg border px-3 py-2 ${VERDICT_TONE_CLS[verdict.tone]}`}
+          >
+            <span className="shrink-0 text-xs font-semibold tracking-wide opacity-70">
+              结论
+            </span>
+            <span className="min-w-0 flex-1 text-[13px] leading-5 font-semibold">
+              {verdict.text}
+            </span>
+          </div>
+        )}
+
         {score != null && (
           <div className="flex items-center gap-2.5">
             <div className="h-1.5 w-24 overflow-hidden rounded-full bg-muted">
@@ -229,10 +267,10 @@ export function ResultCard({
               <div className="grid grid-cols-2 gap-x-3 gap-y-3 pt-1">
                 {shortFields.map(([k, v]) => (
                   <div key={k} className="min-w-0">
-                    <div className="truncate text-[10px] font-semibold tracking-wide text-muted-foreground">
+                    <div className="truncate text-xs font-semibold tracking-wide text-muted-foreground">
                       {fieldLabel(k)}
                     </div>
-                    <div className="mt-0.5 break-words text-xs leading-5 font-medium text-foreground/80">
+                    <div className="mt-0.5 break-words text-[13px] leading-5 font-medium text-foreground/80">
                       {LLM_KEY_RE.test(k) ? (
                         <LlmResultView value={v} />
                       ) : (
@@ -244,12 +282,17 @@ export function ResultCard({
               </div>
             )}
 
-            {/* 2. 风险信号列表：特别的展示区块 */}
+            {/* 2a. signals：按极性分组（正向 / 风险 / 提示），不再默认当风险块 */}
+            {signalFields.map(([k, v]) => (
+              <SignalGroups key={k} items={Array.isArray(v) ? v : [v]} />
+            ))}
+
+            {/* 2b. 风险清单（risks / risk_items）：明确的警示区块 */}
             {riskFields.map(([k, v]) => (
               <div key={k} className="flex flex-col gap-1.5 border-t border-border/40 pt-3">
                 <div className="flex items-center gap-1.5 text-rose-600/80 uppercase">
                   <AlertTriangle className="size-3.5 shrink-0" />
-                  <span className="truncate text-[10px] font-semibold tracking-wide">
+                  <span className="truncate text-xs font-semibold tracking-wide">
                     {fieldLabel(k)}
                   </span>
                 </div>
@@ -265,7 +308,7 @@ export function ResultCard({
                 key={k}
                 className="flex flex-col gap-1.5 border-t border-border/40 pt-3"
               >
-                <div className="truncate text-[10px] font-semibold tracking-wide text-primary/70 uppercase">
+                <div className="truncate text-xs font-semibold tracking-wide text-primary/70 uppercase">
                   {fieldLabel(k)}
                 </div>
                 <div className="break-words text-sm leading-relaxed text-foreground/90">
@@ -308,16 +351,16 @@ export function ResultCard({
             >
               <span className="flex min-w-0 items-center gap-1.5">
                 <FileText className="size-3.5 shrink-0 text-muted-foreground" />
-                <span className="text-[10px] font-semibold tracking-wide text-muted-foreground">
+                <span className="text-xs font-semibold tracking-wide text-muted-foreground">
                   分析依据
                 </span>
-                <span className="text-[10px] text-muted-foreground/70">
+                <span className="text-xs text-muted-foreground/70">
                   {result.evidence.length}
                 </span>
                 {warnEvidenceCount > 0 && (
                   <Badge
                     variant="outline"
-                    className="gap-0.5 rounded-md border-amber-200 bg-amber-50 px-1 py-0 text-[9px] text-amber-700 dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-300"
+                    className="gap-0.5 rounded-md border-amber-200 bg-amber-50 px-1 py-0 text-[10px] text-amber-700 dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-300"
                   >
                     <AlertTriangle className="size-2.5" />
                     {warnEvidenceCount}
@@ -332,13 +375,13 @@ export function ResultCard({
             </button>
             {showEvidence && (
               <ul className="flex flex-col gap-1 px-1 pb-0.5">
-                {result.evidence.slice(0, 8).map((e, i) => (
+                {orderedEvidence.slice(0, 8).map((e, i) => (
                   <li
                     key={i}
                     className={
                       isWarnEvidence(e)
-                        ? "text-[11px] leading-5 text-amber-600 dark:text-amber-400"
-                        : "text-[11px] leading-5 text-muted-foreground"
+                        ? "text-xs leading-5 text-amber-600 dark:text-amber-400"
+                        : "text-xs leading-5 text-muted-foreground"
                     }
                   >
                     {e}
