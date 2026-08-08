@@ -24,8 +24,6 @@ interface IntrinsicView {
 }
 
 interface CalibrationView {
-  business_type_override?: string | null;
-  route_confidence?: number;
   parameter_adjustments?: Record<string, number>;
   method_weight_adjustments?: Record<string, number>;
   valuation_confidence_delta?: number;
@@ -209,12 +207,6 @@ function CalibrationBlock({ calib }: { calib: CalibrationView }) {
         <span className="text-[11px] font-bold uppercase tracking-wider text-violet-600/80 dark:text-violet-300/80">
           LLM 行业校准
         </span>
-        {calib.business_type_override && (
-          <span className="rounded-md border border-violet-300/60 bg-violet-100/60 px-2 py-0.5 text-xs font-semibold dark:border-violet-700 dark:bg-violet-900/40">
-            路由 → {calib.business_type_override}
-            {calib.route_confidence != null && `（置信度 ${fmt(calib.route_confidence)}）`}
-          </span>
-        )}
         {delta != null && delta !== 0 && (
           <span className="rounded-md border border-violet-300/60 bg-violet-100/60 px-2 py-0.5 text-xs font-semibold dark:border-violet-700 dark:bg-violet-900/40">
             置信度 {delta > 0 ? "+" : ""}

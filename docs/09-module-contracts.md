@@ -156,12 +156,13 @@ DIV_ZERO           # 除零/不可计算
 - kill switch 规则（全部复用上游信号）：`LOSS_YEAR`→禁 DCF/唐朝/PEG；
   `OCF_NP_DIVERGENCE`→DCF×0.85；负债率>70%→整体×0.85；
   周期特征+景气下行→只留相对/资产类；护城河缺失+治理弱→整体×0.9
-- `llm_qualitative`（可选，v3）：**行业校准**——规则估值打底后，LLM 按行业惯例输出
-  `{calibration: {business_type_override, route_confidence, parameter_adjustments,
-  method_weight_adjustments, valuation_confidence_delta, industry_notes, risk_notes,
+- `llm_qualitative`（可选，v3，v2.1 更新）：**行业校准**——规则估值打底后，LLM 按行业惯例输出
+  `{calibration: {parameter_adjustments, method_weight_adjustments,
+  valuation_confidence_delta, industry_notes, risk_notes,
   reasons, calibrated_intrinsic}, raw}`；所有数值在 `valuation/llm.py` 里 clamp 到安全区间
   （增速≤20%、折现率 7~12%、永续≤3%、权重 0.05~0.5、置信度增量 ±0.1），
-  校准后引擎用新参数重跑；未配 LLM 时完全退化为规则结果
+  校准后引擎用新参数重跑；**v2.1 起 business_type 由 M1 画像单一决策，本层不再覆盖类型**
+  （`business_type_override`/`route_confidence` 已移除）；未配 LLM 时完全退化为规则结果
 - 消费方：M8、M9、M10、M11
 - 降级：`intrinsic_range=None` + `reason_codes=[DATA_UNAVAILABLE]`；**字段集合与正常态一致**（缺值置 None/空）
 

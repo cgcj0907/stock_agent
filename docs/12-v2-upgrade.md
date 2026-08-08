@@ -8,7 +8,7 @@
 > 状态：设计定稿（2026-08-08）。**P1 已落地（2026-08-08）**：`core/scoring.py` 完成 delta 制校准 + 证据校验 + 动态 cap + 档位保护，全量 417 测试通过。
 > **P2 已落地（2026-08-08）**：`config/llm_calibration.yaml` 成为校准策略唯一事实来源（代码兜底 + 契约测试锁一致）；校准轨迹（`calibration_trace`）挂到 `ModuleResult.calibration` 并进决策快照，全量 425 测试通过。
 > **P3 已落地（2026-08-08）**：校准 A/B 回放闭环——`src/value_agent/backtest/calibration_ab.py`（抽取/前向收益/相关对比/档位翻转/数据驱动建议）+ `scripts/calibration_ab.py`（读 `data/sessions.db` 语料 + `data/market.db` 行情，输出报告与 `llm_calibration.yaml` 修改建议），全量 438 测试通过。
-> **P4 已落地（2026-08-08）**：画像 planner 试点（M1→M4）——`src/value_agent/planner/`（CompanyProfile 模型 + `parse_profile`/`resolve_profile` 校验器 + `stability_rate`），M1 的 LLM 分类调用升级为一次输出完整画像（business_type/financial_subtype/cyclicality/primary_metric/confidence），冲突回退规则路由（high confidence 可覆盖），画像字段 + `plan_trace` 进 M1 handoff、M4 消费；`scripts/planner_stability.py` 验收 plan 稳定性。全量 451 测试通过。
+> **P4 已落地（2026-08-08）**：画像 planner 试点（M1→M4）——`src/value_agent/planner/`（CompanyProfile 模型 + `parse_profile`/`resolve_profile` 校验器 + `stability_rate`），M1 的 LLM 分类调用升级为一次输出完整画像（business_type/financial_subtype/cyclicality/primary_metric/confidence），冲突策略 v2.1 起改为 **LLM 主判**（medium+理由/high 采纳 LLM，low/无理由回退规则），画像字段 + `plan_trace`（含 `llm_vs_rule`）进 M1 handoff、M2/M4/M7 消费同一份；`scripts/planner_stability.py` 验收 plan 稳定性。全量 451 测试通过。
 > **P5 已落地（2026-08-08）——V2 全部完成**：① 接线——`confidence_from_completeness`（completeness→校准置信度），M1（画像/数据→meta.completeness→校准上限：plan 采纳→high→±5，冲突/降级→medium/low→±10/15）与 M4（数据降级/valuation_confidence→meta）接入；② 函数注册表——`src/value_agent/tools/`（ToolRegistry + 12 个估值方法登记 + 输入/输出 schema 校验 + `execute_plan` plan-then-execute）。全量 464 测试通过。
 
 ---
@@ -140,18 +140,18 @@ confidence        ∈ {high, medium, low}
 | 检查 | 行为 |
 |---|---|
 | schema / 枚举非法 | 回退规则路由 + `reason_code: PLAN_INVALID` |
-| 与规则分类冲突且 `confidence != high` | business_type 回退规则路由（其余画像字段保留）+ warning 落 trace |
-| 与规则分类冲突但 `confidence == high` | 采纳画像（记 `override` trace，要求 LLM 给出理由） |
+| 与规则冲突且 `confidence=low`，或 `medium` 未给理由 | business_type 回退规则路由（其余画像字段保留）+ warning 落 trace（`conflict_fallback`） |
+| 与规则冲突且 `confidence=high`，或 `medium` 且给出理由 | 采纳 LLM 判断（记 `override` trace，`llm_vs_rule=conflict`，要求 LLM 给出理由） |
 | LLM 失败 / 超时 / 解析失败 | 默认画像 `{business_type: null}` → 走现有规则兜底路由 |
 
-> ✅ 已落地（2026-08-08）：`planner/validator.py` 的 `parse_profile`（schema 校验）/ `resolve_profile`（冲突回退）；
-> M1 的 LLM 分类调用即画像调用（一次输出完整画像），`handoff.plan_trace` 落审计，M4 读 business_type/financial_subtype。
+> ✅ 已落地（2026-08-08，v2.1 更新 2026-08-08）：`planner/validator.py` 的 `parse_profile`（schema 校验）/ `resolve_profile`（LLM 主判 + 规则兜底）；
+> M1 的 LLM 分类调用即画像调用（一次输出完整画像），`handoff.plan_trace`（含 `llm_vs_rule`）落审计，M2/M4/M7 消费同一份；M4 校准层不再覆盖 business_type。
 
 ### 4.4 消费方映射
 
 | 消费方 | 读取字段 | v2 行为 |
 |---|---|---|
-| M1 | business_type / industry | 画像作行业先验，规则校验后产出 `handoff.valuation_route`；冲突以规则为准 |
+| M1 | business_type / industry | 画像作行业先验，规则校验后产出 `handoff.valuation_route`；v2.1 冲突时 **LLM 主判**（medium+理由/high 采纳；low/无理由回退规则） |
 | M2 | business_type / financial_subtype | 画像 → `financial_routing.yaml` 查表选口径 |
 | M4 | business_type / financial_subtype | 画像 → `valuation_routing.yaml` 查表选方法 + 参数 |
 | M7 | primary_metric | 画像 → 主指标选择 |

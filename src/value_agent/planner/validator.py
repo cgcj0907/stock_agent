@@ -1,12 +1,14 @@
-"""画像 plan 校验器（docs/12-v2-upgrade.md §4.3）：schema 校验 + 与规则路由冲突回退。
+"""画像 plan 校验器（docs/12-v2-upgrade.md §4.3）：schema 校验 + LLM 主判/规则兜底。
 
-冲突策略（审慎原则，与 moat「LLM 冲突升级需证据」一致）：
+v2.1 策略（LLM 主判，规则退化为「候选提供者 + 兜底」）：
 - 画像缺失/非法（business_type 缺失或不在枚举）→ PLAN_INVALID，整体回退规则路由；
-- 画像与规则分类冲突且 confidence != high → business_type 回退规则（其余画像字段保留）；
-- 画像与规则冲突且 confidence == high → 采纳画像（记 override trace，需在 prompt 要求 LLM 说明依据）；
-- 无冲突 → 采纳画像。
+- 画像与规则一致 → 采纳画像（adopted）；
+- 画像与规则冲突且 confidence=high，或 medium 且给出理由 → 采纳画像（override，记 trace）；
+- 画像与规则冲突且 confidence=low，或 medium 未给理由 → business_type 回退规则
+  （conflict_fallback，审慎——其余画像字段保留）。
 
-plan_trace 落审计（P2 trace 通道），供「为什么用了这个路由」追溯。
+plan_trace 落审计（P2 trace 通道），供「为什么用了这个路由」追溯；llm_vs_rule 标记
+画像与规则是否一致，供 plan 稳定性监控（scripts/planner_stability.py）。
 """
 from __future__ import annotations
 
@@ -34,6 +36,7 @@ class PlanTrace:
     reasons: list[str] = field(default_factory=list)
     adopted_business_type: str | None = None
     adopted_confidence: str = "medium"
+    llm_vs_rule: str | None = None  # consistent | conflict | None（fallback_rule 无画像）
 
     def to_dict(self) -> dict:
         return {
@@ -41,6 +44,7 @@ class PlanTrace:
             "reasons": self.reasons,
             "adopted_business_type": self.adopted_business_type,
             "adopted_confidence": self.adopted_confidence,
+            "llm_vs_rule": self.llm_vs_rule,
         }
 
 
@@ -74,8 +78,18 @@ def resolve_profile(
     *,
     rule_business_type: str | None,
     rule_financial_subtype: str | None,
+    llm_reasons: list[str] | None = None,
 ) -> tuple[CompanyProfile, PlanTrace]:
-    """画像 vs 规则 → (生效画像, 校验轨迹)。冲突以规则为准（审慎），high confidence 可覆盖。"""
+    """画像 vs 规则 → (生效画像, 校验轨迹)。
+
+    v2.1（LLM 主判，docs/12-v2-upgrade.md §4.3）：规则退化为「候选提供者 + 兜底」，
+    LLM 是 business_type 的最终裁判：
+    - 画像无效（缺失/非法）→ 整体回退规则（fallback_rule）
+    - 画像与规则一致 → 采纳画像（adopted，llm_vs_rule=consistent）
+    - 冲突且 confidence=high → 采纳画像（override，llm_vs_rule=conflict）
+    - 冲突且 confidence=medium 且给出理由 → 采纳画像（override，llm_vs_rule=conflict）
+    - 冲突且 confidence=low，或 medium 未给理由 → 回退规则（conflict_fallback，审慎）
+    """
     if profile is None:
         effective = CompanyProfile(
             business_type=rule_business_type,
@@ -90,11 +104,14 @@ def resolve_profile(
             ],
             adopted_business_type=rule_business_type,
             adopted_confidence="medium",
+            llm_vs_rule=None,
         )
         return effective, trace
 
     if rule_business_type is not None and profile.business_type != rule_business_type:
-        if profile.confidence != "high":
+        if profile.confidence == "low" or (
+            profile.confidence == "medium" and not llm_reasons
+        ):
             effective = CompanyProfile(
                 business_type=rule_business_type,
                 financial_subtype=profile.financial_subtype or rule_financial_subtype,
@@ -104,28 +121,35 @@ def resolve_profile(
                 confidence="medium",
                 notes="business_type 回退规则分类（画像冲突）",
             )
+            why = (
+                f"confidence={profile.confidence}"
+                if profile.confidence == "low"
+                else "未给出理由"
+            )
             trace = PlanTrace(
                 outcome="conflict_fallback",
                 reasons=[
                     (
                         f"画像与规则分类冲突（{profile.business_type} vs {rule_business_type}）"
-                        f"且 confidence={profile.confidence}，business_type 回退规则"
+                        f"且{why}，business_type 回退规则"
                     )
                 ],
                 adopted_business_type=rule_business_type,
                 adopted_confidence="medium",
+                llm_vs_rule="conflict",
             )
             return effective, trace
         trace = PlanTrace(
             outcome="override",
             reasons=[
                 (
-                    f"画像与规则冲突但 LLM confidence=high，采纳画像"
-                    f"（{rule_business_type}→{profile.business_type}）"
+                    f"LLM 主判与规则冲突（{rule_business_type}→{profile.business_type}），"
+                    f"confidence={profile.confidence}，采纳 LLM 判断"
                 )
             ],
             adopted_business_type=profile.business_type,
             adopted_confidence=profile.confidence,
+            llm_vs_rule="conflict",
         )
         return profile, trace
 
@@ -134,6 +158,7 @@ def resolve_profile(
         reasons=["画像与规则一致（或无规则参考），采纳画像"],
         adopted_business_type=profile.business_type,
         adopted_confidence=profile.confidence,
+        llm_vs_rule="consistent",
     )
     return profile, trace
 

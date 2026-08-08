@@ -330,7 +330,7 @@ def test_llm_parse_calibration_clamps():
             '"valuation_confidence_delta": 0.5, '
             '"industry_notes": ["成长股宜用 PEG"], "risk_notes": ["增速回落风险"], "reasons": ["行业惯例"]}')
     calib = parse_calibration(text)
-    assert calib["business_type_override"] == "growth"
+    assert "business_type_override" not in calib  # v2.1：类型由 M1 单一决策，本层忽略该字段
     assert calib["parameter_adjustments"]["growth_rate"] == 0.20   # clamp 上限
     assert calib["parameter_adjustments"]["discount_rate"] == 0.07  # clamp 下限
     assert calib["parameter_adjustments"]["terminal_growth"] == 0.03
@@ -343,9 +343,9 @@ def test_llm_parse_calibration_clamps():
 def test_llm_parse_calibration_ignores_invalid_route():
     from value_agent.valuation.llm import parse_calibration
 
-    # 非法生意类型 / 低 route_confidence → 无任何有效校准 → None（保持规则结果）
+    # v2.1：business_type_override 整体忽略（类型由 M1 单一决策）——只有类型覆盖 → None（保持规则结果）
+    assert parse_calibration('{"business_type_override": "growth", "route_confidence": 0.9}') is None
     assert parse_calibration('{"business_type_override": "科技", "route_confidence": 0.5}') is None
-    assert parse_calibration('{"business_type_override": "growth", "route_confidence": 0.3}') is None
     assert parse_calibration("不是 JSON") is None
     assert parse_calibration("{}") is None
 
@@ -357,15 +357,13 @@ def test_llm_apply_calibration_merges():
     calib = {
         "parameter_adjustments": {"growth_rate": 0.05},
         "method_weight_adjustments": {"dcf": 0.45},
-        "business_type_override": "growth",
         "valuation_confidence_delta": 0.05,
     }
-    p, w, bt, delta = apply_calibration(default_params(), METHOD_WEIGHTS, calib)
+    p, w, delta = apply_calibration(default_params(), METHOD_WEIGHTS, calib)
     assert p["growth_rate"] == 0.05
     assert p["discount_rate"] == 0.10  # 未调整项保持
     assert w["dcf"] == 0.45
     assert w["relative_median_pe"] == 0.30  # 未调整项保持
-    assert bt == "growth"
     assert delta == 0.05
 
 
@@ -398,8 +396,8 @@ def test_m4_agent_llm_industry_calibration_applies():
     assert any("白酒行业现金流好" in e for e in res.evidence)
 
 
-def test_m4_agent_llm_route_override():
-    """LLM 把误路由成 consumer_monopoly 的公司纠正为 financial → 路由切换（禁 DCF）。"""
+def test_m4_agent_llm_cannot_override_business_type():
+    """v2.1：M4 校准层无权改类型——business_type_override 被忽略，路由保持 M1 画像（consumer_monopoly）。"""
     from value_agent.valuation.agent import M4ValuationAgent
 
     fake = _FakeLLM(
@@ -409,10 +407,9 @@ def test_m4_agent_llm_route_override():
     )
     res = M4ValuationAgent().run(_m4_ctx(StubData(), inputs=_quality_inputs(), llm=fake))
     assert res.status.value == "done"
-    assert res.outputs["business_type"] == "financial"
-    assert "dcf" not in res.outputs["methods"]  # financial 路由禁 DCF
-    assert any(m["method"] == "ddm" for m in res.outputs["methods"])
-    assert any("路由覆盖" in e for e in res.evidence)
+    assert res.outputs["business_type"] == "consumer_monopoly"  # 仍按 M1 画像
+    assert any(m["method"] == "dcf" for m in res.outputs["methods"])  # consumer_monopoly 路由含 DCF
+    assert not any("路由覆盖" in e for e in res.evidence)
 
 
 def test_m4_agent_llm_parse_failure_keeps_rule_result():
@@ -509,15 +506,20 @@ def test_m4_agent_cyclical_includes_pb_and_normalized_pe():
 
 
 def test_m4_agent_llm_skips_unrouted_weight():
-    """LLM 给未路由方法（周期股上的 dcf）设权重 → 忽略，并提示。"""
+    """LLM 给未路由方法（周期股上的 dcf）设权重 → 忽略，并提示（v2.1 无类型覆盖，M1 画像即周期）。"""
+    from value_agent.sessions.models import ModuleResult, ModuleStatus
     from value_agent.valuation.agent import M4ValuationAgent
 
+    inputs = _quality_inputs()
+    inputs["M1_business_model"] = ModuleResult(
+        module="M1_business_model", status=ModuleStatus.DONE, score=80.0,
+        outputs={"business_type": "cyclical", "industry": "机械制造"},
+    )
     fake = _FakeLLM(
-        '{"business_type_override": "cyclical", "route_confidence": 0.9, '
-        '"parameter_adjustments": {}, "method_weight_adjustments": {"dcf": 0.2, "pb_band": 0.5}, '
+        '{"parameter_adjustments": {}, "method_weight_adjustments": {"dcf": 0.2, "pb_band": 0.5}, '
         '"valuation_confidence_delta": 0.0, "reasons": ["周期股应重 PB"]}'
     )
-    res = M4ValuationAgent().run(_m4_ctx(StubData(), inputs=_quality_inputs(), llm=fake))
+    res = M4ValuationAgent().run(_m4_ctx(StubData(), inputs=inputs, llm=fake))
     assert res.outputs["business_type"] == "cyclical"
     calib = res.outputs["llm_qualitative"]["calibration"]
     assert calib["method_weight_adjustments"] == {"pb_band": 0.5}

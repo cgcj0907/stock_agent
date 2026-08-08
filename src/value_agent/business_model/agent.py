@@ -93,7 +93,10 @@ class M1BusinessModelAgent(Agent):
                 user_prompt = (
                     f"公司：{info.get('name')}（{code}），行业：{result.industry}，"
                     f"财务摘要：{rule_result.evidence[0]}。\n"
-                    f"规则参考类型：{rule_result.business_type}。\n"
+                    f"规则候选类型：{rule_result.business_type}（依据：{rule_result.evidence[1] if len(rule_result.evidence) > 1 else '财务特征'}）。\n"
+                    "你是最终裁判：business_type 由你独立判断，规则候选仅供参考——它可能因行业关键词"
+                    "命中而误判（如行业名含'机械'但实际是耐用消费品）；若与规则候选不同，"
+                    "必须在 reasons 中给出明确依据（至少两条）。\n"
                 )
                 ref_block = format_reference_list(refs)
                 if ref_block:
@@ -111,8 +114,8 @@ class M1BusinessModelAgent(Agent):
                     '"reasons": ["判断理由1", "判断理由2"], '
                     '"reference_indices": [筛选出的参考文章编号(1基)]}\n'
                     "business_type 必须从给定枚举中选择一个，优先依据行业属性、盈利模式、周期性、"
-                    "资产特征与财务表现综合判断，不要机械跟随规则参考类型。\n"
-                    "若你的 business_type 与规则参考类型不同，请给出理由并在 confidence 如实标注把握。\n"
+                    "资产特征与财务表现综合判断，不要机械跟随规则候选类型；你有最终判断权。\n"
+                    "若你的 business_type 与规则候选类型不同，请给出理由并在 confidence 如实标注把握。\n"
                     "reasons 至少覆盖两点：为什么是该类型；为什么不是另一个最相近的类型。\n"
                     "reference_indices：从参考资料清单中筛选与「商业模式/可理解性判断」最相关的文章编号"
                     "（1 基），没有相关文章就输出空数组；不得编造标题或链接。"
@@ -126,6 +129,7 @@ class M1BusinessModelAgent(Agent):
                         profile,
                         rule_business_type=rule_result.business_type,
                         rule_financial_subtype=getattr(rule_result, "financial_subtype", None),
+                        llm_reasons=parsed.get("reasons"),
                     )
                     if plan_trace.outcome == "fallback_rule":
                         evidence.append("LLM 未给出合法 business_type，已回退规则分类")
@@ -138,7 +142,7 @@ class M1BusinessModelAgent(Agent):
                         )
                     elif plan_trace.outcome == "conflict_fallback":
                         evidence.append(
-                            f"LLM 画像与规则分类冲突且置信度不足，business_type 回退规则"
+                            f"LLM 画像与规则分类冲突且置信度不足/未给理由，business_type 回退规则"
                             f"（{profile.business_type}→{rule_result.business_type}）"
                         )
                     else:

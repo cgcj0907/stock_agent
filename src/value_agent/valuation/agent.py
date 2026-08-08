@@ -415,18 +415,18 @@ class M4ValuationAgent(Agent):
         if not calib:
             return None, None, ["LLM 行业校准：输出解析失败或无可调整项，保持规则结果"]
         # 权重校准只作用于「最终路由」的方法：忽略如周期股上 DCF 这类未路由权重（无效配置）
-        bt2 = calib.get("business_type_override")  # 已由 clamp_calibration 校验
-        final_bt = bt2 or valuation_kwargs["business_type"]
+        # v2.1：business_type 由 M1 画像单一决策，M4 校准层不再覆盖类型（docs/12-v2-upgrade.md §4.3）
+        final_bt = valuation_kwargs["business_type"]
         routed = set(load_routing().get(final_bt, []))
         raw_weights = calib.get("method_weight_adjustments") or {}
         filtered_weights = {k: v for k, v in raw_weights.items() if k in routed}
         dropped_weights = sorted(set(raw_weights) - routed)
         calib["method_weight_adjustments"] = filtered_weights or None
-        p2, w2, bt2, delta = apply_calibration(base.params, base.weights or METHOD_WEIGHTS, calib)
+        p2, w2, delta = apply_calibration(base.params, base.weights or METHOD_WEIGHTS, calib)
         calibrated = run_valuation(
             **{
                 **valuation_kwargs,
-                "business_type": bt2 or valuation_kwargs["business_type"],
+                "business_type": final_bt,
                 "params": p2,
                 "weights": w2,
                 "confidence_delta": delta,
@@ -434,8 +434,6 @@ class M4ValuationAgent(Agent):
         )
         # 校准摘要挂到 qualitative，随 evidence 展示
         notes = {
-            "business_type_override": bt2,
-            "route_confidence": calib.get("route_confidence"),
             "parameter_adjustments": calib.get("parameter_adjustments"),
             "method_weight_adjustments": calib.get("method_weight_adjustments"),
             "valuation_confidence_delta": calib.get("valuation_confidence_delta"),
@@ -446,8 +444,6 @@ class M4ValuationAgent(Agent):
         }
         qualitative = {"calibration": notes, "raw": text}
         detail: list[str] = []
-        if bt2:
-            detail.append(f"  · 路由覆盖：{valuation_kwargs['business_type']} → {bt2}")
         if dropped_weights:
             detail.append(f"  · 忽略未路由方法的权重调整：{', '.join(dropped_weights)}")
         changed_params = {k: v for k, v in p2.items() if base.params.get(k) != v}

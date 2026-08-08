@@ -104,14 +104,11 @@ export function AgentsClient({
               key={agent.id}
               className="group relative overflow-hidden rounded-2xl transition-all hover:-translate-y-0.5 hover:shadow-md"
             >
-              <div
-                className={`h-1.5 w-full bg-gradient-to-r ${agent.gradient}`}
-              />
               <CardContent className="flex flex-col gap-3 p-4">
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-3">
                     <div
-                      className={`flex size-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-lg text-white shadow-sm ${agent.gradient}`}
+                        className="flex size-11 shrink-0 items-center justify-center rounded-xl border border-border bg-muted/20 text-lg text-foreground shadow-sm"
                     >
                       <AgentIcon icon={agent.icon} className="size-6" />
                     </div>
@@ -146,7 +143,7 @@ export function AgentsClient({
                   {agent.requires_llm && (
                     <Badge
                       variant="outline"
-                      className="rounded-md border-violet-200 bg-violet-50 text-violet-600 dark:border-violet-800 dark:bg-violet-950/60 dark:text-violet-300"
+                        className="rounded-md text-muted-foreground"
                     >
                       LLM
                     </Badge>

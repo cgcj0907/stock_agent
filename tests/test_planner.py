@@ -57,12 +57,36 @@ def test_resolve_fallback_rule_when_profile_invalid():
 
 
 def test_resolve_conflict_fallback_when_low_confidence():
+    profile = parse_profile({"business_type": "growth", "confidence": "low"})
+    effective, trace = resolve_profile(
+        profile, rule_business_type="consumer_monopoly", rule_financial_subtype="other"
+    )
+    assert effective.business_type == "consumer_monopoly"  # low 置信度 → 规则兜底
+    assert trace.outcome == "conflict_fallback"
+    assert trace.llm_vs_rule == "conflict"
+
+
+def test_resolve_override_when_medium_confidence_with_reasons():
+    """v2.1：LLM 主判——medium 置信度 + 理由 → 采纳 LLM。"""
+    profile = parse_profile({"business_type": "growth", "confidence": "medium"})
+    effective, trace = resolve_profile(
+        profile, rule_business_type="consumer_monopoly", rule_financial_subtype="other",
+        llm_reasons=["家电增长由渗透率驱动，非地产周期"],
+    )
+    assert effective.business_type == "growth"  # LLM 胜出
+    assert trace.outcome == "override"
+    assert trace.llm_vs_rule == "conflict"
+
+
+def test_resolve_conflict_fallback_when_medium_without_reasons():
+    """v2.1：medium 置信度但未给理由 → 审慎回退规则。"""
     profile = parse_profile({"business_type": "growth", "confidence": "medium"})
     effective, trace = resolve_profile(
         profile, rule_business_type="consumer_monopoly", rule_financial_subtype="other"
     )
-    assert effective.business_type == "consumer_monopoly"  # 规则胜出
+    assert effective.business_type == "consumer_monopoly"
     assert trace.outcome == "conflict_fallback"
+    assert any("未给出理由" in r for r in trace.reasons)
 
 
 def test_resolve_override_when_high_confidence():
@@ -86,7 +110,7 @@ def test_resolve_adopted_when_consistent():
 def test_resolve_keeps_valid_profile_fields_on_conflict_fallback():
     profile = parse_profile({
         "business_type": "growth", "financial_subtype": "other",
-        "cyclicality": "high", "primary_metric": "pb", "confidence": "medium",
+        "cyclicality": "high", "primary_metric": "pb", "confidence": "low",
     })
     effective, _ = resolve_profile(
         profile, rule_business_type="consumer_monopoly", rule_financial_subtype="other"
@@ -152,15 +176,99 @@ def test_m1_profile_conflict_fallback_to_rule(monkeypatch):
         lambda self, code, limit=5, slot=0: [],
     )
     llm = _QueuedLLM([
-        ('{"business_type": "growth", "confidence": "medium", "business_model": "卖酒", '
+        ('{"business_type": "growth", "confidence": "low", "business_model": "卖酒", '
          '"understandability": "可理解", "reasons": ["r"]}'),
         '{"delta": 0, "reasons": ["合理"]}',
     ])
     res = _run_m1(llm)
-    assert res.outputs["business_type"] == "consumer_monopoly"  # 规则胜出
+    assert res.outputs["business_type"] == "consumer_monopoly"  # low 置信度 → 规则胜出
     assert res.outputs["handoff"]["valuation_route"] == "consumer_monopoly"
     assert res.outputs["handoff"]["plan_trace"]["outcome"] == "conflict_fallback"
     assert any("回退规则" in e for e in res.evidence)
+
+
+def test_m1_profile_medium_confidence_with_reasons_override(monkeypatch):
+    """v2.1：M1 的 LLM 主判——medium 置信度 + 理由 → 覆盖规则（白酒→成长）。"""
+    monkeypatch.setattr(
+        "value_agent.business_model.agent.CompanyReferences.fetch",
+        lambda self, code, limit=5, slot=0: [],
+    )
+    llm = _QueuedLLM([
+        ('{"business_type": "growth", "confidence": "medium", "business_model": "卖酒", '
+         '"understandability": "可理解", "reasons": ["需求由渗透率驱动", "非地产周期"]}'),
+        '{"delta": 0, "reasons": ["合理"]}',
+    ])
+    res = _run_m1(llm)
+    assert res.outputs["business_type"] == "growth"  # LLM 胜出
+    assert res.outputs["handoff"]["plan_trace"]["outcome"] == "override"
+    assert res.outputs["handoff"]["plan_trace"]["llm_vs_rule"] == "conflict"
+
+
+class _MideaData:
+    """美的场景：行业名含'机械'→规则判周期，但 LLM 主判可纠正（v2.1）。"""
+
+    def company_info(self, code: str) -> dict:
+        return {"name": "美的集团", "code": code, "industry": "电气机械和器材制造业"}
+
+    def financials(self, code: str, years: int = 10) -> dict:
+        recs = [
+            {
+                "period": f"{2025 - i}1231",
+                "roe": 19.69 if i == 0 else 20.0,
+                "grossprofit_margin": 26.39,
+                "netprofit_margin": 9.75,
+                "debt_to_assets": 0.6117,
+                "ocfps": 7.02,
+                "eps": 5.86,
+                "ocf_to_np": 1.2,
+            }
+            for i in range(years)
+        ]
+        return {"records": recs}
+
+
+def _run_m1_midea(llm) -> ModuleResult:
+    from value_agent.business_model.agent import M1BusinessModelAgent
+
+    session = Session(id="s1", company_code="000333", status=SessionStatus.CREATED)
+    ctx = AgentContext(session=session, assumptions={}, inputs={}, data=_MideaData(), llm=llm)
+    return M1BusinessModelAgent().run(ctx)
+
+
+def test_m1_llm_judge_can_override_keyword_misfire(monkeypatch):
+    """v2.1：行业名含'机械'→规则判周期；LLM 主判（medium+理由）可纠正为 consumer_monopoly。"""
+    monkeypatch.setattr(
+        "value_agent.business_model.agent.CompanyReferences.fetch",
+        lambda self, code, limit=5, slot=0: [],
+    )
+    llm = _QueuedLLM([
+        ('{"business_type": "consumer_monopoly", "confidence": "medium", '
+         '"cyclicality": "low", "primary_metric": "pe", "business_model": "家电龙头", '
+         '"understandability": "可理解", "reasons": ["品牌/渠道/规模优势", "盈利稳定非周期"]}'),
+        '{"delta": 0, "reasons": ["合理"]}',
+    ])
+    res = _run_m1_midea(llm)
+    assert res.outputs["business_type"] == "consumer_monopoly"  # LLM 主判胜出
+    pt = res.outputs["handoff"]["plan_trace"]
+    assert pt["outcome"] == "override"
+    assert pt["llm_vs_rule"] == "conflict"
+    assert any("LLM 主判" in e for e in res.evidence)
+
+
+def test_m1_llm_medium_without_reasons_falls_back(monkeypatch):
+    """v2.1：LLM 与规则冲突但 medium 未给理由 → 审慎回退规则（cyclical）。"""
+    monkeypatch.setattr(
+        "value_agent.business_model.agent.CompanyReferences.fetch",
+        lambda self, code, limit=5, slot=0: [],
+    )
+    llm = _QueuedLLM([
+        ('{"business_type": "consumer_monopoly", "confidence": "medium", '
+         '"business_model": "家电龙头", "understandability": "可理解", "reasons": []}'),
+        '{"delta": 0, "reasons": ["合理"]}',
+    ])
+    res = _run_m1_midea(llm)
+    assert res.outputs["business_type"] == "cyclical"  # 规则兜底
+    assert res.outputs["handoff"]["plan_trace"]["outcome"] == "conflict_fallback"
 
 
 def test_m1_no_llm_no_profile_keys(monkeypatch):
@@ -213,9 +321,9 @@ def test_m1_meta_completeness_reflects_plan_outcome(monkeypatch):
     res = _run_m1(llm)
     assert res.meta["completeness"] == "high"
 
-    # 冲突回退 → medium
+    # 冲突回退（low 置信度）→ medium
     llm = _QueuedLLM([
-        ('{"business_type": "growth", "confidence": "medium", "business_model": "卖酒", '
+        ('{"business_type": "growth", "confidence": "low", "business_model": "卖酒", '
          '"understandability": "可理解", "reasons": ["r"]}'),
         '{"delta": 0, "reasons": ["合理"]}',
     ])

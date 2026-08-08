@@ -150,8 +150,6 @@ def build_memo(session: Session) -> str:
         if isinstance(llm_q, dict) and llm_q.get("calibration"):
             calib = llm_q["calibration"]
             parts = []
-            if calib.get("business_type_override"):
-                parts.append(f"路由→{calib['business_type_override']}")
             if calib.get("parameter_adjustments"):
                 parts.append(f"参数 {calib['parameter_adjustments']}")
             if calib.get("method_weight_adjustments"):

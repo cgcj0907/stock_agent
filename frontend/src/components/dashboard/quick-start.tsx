@@ -67,7 +67,6 @@ export function QuickStart({
 
   return (
     <Card className="overflow-hidden rounded-2xl border">
-      <div className="h-0.5 bg-primary/70" />
       <CardContent className="p-4 md:p-5">
         <form
           onSubmit={start}

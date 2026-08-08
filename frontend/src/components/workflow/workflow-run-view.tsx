@@ -233,7 +233,7 @@ export function WorkflowRunView({
 
         {/* 右列：sticky 运行概览 / 投资结论栏 */}
         {hasRun && (
-          <aside className="w-full lg:sticky lg:top-20 lg:w-80 lg:shrink-0">
+          <aside className="w-full lg:sticky lg:top-20 lg:max-h-[calc(100vh_-_5rem)] lg:w-80 lg:shrink-0 lg:overflow-y-auto lg:overscroll-contain lg:pb-3 lg:pr-1">
             <WorkflowRail
               workflow={workflow}
               statuses={statuses}

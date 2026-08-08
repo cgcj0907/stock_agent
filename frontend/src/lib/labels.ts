@@ -62,8 +62,6 @@ export const FIELD_LABELS: Record<string, string> = {
   methods_used: "已用方法",
   // M4 LLM 行业校准
   calibration: "行业校准",
-  business_type_override: "路由覆盖",
-  route_confidence: "路由置信度",
   parameter_adjustments: "参数校准",
   method_weight_adjustments: "方法权重校准",
   valuation_confidence_delta: "置信度增量",

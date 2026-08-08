@@ -39,7 +39,8 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
-        <Card className="rounded-2xl opacity-60">
+          <Card className="overflow-hidden rounded-2xl opacity-60">
+            <div className="h-0.5 bg-primary/70" />
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <UserRound className="size-4 text-emerald-600 dark:text-emerald-400" />
