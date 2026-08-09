@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { ConversationDetailView } from "@/components/conversations/conversation-detail-view";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/supabase/auth";
+import { backendAuthHeaders } from "@/lib/backend-auth";
 import type { SessionView } from "@/hooks/use-workflow-run";
 import type { Conversation } from "@/types/conversation";
 
@@ -82,6 +83,7 @@ export default async function ConversationDetailPage({
     const root = base.replace(/\/+$/, "");
     try {
       const res = await fetch(`${root}/api/sessions/${conversation.session_id}`, {
+        headers: await backendAuthHeaders(),
         cache: "no-store",
         signal: AbortSignal.timeout(8000),
       });
@@ -92,7 +94,11 @@ export default async function ConversationDetailPage({
     try {
       const res = await fetch(
         `${root}/api/sessions/${conversation.session_id}/memo`,
-        { cache: "no-store", signal: AbortSignal.timeout(8000) }
+        {
+          headers: await backendAuthHeaders(),
+          cache: "no-store",
+          signal: AbortSignal.timeout(8000),
+        }
       );
       if (res.ok) {
         const j = (await res.json()) as { memo?: string };

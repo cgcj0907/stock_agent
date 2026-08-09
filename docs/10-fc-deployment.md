@@ -60,7 +60,8 @@ docker push registry.cn-chengdu.aliyuncs.com/zgy_20223090903005/value-agent:late
 
 1. 区域切到 **cn-chengdu（成都）**（必须与 ACR 同区域）→ 创建函数 → **Web 函数**。
 2. 运行环境：**自定义镜像** → 镜像 `registry.cn-chengdu.aliyuncs.com/zgy_20223090903005/value-agent:latest`。
-3. 端口 `9000`；内存 `1024MB`（够用且省）；超时 `300s`；最小实例数 `0`；磁盘默认。
+3. 端口 `9000`；内存 `1024MB`（够用且省）；**超时 `600s`**（默认 300s 偏紧：完整 M1–M11 分析含 LLM 校准 + 实时补行情，
+   实测 90~283s，未缓存标的最多可到几分钟，300s 会被 FC 掐断导致前端「卡在价格与估值分位」）；最小实例数 `0`；磁盘默认。
 4. 环境变量（**DATABASE_URL 必配**，否则写入走容器本地盘、不进 Supabase）：
    | 变量 | 值 |
    |---|---|
@@ -71,7 +72,13 @@ docker push registry.cn-chengdu.aliyuncs.com/zgy_20223090903005/value-agent:late
    | `CORS_ORIGINS` | `*` |
    | `SESSION_STORE` | `supabase` |
    | `DATA_WRITE_BACK` | **`sync`**（关键：FC 请求结束会回收实例掐掉后台线程，同步写保证落库） |
+   | `SUPABASE_URL` | `https://<project-ref>.supabase.co`（**必配**：全局鉴权用它拉 JWKS 验 ES256 token） |
+   | `SUPABASE_JWT_SECRET` | 可选：轮换前的 HS256 老 token 回退验签（当前是 ECC 新 key，可不配） |
+   | `DAILY_TOKEN` | 可选：`/api/daily` 定时触发器鉴权（请求头 `x-daily-token`） |
 5. **HTTP 触发器认证方式必须选「无需认证」**（否则报 `MissingRequiredHeader: Date` / `invalid authorization`）。
+6. **应用级全局鉴权**：`/api/*` 现在要求 `Authorization: Bearer <Supabase 登录 token>`（ES256，JWKS 验签；
+   可选 `SUPABASE_JWT_SECRET` 兼容轮换前 HS256 老 token）。前端已自动附加 token；`/health` 与
+   `/api/daily` 例外（daily 用 `DAILY_TOKEN`）。
 6. 改代码后：函数 → 配置 → **修改镜像**重新拉取（**保留现有 URL**；删除重建会换域名）。
 
 ## 六、数据层机制
@@ -98,6 +105,8 @@ docker push registry.cn-chengdu.aliyuncs.com/zgy_20223090903005/value-agent:late
 | 7 | quick 工作流 404 | `config/` 没打进镜像 | Dockerfile `COPY config` |
 | 8 | `s deploy` 报缺 `aliyunfcdefaultrole` | RAM 角色未创建 | 手动控制台部署（不走 s），或先在 RAM 建角色 |
 | 9 | 日线仍偶发 `RemoteDisconnected` | 东财封 FC 出口 IP 时，akshare 回退打**同一个** `push2his.eastmoney.com` 域名 → 回退形同虚设 | `_daily_prices` 改多源回退链：东财 akshare → **新浪** → **腾讯**（独立主机），单位统一归一化（成交量→手、换手率→%） |
+| 10 | 请求老「卡在价格与估值分位」、SSE 中途断 | 完整分析超 FC **300s 超时**被掐断 + 存储/实时源无超时可无限挂起 | ① FC 超时提到 600s；② `PostgresMarketStorage` 加 connect_timeout/keepalive/statement_timeout/断线重连；③ 实时源 `_fetch_with_retry` 加 socket 级 45s 超时。**注：日线增量每次补写 + M7 情绪源不设预算，均按用户决策保留**（靠提 FC 超时解决） |
+| 9 | 日线仍偶发 `RemoteDisconnected` | 东财封 FC 出口 IP 时，akshare 回退打**同一个** `push2his.eastmoney.com` 域名 → 回退形同虚设 | `_daily_prices` 改多源回退链：东财 akshare → **新浪** → **腾讯**（独立主机），单位统一归一化（成交量→手、换手率→%） |
 
 ## 八、快速验证
 
@@ -114,3 +123,51 @@ curl https://value-agent-vjdugjsdaa.cn-chengdu.fcapp.run/health   # → {"status
 - `src/value_agent/data/manager.py`（读穿缓存/回写/增量刷新）、`sources/akshare_source.py`（日线多源回退链）、`pipelines/ingest.py`（预取）
 - `src/value_agent/cli.py`（`data fetch` / `data ping`）
 - 相关 commit：`cf9b5a6`（curl_cffi+sync 写入）、`b48aaf9/3240f8b/df0d76e/cb8d1ee`（Dockerfile 系列）、`c7622a1`（日线增量刷新）
+
+
+## 十、每日定时任务（FC 定时触发器，替代 GitHub Actions daily.yml）
+
+> **为什么**：GitHub Actions runner 是海外 IP，拉 A 股数据源（东财/巨潮/新浪）经常被断连；
+> FC 是大陆 IP（成都），AkShare 已验证可用。FC 自己就能定时，不再依赖 GitHub Actions。
+> 同款逻辑：`value-agent daily`（CLI）与 `POST /api/daily`（HTTP）都走 `run_daily_job()`。
+
+### 10.1 代码侧（已完成）
+
+- `src/value_agent/daily.py::run_daily_job()`：数据更新（行情/估值增量入库）→ 监控评估
+  （规则以 `monitor_rules` 表为准，回退 JSONB/M8）→ 命中推送飞书/企微。任一步失败只记
+  `errors` 不中断（数据源抖动时用缓存行情继续监控）。
+- `src/value_agent/main.py`：`POST /api/daily` 端点，可选鉴权：环境变量 `DAILY_TOKEN` 设置后
+  请求需带 `x-daily-token` 头（建议设一个，防止定时触发器 URL 被陌生人调用）。
+
+### 10.2 FC 控制台配置
+
+1. 镜像需已包含 `/api/daily`（重新 build/push 一次，见第四节）。
+2. 函数 `value-agent` → **触发器** → 创建触发器：
+   - 类型：**定时触发器**
+   - Cron 表达式（按北京时间，示例每天 02:00）：`0 0 2 * * *`
+     （FC 定时触发器 cron 按 UTC+8 解释；如需每天 02:00 就是 `0 0 2 * * *`）
+   - 触发方式：**调用函数（HTTP 触发）**，请求方法 `POST`，路径 `/api/daily`
+   - 若设置了 `DAILY_TOKEN`，在请求头加 `x-daily-token: <你的 token>`
+3. 环境变量确认已有：`DATABASE_URL`、`SESSION_STORE=supabase`、`DATA_WRITE_BACK=sync`；
+   新增可选 `DAILY_TOKEN`。
+4. 超时 600s 已够用（完整 daily：自选股 ≤100 只增量更新 + 监控，通常 1–3 分钟）。
+
+### 10.3 验证
+
+```bash
+# 手动触发一次（未设 DAILY_TOKEN 时）
+curl -X POST https://value-agent-vjdugjsdaa.cn-chengdu.fcapp.run/api/daily
+# 返回示例
+# {"updated": {"daily_price": 60, "valuation_history": 40, "skipped": 3},
+#  "session_count": 5, "monitor_events": 1,
+#  "events": [{"severity": "info", "rule_type": "price_buy", "company_code": "600519",
+#              "company_name": "贵州茅台", "message": "现价 xx ≤ 买入区间 xx，可分批建仓"}],
+#  "pushed_channels": ["飞书"], "errors": []}
+# 本地等价命令
+value-agent daily
+```
+
+### 10.4 收尾
+
+- GitHub Actions `daily.yml` 可停用（保留用于保活也可以，但 FC 每日写 Supabase 本身就在保活）。
+- 数据源失败会自动降级：记录 `errors`，监控继续用缓存行情，不会 500。

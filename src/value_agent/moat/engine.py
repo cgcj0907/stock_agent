@@ -365,6 +365,23 @@ def assess_moat(
             bench["margin_median"] = real_margin
         if peer_medians.get("debt_median") is not None:
             bench["debt_median"] = peer_medians["debt_median"]
+    # 周期行业：同行基准同样用「跨周期均值中位」（与公司 8 年均值同口径）——
+    # 否则"公司跨周期均值 vs 同行最新一期"会在周期高点系统性低估、低点系统性高估公司护城河。
+    peer_cycle_used = False
+    if is_cyclical and peer_medians:
+        cycle_margin_key = (
+            "np_median_cycle" if margin_key == "netprofit_margin" else "gm_median_cycle"
+        )
+        if any(peer_medians.get(k) is not None for k in (
+            "roe_median_cycle", "gm_median_cycle", "np_median_cycle", "debt_median_cycle"
+        )):
+            peer_cycle_used = True
+        if peer_medians.get("roe_median_cycle") is not None:
+            bench["roe_median"] = peer_medians["roe_median_cycle"]
+        if peer_medians.get(cycle_margin_key) is not None:
+            bench["margin_median"] = peer_medians[cycle_margin_key]
+        if peer_medians.get("debt_median_cycle") is not None:
+            bench["debt_median"] = peer_medians["debt_median_cycle"]
     margin_pool = np if margin_key == "netprofit_margin" else gm
     margin_latest = margin_pool[0] if margin_pool else None
 
@@ -401,15 +418,16 @@ def assess_moat(
             score += 18
         elif diff >= -8:
             score += 8
+        peer_label = "同行跨周期中位" if peer_cycle_used else "行业中位"
         if is_cyclical and roe_compare != roe_latest:
             signals.append(
                 f"ROE（跨周期均值 {roe_compare:.1f}%，最新 {roe_latest:.1f}%）"
-                f"vs {bench['label']}行业中位 {bench['roe_median']:.0f}%"
+                f"vs {bench['label']}{peer_label} {bench['roe_median']:.0f}%"
                 f"（{'+' if diff >= 0 else ''}{diff:.1f}pct）"
             )
         else:
             signals.append(
-                f"ROE {roe_compare:.1f}% vs {bench['label']}行业中位 {bench['roe_median']:.0f}%"
+                f"ROE {roe_compare:.1f}% vs {bench['label']}{peer_label} {bench['roe_median']:.0f}%"
                 f"（{'+' if diff >= 0 else ''}{diff:.1f}pct）"
             )
         if len(roe) >= 3 and diff >= 0:  # 稳定性加成只给「不弱于同行中位」的公司
@@ -439,7 +457,7 @@ def assess_moat(
             else f"利润率 {margin_compare:.1f}%"
         )
         signals.append(
-            f"{margin_display} vs {bench['label']}行业中位 {bench['margin_median']:.0f}%"
+            f"{margin_display} vs {bench['label']}{peer_label} {bench['margin_median']:.0f}%"
             f"（{'+' if diff >= 0 else ''}{diff:.1f}pct）"
         )
 
@@ -460,7 +478,7 @@ def assess_moat(
             else f"杠杆 {debt_compare:.2f}"
         )
         signals.append(
-            f"{debt_display} vs {bench['label']}行业中位 {bench['debt_median']:.2f}"
+            f"{debt_display} vs {bench['label']}{peer_label} {bench['debt_median']:.2f}"
             f"（比值 {ratio:.2f}）"
         )
 
@@ -508,6 +526,10 @@ def assess_moat(
     if is_cyclical and (roe_compare != roe_latest or margin_compare != margin_latest or debt_compare != debt_latest):
         evidence.append(
             "周期行业：ROE/利润率/杠杆用近 8 年跨周期均值参与相对评分（去周期位置）"
+        )
+    if peer_cycle_used:
+        evidence.append(
+            "周期行业：同行基准同样用跨周期均值中位（与公司 8 年均值同口径，避免时点错配）"
         )
     if bench.get("margin_median") is None or bench.get("debt_median") is None:
         skipped = [k for k, v in (("利润率", bench.get("margin_median")), ("杠杆", bench.get("debt_median"))) if v is None]

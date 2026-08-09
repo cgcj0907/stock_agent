@@ -186,6 +186,9 @@ class M1BusinessModelAgent(Agent):
             "reasons": llm_qualitative.get("reasons") if isinstance(llm_qualitative, dict) else [],
             "industry": result.industry,
             "references": llm_qualitative.get("references") if isinstance(llm_qualitative, dict) else None,
+            # 2026-08-09：补存 LLM 定性整体（此前只拆散到顶层，前端读 outputs.llm_qualitative
+            # 的"能力圈/理由"恒为空）；与 M6/M7 保持一致
+            "llm_qualitative": llm_qualitative,
             # 下游契约（§4 M1）：M4 直接读 handoff.valuation_route，不再猜
             "handoff": handoff,
         }

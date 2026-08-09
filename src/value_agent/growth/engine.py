@@ -17,15 +17,15 @@ from value_agent.financials.quality import annual_records
 
 WACC = 0.10  # 再投资质量参照（可被 wacc 参数覆盖，4.6）
 
-# 周期特征正常化（生产稽核 2026-08-08：江西铜业 20%、中远海控 10% 均为景气高点外推）：
-# 周期股增速封顶 + 成长质量折扣——景气 EPS CAGR 不可持续，避免 M4/M10 被高估。
-CYCLICAL_GROWTH_CAP = 0.10
+# 周期特征正常化（生产稽核 2026-08-08/09：江西铜业 20%、浪潮信息 20% 均为景气高点外推）。
+# 不写死增速上限（周期股低谷修复增长可以很高），改用**保守情景**（数据派生）作为可持续增速；
+# 成长质量折扣：周期股盈利跟随景气波动，评分整体打折。
 CYCLICAL_SCORE_FACTOR = 0.9
 
 
 @dataclass
 class GrowthResult:
-    growth_estimate: float  # 历史 EPS CAGR（有界 0~20%，供 M4 DCF 使用）
+    growth_estimate: float  # 可持续增速（历史 EPS CAGR 有界 0~20%；周期股正常化为保守情景）
     prosperity: str         # 上行 / 平稳 / 下行
     prosperity_code: str    # up | flat | down（契约 handoff，§4 M3）
     growth_confidence: str  # high | medium | low（数据充分性）
@@ -88,6 +88,7 @@ def assess_growth(
     financials: dict,
     default_growth: float = 0.10,
     wacc: float = WACC,
+    business_type: str | None = None,
 ) -> GrowthResult:
     # 4.8：字段池独立过滤——recs 只要 period；EPS / ROE / 负债率各自按有无取值
     recs = sorted(
@@ -140,27 +141,41 @@ def assess_growth(
     else:
         growth_confidence = "low"
 
-    # 周期特征代理：ROE 波动大（CV>0.3）→ 视为周期（供 M4 禁用 DCF/唐朝）
+    # 周期特征代理：ROE 波动大（CV>0.3）或 M1 生意类型判周期（2026-08-09 修复口径不一致：
+    # 浪潮信息 M1=cyclical 但 ROE 稳定 → 原仅看 ROE 波动漏判，20% 增速未被正常化）
     if len(roe) >= 3 and abs(statistics.mean(roe)) > 0:
         cv = statistics.stdev(roe) / abs(statistics.mean(roe))
-        cyclicality_flag = cv > 0.3
+        roe_cyclical = cv > 0.3
     else:
-        cyclicality_flag = False
+        roe_cyclical = False
+    m1_cyclical = business_type == "cyclical"
+    cyclicality_flag = roe_cyclical or m1_cyclical
 
-    # 周期特征正常化：景气高点的历史 EPS CAGR 不能外推为长期增速
+    # 周期特征正常化：不写死增速上限——周期股在景气低谷的修复增长可能很高，
+    # 一刀切封顶会失真（2026-08-09 按用户意见修正）。改用**保守情景**（数据派生：
+    # 中性×0.6，低信心×0.5）作为可持续增速代理：景气高点外推被收敛，真实修复增长不被拍死。
     cyclical_note = ""
-    if cyclicality_flag and growth > CYCLICAL_GROWTH_CAP:
-        cyclical_note = (
-            f"周期特征（ROE 波动 CV>0.3）：增速从 {growth:.1%} "
-            f"正常化至 {CYCLICAL_GROWTH_CAP:.0%}，避免景气高点外推"
-        )
-        growth = CYCLICAL_GROWTH_CAP
+    if m1_cyclical and not roe_cyclical:
+        cyclical_note = "M1 生意类型判为周期（ROE 波动不显著），按周期口径处理增速"
+    scenarios = _growth_scenarios(growth, growth_confidence)
+    if cyclicality_flag:
+        normalized = scenarios["conservative"]
+        if normalized < growth:
+            cyclical_note = (
+                (cyclical_note + "；" if cyclical_note else "")
+                + f"增速从 {growth:.1%} 正常化至保守情景 {normalized:.1%}，避免景气高点外推"
+            )
+            growth = normalized
+            scenarios = _growth_scenarios(growth, growth_confidence)
 
     # 评分：增速 40 + 再投资质量 30 + 财务空间 15 + 稳定性 15
     score = 40.0 if growth >= 0.15 else 35.0 if growth >= 0.10 else 25.0 if growth >= 0.05 else 12.0
     roe_latest = roe[-1] if roe else None
     if roe_latest is not None:
-        score += 30.0 if roe_latest >= 2 * wacc else 20.0 if roe_latest >= wacc else 8.0
+        # 口径统一：roe_latest 是百分数（12=12%），wacc 是小数（0.10=10%）。
+        # 此前 roe>=2*wacc（12>=0.20 恒真）导致再投资质量恒 +30，比设计（≥20% 才 +30）多给 10 分
+        wacc_pct = wacc * 100
+        score += 30.0 if roe_latest >= 2 * wacc_pct else 20.0 if roe_latest >= wacc_pct else 8.0
     if debt:
         score += 15.0 if debt[-1] <= 0.4 else 10.0 if debt[-1] <= 0.6 else 5.0
     if len(eps_vals) >= 3 and statistics.stdev(eps_vals) / abs(statistics.mean(eps_vals)) <= 0.2:
@@ -169,7 +184,6 @@ def assess_growth(
         # 周期股成长质量天然低于稳定成长（盈利跟随景气波动），整体打折
         score *= CYCLICAL_SCORE_FACTOR
 
-    scenarios = _growth_scenarios(growth, growth_confidence)
     evidence = [
         note,
         f"增速假设：{growth:.1%}（M4 DCF 将采用）",

@@ -26,6 +26,7 @@ import {
   MODULE_OUTPUT_COMPONENTS,
   moduleShort,
   SignalGroups,
+  translateEnumText,
 } from "@/components/workflow/module-outputs";
 import {
   isMarkdownText,
@@ -384,7 +385,7 @@ export function ResultCard({
                         : "text-xs leading-5 text-muted-foreground"
                     }
                   >
-                    {e}
+                    {translateEnumText(e)}
                   </li>
                 ))}
               </ul>

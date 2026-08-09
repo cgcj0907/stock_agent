@@ -13,16 +13,20 @@ import queue
 import threading
 import time
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from value_agent.agents import AgentRegistry
 from value_agent.agents.builtin import register_builtin_agents
+from value_agent.core.auth import enabled as verify_supabase_jwt_enabled
+from value_agent.core.auth import verify_supabase_jwt
 from value_agent.core.config import _load_dotenv
 from value_agent.core.llm import get_llm, llm_from_config
+from value_agent.daily import run_daily_job
 from value_agent.data.manager import DataManager
+from value_agent.monitor.rules_store import create_rule_store
 from value_agent.report.memo import build_memo
 from value_agent.sessions import (
     ModuleName,
@@ -45,7 +49,8 @@ logger = logging.getLogger(__name__)
 # ---- 全局单例（SESSION_STORE=sqlite|supabase|memory，见 store.create_session_store） ----
 _load_dotenv()  # 确保 DATABASE_URL / SESSION_STORE 等环境变量已从 .env 加载
 _store = create_session_store()
-_manager = SessionManager(_store)
+_rules_store = create_rule_store()
+_manager = SessionManager(_store, rules_store=_rules_store)
 _registry = register_builtin_agents(AgentRegistry())
 _engine = WorkflowEngine(_registry, _manager, data=DataManager(), llm=get_llm())
 
@@ -58,6 +63,31 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 全局鉴权：所有 /api/* 只接受前端登录用户（Supabase JWT），
+# 例外：/health（探活）、/api/daily（FC 定时触发器，用 DAILY_TOKEN）
+@app.middleware("http")
+async def _require_frontend_auth(request: Request, call_next):
+    # 生产（配置了 SUPABASE_URL）才强制鉴权；本地开发未配置时放行
+    if (
+        verify_supabase_jwt_enabled()
+        and request.method != "OPTIONS"
+        and request.url.path.startswith("/api/")
+        and request.url.path != "/api/daily"
+    ):
+        auth = request.headers.get("authorization", "")
+        scheme, _, token = auth.partition(" ")
+        if scheme.lower() != "bearer" or not token.strip():
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "未登录：需要 Authorization: Bearer <supabase token>"},
+            )
+        try:
+            verify_supabase_jwt(token.strip())
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("鉴权失败：%s", exc)
+            return JSONResponse(status_code=401, content={"detail": f"登录态无效：{exc}"})
+    return await call_next(request)
 
 
 # ---- Pydantic 请求模型 ----
@@ -582,3 +612,27 @@ def watch_events(session_id: str):
             "X-Accel-Buffering": "no",
         },
     )
+
+
+class DailyRunResult(BaseModel):
+    """每日任务执行结果（FC 定时触发器调用后返回）。"""
+
+    updated: dict
+    session_count: int
+    monitor_events: int
+    events: list[dict]
+    pushed_channels: list[str]
+    errors: list[str] = []
+
+
+@app.post("/api/daily")
+def run_daily(x_daily_token: str | None = Header(default=None)) -> DailyRunResult:
+    """每日定时任务：数据更新 + 监控评估 + Webhook 推送。
+
+    供阿里云 FC 定时触发器调用（大陆 IP 拉 AkShare）；也可手动 curl 触发。
+    可选鉴权：设置环境变量 DAILY_TOKEN 后，请求需带 `x-daily-token` 头。
+    """
+    token = os.getenv("DAILY_TOKEN", "")
+    if token and x_daily_token != token:
+        raise HTTPException(status_code=401, detail="x-daily-token 不匹配")
+    return DailyRunResult(**run_daily_job())

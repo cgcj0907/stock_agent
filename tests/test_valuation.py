@@ -807,3 +807,33 @@ def test_extreme_method_disagreement_keeps_low_positive():
     assert r.intrinsic["low"] is not None and r.intrinsic["low"] > 0
     assert r.intrinsic["low"] < r.intrinsic["mid"] < r.intrinsic["high"]
     assert any("下沿退化为最保守方法值" in e for e in r.evidence)
+
+
+# ---------- 2026-08-09：M4 分语义 = 估值便宜度（原为方法覆盖度，展示误导） ----------
+def test_cheapness_score_maps_price_to_intrinsic_range():
+    from value_agent.valuation.engine import cheapness_score
+
+    iv = {"low": 10.0, "mid": 20.0, "high": 30.0}
+    assert cheapness_score(5.0, iv) == 95.0    # ≤下沿：低估
+    assert cheapness_score(15.0, iv) == 70.0   # ≤中值：合理偏下
+    assert cheapness_score(25.0, iv) == 45.0   # ≤上沿：合理偏上
+    assert cheapness_score(40.0, iv) == 15.0   # >上沿：高估
+    assert cheapness_score(None, iv) == 50.0   # 缺现价：中性
+    assert cheapness_score(20.0, {"low": 0, "mid": 0, "high": 0}) == 50.0  # 下沿无效
+
+
+def test_m4_score_is_cheapness_not_coverage():
+    """生产稽核回归：M4 分=估值便宜度（浪潮 M4 曾=85 覆盖度，但现价是内在上沿 2 倍）。"""
+    from tests.conftest import StubData
+    from value_agent.valuation.agent import M4ValuationAgent
+    from value_agent.valuation.engine import cheapness_score
+
+    res = M4ValuationAgent().run(_m4_ctx(StubData(), inputs=_quality_inputs()))
+    assert res.outputs.get("cheapness_score") is not None
+    # 无 LLM 时 score = 规则便宜度
+    assert res.score == pytest.approx(
+        cheapness_score(res.outputs["current_price"], res.outputs["intrinsic_value"])
+    )
+    assert res.score in (15.0, 45.0, 50.0, 70.0, 95.0)
+    # 覆盖度仍保留在 handoff（下游/展示用），不再混进估值分
+    assert res.outputs["handoff"]["coverage"] in ("high", "medium", "low")

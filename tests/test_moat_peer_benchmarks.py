@@ -48,7 +48,9 @@ class _FakeAk:
         rows = self.financials.get(symbol)
         if not rows:
             raise ValueError("no data")
-        return pd.DataFrame([rows])  # 单行记录：需包列表（标量 dict 不能直接构造 DataFrame）
+        if isinstance(rows, dict):
+            rows = [rows]  # 兼容单行
+        return pd.DataFrame(rows)
 
 
 def _fin(roe, np_, debt, gm=None):
@@ -188,3 +190,53 @@ def test_agent_falls_back_to_static_when_peer_none(monkeypatch):
     assert res.outputs["rule_proxy"]["peer"]["benchmark"] == "liquor"  # 静态细分兜底
     assert res.outputs["width"] == "窄"
     assert not any("真实动态" in e for e in res.evidence)
+
+
+# ---------- 2026-08-09：周期行业同行侧跨周期均值中位（时间口径对齐） ----------
+
+def _roe_series(roe_list: list[float]) -> list[dict]:
+    """生成近 N 年单指标年报行（ROE 波动，模拟周期股同行）。"""
+    rows = []
+    for i, roe in enumerate(roe_list):
+        rows.append({
+            "日期": datetime.date(2024 - i, 12, 31),
+            "净资产收益率(%)": roe,
+            "销售净利率(%)": 5.0,
+            "资产负债率(%)": 0.5,
+        })
+    return rows
+
+
+def test_medians_computes_cross_cycle_median():
+    """周期行业：同行侧同时给出最新中位与跨周期均值中位（roe_median_cycle）。"""
+    fin = {
+        "601318": _roe_series([20.0] * 8),              # 自身，排除
+        "601628": _roe_series([12, 10, 8, 6, 4, 6, 8, 10]),    # 均值 8
+        "601601": _roe_series([16, 14, 12, 10, 8, 10, 12, 14]),  # 均值 12
+        "601336": _roe_series([10, 8, 6, 4, 2, 4, 6, 8]),      # 均值 6
+    }
+    fake = _FakeAk(financials=fin)
+    med = PeerBenchmarkProvider(ak=fake).medians("601318", "保险")
+    assert med is not None
+    assert med.peer_count == 3
+    assert med.roe_median == 10.0        # 最新期 [10, 14, 8] 中位 10
+    assert med.roe_median_cycle == 8.0   # 跨周期均值 [8, 12, 6] 中位 8
+    assert med.cycle_window == 8
+
+
+def test_engine_uses_peer_cycle_median_for_cyclical():
+    """周期行业：公司用 8 年跨周期均值，同行基准也取跨周期均值中位（同口径）。
+
+    回归：此前同行只用最新期（roe_median），周期高点/低点系统性高/低估公司护城河。
+    """
+    fin = {"records": [
+        {"period": f"{2026 - i}1231", "roe": 12.0 if i % 2 == 0 else 4.0,
+         "grossprofit_margin": 20.0, "debt_to_assets": 0.5}
+        for i in range(10)
+    ]}  # 公司 8 年跨周期均值 = 8.0
+    med = {"roe_median": 5.0, "roe_median_cycle": 8.0, "peer_count": 6, "period": "2024-12-31"}
+    r = assess_moat(fin, industry="铜", business_type="cyclical", peer_medians=med)
+    assert r.peer is not None
+    assert r.peer.roe_median == 8.0   # 周期股用跨周期中位，而非最新中位 5.0
+    assert any("跨周期均值中位" in e for e in r.evidence)
+    assert any("同行跨周期中位" in s for s in r.signals)

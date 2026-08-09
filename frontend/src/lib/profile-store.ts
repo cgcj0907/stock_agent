@@ -25,9 +25,18 @@ export async function getProfile(userId: string) {
 export async function saveProfile(userId: string, input: ProfileInput) {
   const supabase = await createClient();
   const profile = normalizeProfileInput(input);
+  let existing = EMPTY_PROFILE;
+
+  try {
+    existing = await getProfile(userId);
+  } catch {
+    // 首次保存或表尚未就绪时回退到空资料
+  }
+
   const payload = {
     id: userId,
     ...EMPTY_PROFILE,
+    ...existing,
     ...profile,
     updated_at: new Date().toISOString(),
   };

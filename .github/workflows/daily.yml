@@ -2,8 +2,10 @@
 # 调度：UTC 18:00 = 北京时间 02:00（A 股收盘后次日凌晨更新）
 # 免费额度：私有仓库 2000 分钟/月，公共仓库无限；每次运行约 3-10 分钟，绰绰有余。
 # 所需 Secrets（GitHub 仓库 → Settings → Secrets and variables → Actions）：
-#   DATABASE_URL  → Supabase Session Pooler 连接串（同 Render 用的那个）
-#   LLM_API_KEY   → DeepSeek API Key（仅 monitor 生成/更新监控规则时用，可选）
+#   DATABASE_URL   → Supabase Session Pooler 连接串（同 Render 用的那个）
+#   LLM_API_KEY    → DeepSeek API Key（仅 monitor 生成/更新监控规则时用，可选）
+#   FEISHU_WEBHOOK → 飞书群自定义机器人 Webhook（可选，配了才推送）
+#   WECHAT_WEBHOOK → 企业微信群机器人 Webhook（可选，配了才推送）
 name: daily-data-update
 
 on:
@@ -34,4 +36,6 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
+          WECHAT_WEBHOOK: ${{ secrets.WECHAT_WEBHOOK }}
         run: python -m value_agent monitor --daily || true

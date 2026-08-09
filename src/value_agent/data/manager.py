@@ -22,6 +22,10 @@ logger = logging.getLogger(__name__)
 
 _TABLES = ("company", "financials", "daily_price", "valuation_history", "dividends")
 
+# 实时源 socket 级超时兜底：AkShare/requests 默认无超时，海外 IP 被限流/断连时
+# 一次拉取可无限阻塞（M7 daily_prices 增量刷新曾整条分析卡死）。每次尝试都约束。
+_REALTIME_TIMEOUT = 45.0
+
 
 def _default_source() -> DataSource:
     """按 settings 依次尝试数据源：primary → fallback → mock。"""
@@ -140,12 +144,19 @@ class DataManager:
         背景：AkShare 底层东财/新浪接口偶发 SSL 断连、连接被重置，M4 一次拉 4 个数据集，
         任何一个瞬时失败都会把整个模块降级成空白，重试可显著降低这类空白率。
         """
+        import socket
         import time
 
         last: Exception | None = None
         for i in range(attempts):
             try:
-                return fn()
+                # socket 默认超时兜底（不影响进程内其他已有连接；调用后恢复）
+                prev = socket.getdefaulttimeout()
+                socket.setdefaulttimeout(_REALTIME_TIMEOUT)
+                try:
+                    return fn()
+                finally:
+                    socket.setdefaulttimeout(prev)
             except Exception as exc:  # noqa: BLE001
                 last = exc
                 logger.warning(

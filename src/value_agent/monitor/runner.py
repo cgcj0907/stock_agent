@@ -91,14 +91,31 @@ def _evaluate_rule(rule: dict, price: float) -> MonitorEvent | None:
     return MonitorEvent(code, name or rule_name, rule_type, message, severity)
 
 
+def _rules_for_session(session: Session, rules_store) -> list[dict] | None:
+    """取某会话的监控规则：优先 monitor_rules 表（规则源），回退会话 JSONB 的 M11 规则。"""
+    if rules_store is not None:
+        stored = rules_store.list_by_session(session.id)
+        if stored:
+            return stored
+    m11 = session.module_results.get("M11_monitor")
+    if m11 and m11.outputs:
+        raw = m11.outputs.get("monitor_rules")
+        if raw:
+            return [r for r in raw if isinstance(r, dict)]
+    return None
+
+
 def run_daily_monitor(
     sessions: list[Session],
     source: DataSource,
     *,
     quarterly_review: bool = False,
+    rules_store=None,
 ) -> list[MonitorEvent]:
     """对已完成会话，用 M11 监控规则（或旧 M8 回退）评估触发条件。
 
+    rules_store：monitor_rules 表存储（可选）。传入时规则以表为准（支持用户编辑），
+    表里没有该会话规则再回退会话 JSONB → M8。不传则维持原 JSONB 行为。
     quarterly_review（9.3 财报季自动复查）：True 时对 warn/critical 级非价格 watch
     （景气/财务/风险/决策）补发「财报季复查」提醒事件，覆盖日常只展示在 memo 的复查项。
     """
@@ -110,8 +127,7 @@ def run_daily_monitor(
         if price is None:
             continue
         name = session.company_name or session.company_code
-        rules = (session.module_results.get("M11_monitor") or {}).outputs.get("monitor_rules") \
-            if session.module_results.get("M11_monitor") else None
+        rules = _rules_for_session(session, rules_store)
 
         if rules:
             for rule in rules:
@@ -163,21 +179,48 @@ def run_daily_monitor(
     return events
 
 
-def notify_webhooks(events: list[MonitorEvent]) -> None:
-    """推送到飞书/企业微信 Webhook（环境变量 FEISHU_WEBHOOK / WECHAT_WEBHOOK）。"""
-    if not events:
-        return
-    text = "\n".join(f"[{e.severity}] {e.company_name}({e.company_code}) {e.message}" for e in events)
-    payloads = []
-    if os.getenv("FEISHU_WEBHOOK"):
-        payloads.append((os.environ["FEISHU_WEBHOOK"], {"msg_type": "text", "content": {"text": text}}))
-    if os.getenv("WECHAT_WEBHOOK"):
-        payloads.append((os.environ["WECHAT_WEBHOOK"], {"msgtype": "text", "text": {"content": text}}))
-    for url, payload in payloads:
-        try:
-            import httpx
+def _post_webhook(url: str, payload: dict, timeout: float = 10.0) -> tuple[bool, str]:
+    """POST 一个 Webhook 载荷，返回 (是否成功, 详情)。飞书 code / 企微 errcode 为 0 才算成功。"""
+    try:
+        import httpx
 
-            httpx.post(url, json=payload, timeout=10)
-            logger.info("已推送 %s", url[:40])
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("推送失败：%s", exc)
+        resp = httpx.post(url, json=payload, timeout=timeout)
+        data = resp.json()
+        code = data.get("code", data.get("errcode"))
+        ok = code in (0, "0")
+        detail = str(data.get("msg") or data.get("errmsg") or f"HTTP {resp.status_code}")
+        return ok, detail
+    except Exception as exc:  # noqa: BLE001
+        return False, str(exc)
+
+
+def send_webhook_text(text: str) -> list[str]:
+    """向已配置的飞书/企业微信 Webhook 推送一条文本消息，返回成功渠道名列表。
+
+    渠道由环境变量 FEISHU_WEBHOOK / WECHAT_WEBHOOK 决定（均可选，配哪个推哪个）。
+    """
+    payloads: list[tuple[str, str, dict]] = []
+    if os.getenv("FEISHU_WEBHOOK"):
+        payloads.append(("飞书", os.environ["FEISHU_WEBHOOK"], {"msg_type": "text", "content": {"text": text}}))
+    if os.getenv("WECHAT_WEBHOOK"):
+        payloads.append(("企业微信", os.environ["WECHAT_WEBHOOK"], {"msgtype": "text", "text": {"content": text}}))
+    sent: list[str] = []
+    for name, url, payload in payloads:
+        ok, detail = _post_webhook(url, payload)
+        if ok:
+            sent.append(name)
+            logger.info("已推送 %s", name)
+        else:
+            logger.warning("推送 %s 失败：%s", name, detail)
+    return sent
+
+
+def notify_webhooks(events: list[MonitorEvent]) -> list[str]:
+    """推送到飞书/企业微信 Webhook（环境变量 FEISHU_WEBHOOK / WECHAT_WEBHOOK）。
+
+    返回成功推送的渠道名列表；无事件时不推送。
+    """
+    if not events:
+        return []
+    text = "\n".join(f"[{e.severity}] {e.company_name}({e.company_code}) {e.message}" for e in events)
+    return send_webhook_text(text)

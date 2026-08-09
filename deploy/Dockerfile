@@ -15,7 +15,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app/src
 # 国内/香港网络用清华 PyPI 镜像，下载快且稳（也可换 aliyun：https://mirrors.aliyun.com/pypi/simple）
 RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple \
-    fastapi uvicorn pandas numpy akshare litellm "psycopg2-binary" pyyaml pydantic httpx
+    fastapi uvicorn pandas numpy akshare litellm "psycopg2-binary" pyyaml pydantic httpx ecdsa
 COPY src ./src
 COPY config ./config
 

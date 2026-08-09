@@ -2,6 +2,7 @@ import { ConversationsClient } from "./conversations-client";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/supabase/auth";
 import type { Conversation } from "@/types/conversation";
+import { backendAuthHeaders } from "@/lib/backend-auth";
 
 export default async function ConversationsPage() {
   const user = await getCurrentUser();
@@ -27,6 +28,7 @@ export default async function ConversationsPage() {
         if (base) {
           const root = base.replace(/\/+$/, "");
           const res = await fetch(`${root}/api/sessions`, {
+            headers: await backendAuthHeaders(),
             cache: "no-store",
             signal: AbortSignal.timeout(8000),
           });

@@ -1,6 +1,10 @@
 import Link from "next/link";
-import { ArrowRight, Cpu, UserRound } from "lucide-react";
+import { redirect } from "next/navigation";
+import { ArrowRight, UserRound } from "lucide-react";
 
+import { LlmSettingsClient } from "./llm/llm-settings-client";
+import { listLlmSettings } from "@/lib/llm/settings";
+import { getCurrentUser } from "@/lib/supabase/auth";
 import {
   Card,
   CardContent,
@@ -9,9 +13,19 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
-export default function SettingsPage() {
+export default async function SettingsPage() {
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
+
+  let settings: Awaited<ReturnType<typeof listLlmSettings>> = [];
+  try {
+    settings = await listLlmSettings(user.id);
+  } catch {
+    // 表尚未创建时静默降级为空列表（页面会提示添加）
+  }
+
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6">
+    <div className="mx-auto flex max-w-5xl flex-col gap-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">通用设置</h1>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -19,26 +33,8 @@ export default function SettingsPage() {
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Card className="rounded-2xl">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Cpu className="size-4 text-emerald-600 dark:text-emerald-400" />
-              LLM 服务商
-            </CardTitle>
-            <CardDescription>配置分析所用的大模型服务商与 Key</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Link
-              href="/settings/llm"
-              className="group inline-flex items-center gap-1 text-sm font-medium text-emerald-600 underline-offset-4 hover:underline dark:text-emerald-400"
-            >
-              去配置
-              <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
-            </Link>
-          </CardContent>
-        </Card>
-
+      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
+        <LlmSettingsClient initialSettings={settings} embedded />
         <Card className="rounded-2xl">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">

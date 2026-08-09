@@ -1,3 +1,4 @@
+import { backendAuthHeaders } from "@/lib/backend-auth";
 import {
   LOCAL_AGENTS,
   mergeBackendAgents,
@@ -13,6 +14,7 @@ export async function fetchAgents(): Promise<AgentInfo[]> {
 
   try {
     const res = await fetch(`${base.replace(/\/+$/, "")}/api/agents`, {
+      headers: await backendAuthHeaders(),
       cache: "no-store",
       signal: AbortSignal.timeout(6000),
     });

@@ -6,7 +6,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Bot,
-  Cpu,
   History,
   LayoutDashboard,
   Settings,
@@ -47,10 +46,7 @@ const NAV_GROUPS = [
   },
   {
     label: "设置",
-    items: [
-      { title: "LLM 配置", href: "/settings/llm", icon: Cpu },
-      { title: "通用设置", href: "/settings", icon: Settings },
-    ],
+    items: [{ title: "通用设置", href: "/settings", icon: Settings }],
   },
 ];
 
@@ -71,7 +67,7 @@ export function AppSidebar({
   user,
   ...props
 }: React.ComponentProps<typeof Sidebar> & {
-  user: { name: string; email: string };
+  user: { name: string; email: string; avatarUrl?: string };
 }) {
   const pathname = usePathname();
 

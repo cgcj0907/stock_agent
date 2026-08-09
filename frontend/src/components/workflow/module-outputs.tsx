@@ -6,7 +6,6 @@ import {
   AlertTriangle,
   BadgeCheck,
       Building2,
-  Castle,
   ChartLine,
   ClipboardList,
   Gauge,
@@ -99,13 +98,13 @@ const MOS_LABEL: Record<string, string> = {
   unavailable: "数据不足",
 };
 
-const WIDTH_TONE: Record<string, string> = {
-  宽: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300",
-  较宽: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300",
-  中: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-300",
-  较窄: "border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-800 dark:bg-orange-950/60 dark:text-orange-300",
-  窄: "border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/60 dark:text-red-300",
-  无: "border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/60 dark:text-red-300",
+const WIDTH_TEXT_TONE: Record<string, string> = {
+  宽: "text-emerald-700 dark:text-emerald-300",
+  较宽: "text-emerald-700 dark:text-emerald-300",
+  中: "text-amber-700 dark:text-amber-300",
+  较窄: "text-orange-700 dark:text-orange-300",
+  窄: "text-red-700 dark:text-red-300",
+  无: "text-red-700 dark:text-red-300",
 };
 
 function toneOf(map: Record<string, string>, key: unknown): string {
@@ -144,22 +143,19 @@ const CONFIDENCE_LABEL: Record<string, string> = {
   low: "低",
 };
 
-const WIDTH_SOURCE_LABEL: Record<string, string> = {
-  rule_proxy: "规则代理",
-  llm: "LLM 定性",
-  degraded: "降级",
-};
-
-const WIDTH_SOURCE_TONE: Record<string, string> = {
-  llm: "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-800 dark:bg-violet-950/60 dark:text-violet-300",
-  rule_proxy: "border-border bg-muted/50 text-muted-foreground",
-  degraded: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-300",
-};
-
 const CAP_ALLOC_LABEL: Record<string, string> = {
   good: "优秀",
   neutral: "中性",
   poor: "较差",
+};
+
+const BUSINESS_TYPE_LABEL: Record<string, string> = {
+  consumer_monopoly: "消费垄断",
+  growth: "成长",
+  cyclical: "周期",
+  financial: "金融",
+  asset_based: "资产型",
+  stable_dividend: "高分红稳定",
 };
 
 const MODULE_SHORT: Record<string, string> = {
@@ -189,12 +185,29 @@ const TRIGGER_WORDS: Array<[RegExp, string]> = [
   [/\bnarrow\b/g, "窄"],
   [/\bwide\b/g, "宽"],
   [/\berosion_risk\b/g, "护城河侵蚀"],
+  // M11 监控规则类型（evidence/触发器文案里出现时转中文）
+  [/price_buy/g, "买入触发"],
+  [/price_sell/g, "卖出触发"],
+  [/valuation_sell/g, "估值卖出"],
+  [/mos_watch/g, "安全边际监控"],
+  [/prosperity_watch/g, "景气监控"],
+  [/fundamental_watch/g, "基本面监控"],
+  [/risk_watch/g, "风险监控"],
+  [/decision_watch/g, "决策监控"],
+  [/prior_hit_review/g, "历史命中"],
+  [/sentiment_watch/g, "情绪监控"],
 ];
 
 /** 监控/风险触发条件里的英文枚举转中文（展示层，不改后端规则）。 */
-function translateEnumText(s: string): string {
+export function translateEnumText(s: string): string {
   let out = s;
   for (const [re, zh] of TRIGGER_WORDS) out = out.replace(re, zh);
+  out = out.replace(/跨周期均值/g, "过去几年平均");
+  out = out.replace(/\b均值\b/g, "平均");
+  out = out.replace(/\b最新\b/g, "最近一年");
+  for (const [id, zh] of Object.entries(MODULE_SHORT)) {
+    if (out.includes(id)) out = out.split(id).join(zh);
+  }
   return out;
 }
 
@@ -343,6 +356,11 @@ function BulletList({ items }: { items: unknown[] }) {
       {items.map((it, i) =>
         isReference(it) ? (
           <ReferenceLink key={i} item={it} />
+        ) : isObj(it) ? (
+          <li key={i} className="flex items-start gap-1.5 text-[13px] leading-5 text-foreground/80">
+            <span className="mt-[5px] size-1 shrink-0 rounded-full bg-muted-foreground/50" />
+            <span className="min-w-0 break-words">{objectListText(it)}</span>
+          </li>
         ) : (
           <li key={i} className="flex items-start gap-1.5 text-[13px] leading-5 text-foreground/80">
             <span className="mt-[5px] size-1 shrink-0 rounded-full bg-muted-foreground/50" />
@@ -352,6 +370,42 @@ function BulletList({ items }: { items: unknown[] }) {
       )}
     </ul>
   );
+}
+
+function objectValueText(key: string, value: unknown): string {
+  if (Array.isArray(value)) {
+    return value
+      .map((it) => (isObj(it) ? objectListText(it) : translateEnumText(fmt(it))))
+      .filter(Boolean)
+      .join("、");
+  }
+  if (isObj(value)) {
+    return objectListText(value);
+  }
+  if (key === "confidence") {
+    return labelOf(CONFIDENCE_LABEL, value);
+  }
+  return translateEnumText(fmt(value));
+}
+
+function objectListText(item: Record<string, unknown>): string {
+  const entries = Object.entries(item).filter(([, v]) => {
+    if (v === null || v === undefined || v === "") return false;
+    if (Array.isArray(v)) return v.length > 0;
+    if (isObj(v)) return Object.keys(v).length > 0;
+    return true;
+  });
+  if (entries.length === 0) return "—";
+
+  const primaryKey = ["path", "title", "message", "desc", "text", "reason", "name", "label"].find(
+    (key) => item[key] !== null && item[key] !== undefined && item[key] !== "",
+  );
+  const primary = primaryKey ? objectValueText(primaryKey, item[primaryKey]) : "";
+  const rest = entries
+    .filter(([k]) => k !== primaryKey)
+    .map(([k, v]) => `${fieldLabel(k)}：${objectValueText(k, v)}`);
+
+  return [primary, ...rest].filter(Boolean).join(" · ");
 }
 
 function QualBlock({
@@ -390,8 +444,8 @@ function QualBlock({
 
 
 function signalText(it: unknown): string {
-  if (isObj(it)) return str(it.message ?? it.desc ?? it.text ?? it.impact);
-  return str(it);
+  if (isObj(it)) return translateEnumText(str(it.message ?? it.desc ?? it.text ?? it.impact));
+  return translateEnumText(str(it));
 }
 
 function SignalItems({ items, showSeverity }: { items: unknown[]; showSeverity?: boolean }) {
@@ -446,14 +500,16 @@ function riskRowValue(items: unknown[]): Array<Record<string, unknown>> {
 function M1Outputs({ outputs }: { outputs: Record<string, unknown> }) {
   const qual = isObj(outputs.llm_qualitative) ? outputs.llm_qualitative : null;
   const oneLiner = str(outputs.business_model) || str(qual?.business_model);
-  const reasons = arr(qual?.reasons);
+  // 优先读顶层 outputs（后端始终回填规则/LLM 有效值），llm_qualitative 仅作兜底
+  const reasons = arr(outputs.reasons).length ? arr(outputs.reasons) : arr(qual?.reasons);
+  const understandability =
+    str(outputs.understandability) || str(qual?.understandability) || "—";
   return (
     <div className="flex flex-col gap-3">
       <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
-        <Metric label="生意类型" value={fmt(outputs.business_type)} />
-        <Metric label="可理解性" value={fmt(outputs.understandability)} />
+        <Metric label="生意类型" value={labelOf(BUSINESS_TYPE_LABEL, outputs.business_type)} />
+        <Metric label="可理解性" value={fmt(understandability)} />
         <Metric label="行业" value={fmt(outputs.industry)} />
-        <Metric label="能力圈" value={fmt(qual?.understandability ?? "—")} />
       </div>
       {oneLiner && (
         <Section icon={Building2} title="生意本质">
@@ -534,12 +590,8 @@ function M3Outputs({ outputs }: { outputs: Record<string, unknown> }) {
 // ---------- M5 护城河 ----------
 
 function M5Outputs({ outputs }: { outputs: Record<string, unknown> }) {
-  const ruleProxy = isObj(outputs.rule_proxy) ? outputs.rule_proxy : {};
   const signals = arr(outputs.signals);
   const qual = isObj(outputs.llm_qualitative) ? outputs.llm_qualitative : null;
-  const widthSource = labelOf(WIDTH_SOURCE_LABEL, outputs.width_source);
-  const widthConflict = outputs.width_conflict === true;
-  const llmWidth = str(qual?.width);
   const qualList = qual ? (
     <QualBlock qual={qual} excludeKeys={["width"]} />
   ) : typeof outputs.llm_qualitative === "string" ? (
@@ -548,45 +600,16 @@ function M5Outputs({ outputs }: { outputs: Record<string, unknown> }) {
 
   return (
     <div className="flex flex-col gap-3">
-      {/* 主结论：最终护城河宽度（LLM 层优先） */}
+      {/* 主结论：护城河宽度 */}
       <div className="flex items-center gap-2.5 rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5">
-        <Castle className="size-4 shrink-0 text-primary/70" />
+        <GaugeCircle className="size-4 shrink-0 text-primary/70" />
         <div className="min-w-0 flex-1">
           <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-            最终护城河宽度
+            护城河宽度
           </div>
-          <div className={`text-lg leading-7 font-bold ${toneOf(WIDTH_TONE, outputs.width)}`}>{fmt(outputs.width) || "—"}</div>
-        </div>
-        <div className="flex shrink-0 flex-col items-end gap-1">
-          <ToneBadge text={widthSource} tone={toneOf(WIDTH_SOURCE_TONE, outputs.width_source)} />
-          {widthConflict && (
-            <span className="text-[11px] text-amber-600 dark:text-amber-400">规则/LLM 冲突</span>
-          )}
-        </div>
-      </div>
-
-      {widthConflict && (
-        <p className="rounded-lg border border-amber-200/70 bg-amber-50/60 px-2.5 py-1.5 text-xs leading-5 text-amber-800 dark:border-amber-800/50 dark:bg-amber-950/30 dark:text-amber-300">
-          规则层={fmt(ruleProxy.tier)}（{fmt(ruleProxy.score)} 分）vs LLM 定性={llmWidth || "—"}，
-          最终采用 <span className="font-semibold">{fmt(outputs.width)}</span>
-          {outputs.width_source === "llm" && "（LLM 已附竞争优势证据）"}
-        </p>
-      )}
-
-      {/* 规则层参考（财务代理，不作为主结论） */}
-      <div className="flex flex-col gap-1.5 border-t border-border/40 pt-2.5">
-        <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-          规则层参考（财务代理）
-        </div>
-        <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
-          <Metric label="代理档位" value={fmt(ruleProxy.tier)} />
-          <Metric label="代理评分" value={fmt(ruleProxy.score)} />
-          <Metric label="来源信号" value={arr(ruleProxy.sources).length} />
-          <Metric
-            label="侵蚀信号"
-            value={arr(ruleProxy.erosion_signals).length}
-            tone={arr(ruleProxy.erosion_signals).length > 0 ? "warn" : "default"}
-          />
+          <div className={`text-lg leading-7 font-bold ${toneOf(WIDTH_TEXT_TONE, outputs.width)}`}>
+            {fmt(outputs.width) || "—"}
+          </div>
         </div>
       </div>
 
@@ -628,9 +651,6 @@ function M6Outputs({ outputs }: { outputs: Record<string, unknown> }) {
           title="TTM 每股派息 ÷ 现价"
         />
       </div>
-      {str(outputs.note) && str(outputs.note) !== "—" && (
-        <p className="text-[13px] leading-5 text-muted-foreground">{fmt(outputs.note)}</p>
-      )}
       {signals.length > 0 && (
         <Section icon={AlertTriangle} title="治理风险信号" tone="rose">
           <ul className="flex flex-col gap-1.5">
@@ -645,7 +665,7 @@ function M6Outputs({ outputs }: { outputs: Record<string, unknown> }) {
       )}
       {qual && Object.keys(qual).length > 0 && (
         <Section icon={Landmark} title="LLM 定性" tone="violet">
-          <QualBlock qual={qual} />
+          <QualBlock qual={qual} excludeKeys={["governance_risks"]} />
         </Section>
       )}
     </div>

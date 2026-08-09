@@ -125,7 +125,7 @@ DIV_ZERO           # 除零/不可计算
 - 消费方：M3、M9、M10、M11
 
 ### M3 成长与再投资（fact）
-- 依赖：M2
+- 依赖：M1、M2（2026-08-09：M1 判周期 → M3 周期增速正常化口径一致，避免 ROE 稳定但行业周期股漏判）
 - `core_facts`：`growth_estimate`、`prosperity`、`roe_latest`、`growth_years`（可选）
 - `qualitative`（LLM，可选）：`growth_drivers[]`（量/价/新业务/出海拆解）、`reinvestment_quality`
 - `handoff`：
@@ -137,6 +137,8 @@ DIV_ZERO           # 除零/不可计算
 
 ### M4 估值（fact）
 - 依赖：M1、M2、M3、M5、M6（M2/M3/M5/M6 为**输入用**：质量乘数 + kill switch，不重跑）
+- **模块分 = 估值便宜度**（2026-08-09 修复：原为方法覆盖度，现价 2× 内在上沿的浪潮 M4=85 展示误导）：
+  `≤下沿→95 / ≤中值→70 / ≤上沿→45 / >上沿→15 / 数据不足→50`；方法覆盖度只进 `handoff.coverage`
 - `core_facts`：`intrinsic_value {low, mid, high, std, method_agreement}`、`current_price`、
   `business_type`、`params`、`valuation_confidence`、`quality_multiplier`、`risk_multiplier`、
   `total_multiplier`、`quality_tier`、`kill_switches`

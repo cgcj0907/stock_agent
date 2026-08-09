@@ -1,6 +1,20 @@
+import { createClient } from "@/lib/supabase/client";
+
 /** 后端 API 基础地址（浏览器直连；SSE 与普通 API 均走这里） */
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
+
+/** 浏览器直连 FC 时附加 Supabase 登录 token（后端 /api/* 全局鉴权）。 */
+async function frontendAuthHeaders(): Promise<Record<string, string>> {
+  try {
+    const supabase = createClient();
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  } catch {
+    return {};
+  }
+}
 
 export async function api<T = unknown>(
   path: string,
@@ -8,7 +22,11 @@ export async function api<T = unknown>(
 ): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    headers: {
+      "Content-Type": "application/json",
+      ...(await frontendAuthHeaders()),
+      ...(init?.headers ?? {}),
+    },
     cache: "no-store",
   });
   if (!res.ok) {
@@ -33,6 +51,10 @@ export async function streamSse(
 ): Promise<void> {
   const res = await fetch(url, {
     ...options?.init,
+    headers: {
+      ...(await frontendAuthHeaders()),
+      ...(options?.init?.headers ?? {}),
+    },
     cache: "no-store",
     signal: options?.signal,
   });

@@ -4,8 +4,8 @@
   个股行业（stock_individual_info_em）
   → 东财行业板块（stock_board_industry_name_em，名称匹配）
   → 成分股（stock_board_industry_cons_em，排除自身、上限 _MAX_PEERS）
-  → 每只成分股财务指标（stock_financial_analysis_indicator，最新年报）
-  → ROE/毛利率/净利率/资产负债率 同行中位数。
+  → 每只成分股财务指标（stock_financial_analysis_indicator，最新年报 + 近 8 年跨周期均值）
+  → ROE/毛利率/净利率/资产负债率 同行中位数（含跨周期均值中位，周期行业用同口径比较）。
 
 任何一步失败 / 超时 / 样本不足（< _MIN_PEERS）→ 返回 None，调用方回退静态基准，
 绝不阻塞分析主流程。进程内缓存 TTL（同 CompanyReferences 模式）。
@@ -31,6 +31,9 @@ _CALL_TIMEOUT = 5.0        # 单次 akshare 调用超时（防慢网挂死主流
 _TOTAL_BUDGET = 25.0       # 单次 medians() 总预算（超时即放弃，回退静态基准）
 _MAX_WORKERS = 4           # 成分股财务指标并行拉取线程数
 _ANNUAL_MONTH_DAY = (12, 31)  # 年报口径（过滤 1231 期）
+# 跨周期窗口（与 engine.CYCLE_WINDOW_YEARS=8 对齐）：周期行业公司侧用近 8 年均值，
+# 同行侧同样取近 8 年均值的中位，保证时间口径一致（2026-08-09 修复时点错配）
+_CYCLE_WINDOW = 8
 
 # 新浪财务指标列名（按子串匹配，兼容口径差异）
 _ROE_COLS = ("净资产收益率",)
@@ -50,6 +53,13 @@ class PeerMedians:
     np_median: float | None        # 净利率口径（金融用）
     debt_median: float | None
     peer_count: int                # 成功拉取并参与中位数的公司数
+    # 跨周期均值中位（周期行业用）：每只同行近 8 年 ROE/利润率/杠杆均值的行业中位，
+    # 与公司侧跨周期均值同口径（避免"公司 8 年均值 vs 同行最新一期"的时点错配）
+    roe_median_cycle: float | None = None
+    gm_median_cycle: float | None = None
+    np_median_cycle: float | None = None
+    debt_median_cycle: float | None = None
+    cycle_window: int = _CYCLE_WINDOW
     evidence: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -60,6 +70,11 @@ class PeerMedians:
             "gm_median": self.gm_median,
             "np_median": self.np_median,
             "debt_median": self.debt_median,
+            "roe_median_cycle": self.roe_median_cycle,
+            "gm_median_cycle": self.gm_median_cycle,
+            "np_median_cycle": self.np_median_cycle,
+            "debt_median_cycle": self.debt_median_cycle,
+            "cycle_window": self.cycle_window,
             "peer_count": self.peer_count,
         }
 
@@ -207,6 +222,7 @@ class PeerBenchmarkProvider:
         if not annual:
             annual = recs
         latest = annual[-1]  # akshare 已按日期升序
+        window = annual[-_CYCLE_WINDOW:]  # 近 8 个年报（跨周期均值窗口）
 
         def col(prefixes: tuple[str, ...]) -> float | None:
             for p in prefixes:
@@ -218,11 +234,28 @@ class PeerBenchmarkProvider:
                             continue
             return None
 
+        def cycle_mean(prefixes: tuple[str, ...]) -> float | None:
+            for p in prefixes:
+                for k in latest:
+                    if p in str(k):
+                        vals = [r.get(k) for r in window if _not_na(r.get(k))]
+                        if vals:
+                            try:
+                                nums = [float(v) for v in vals]
+                            except (TypeError, ValueError):
+                                continue
+                            return round(statistics.mean(nums), 2)
+            return None
+
         return {
             "roe": col(_ROE_COLS),
             "gm": col(_GM_COLS),
             "np": col(_NP_COLS),
             "debt": col(_DEBT_COLS),
+            "roe_mean": cycle_mean(_ROE_COLS),
+            "gm_mean": cycle_mean(_GM_COLS),
+            "np_mean": cycle_mean(_NP_COLS),
+            "debt_mean": cycle_mean(_DEBT_COLS),
             "period": str(latest.get("日期")),
         }
 
@@ -239,6 +272,10 @@ class PeerBenchmarkProvider:
             gm_median=med("gm"),
             np_median=med("np"),
             debt_median=med("debt"),
+            roe_median_cycle=med("roe_mean"),
+            gm_median_cycle=med("gm_mean"),
+            np_median_cycle=med("np_mean"),
+            debt_median_cycle=med("debt_mean"),
             peer_count=len(rows),
         )
 

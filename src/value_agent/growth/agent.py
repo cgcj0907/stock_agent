@@ -13,7 +13,7 @@ class M3GrowthAgent(Agent):
         id="M3_growth",
         name="成长与再投资智能体",
         description="历史增速 + 再投资质量 + 景气度评级（供 M4 DCF）",
-        inputs=[],  # 实际只读 ctx.data；M2 顺序依赖由 MODULE_DEPENDENCIES 保证
+        inputs=["M1_business_model"],  # 2026-08-09：消费 M1 生意类型 → 周期增速正常化口径一致
         requires_llm=False,
     )
 
@@ -22,10 +22,13 @@ class M3GrowthAgent(Agent):
             raise RuntimeError("M3 需要数据访问（ctx.data）")
         try:
             fin = ctx.data.financials(ctx.session.company_code)
+            m1 = ctx.inputs.get("M1_business_model")
+            business_type = m1.outputs.get("business_type") if m1 else None
             result = assess_growth(
                 fin,
                 default_growth=ctx.assumptions.get("growth_rate", 0.10),
                 wacc=float(ctx.assumptions.get("wacc", 0.10)),  # 4.6：WACC 参数化
+                business_type=business_type,
             )
         except Exception as exc:  # noqa: BLE001
             return degraded_module_result(
@@ -51,6 +54,7 @@ class M3GrowthAgent(Agent):
                 "景气度": result.prosperity,
                 "增长信心": result.growth_confidence,
                 "周期行业": result.cyclicality_flag,
+                "生意类型": business_type or "未知",
             },
             evidence=result.evidence, default=result.score, trace=calib,
         )

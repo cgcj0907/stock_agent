@@ -5,6 +5,7 @@ export type ProfileOption = {
 
 export type ProfileInput = {
   display_name?: string;
+  avatar_path?: string;
   avatar_url?: string;
   education_level?: string;
   education_major?: string;
@@ -142,7 +143,10 @@ export const DECISION_PREFERENCE_OPTIONS = [
   { value: "balanced", label: "两者平衡" },
 ] as const satisfies readonly ProfileOption[];
 
-type EnumFields = Omit<ProfileInput, "display_name" | "avatar_url" | "education_note" | "circle_of_competence">;
+type EnumFields = Omit<
+  ProfileInput,
+  "display_name" | "avatar_path" | "avatar_url" | "education_note" | "circle_of_competence"
+>;
 
 const ENUM_OPTIONS: Record<keyof EnumFields, readonly ProfileOption[]> = {
   education_level: EDUCATION_LEVEL_OPTIONS,
@@ -162,6 +166,7 @@ const ENUM_OPTIONS: Record<keyof EnumFields, readonly ProfileOption[]> = {
 
 export const EMPTY_PROFILE: Required<ProfileInput> = {
   display_name: "",
+  avatar_path: "",
   avatar_url: "",
   education_level: "",
   education_major: "",
@@ -198,9 +203,13 @@ function assertEnumField(
 
 export function normalizeProfileInput(input: ProfileInput): Required<ProfileInput> {
   const display_name = cleanText(input.display_name, 32);
+  const avatar_path = cleanText(input.avatar_path, 2048);
   const avatar_url = cleanText(input.avatar_url, 2048);
   const education_note = cleanText(input.education_note, 120);
 
+  if (avatar_path && /(^\/|\/\/|\.\.)/.test(avatar_path)) {
+    throw new Error(`Invalid avatar_path: ${avatar_path}`);
+  }
   if (avatar_url && !/^https?:\/\//i.test(avatar_url)) {
     throw new Error(`Invalid avatar_url: ${avatar_url}`);
   }
@@ -229,6 +238,7 @@ export function normalizeProfileInput(input: ProfileInput): Required<ProfileInpu
 
   return {
     display_name,
+    avatar_path,
     avatar_url,
     education_note,
     circle_of_competence,
@@ -292,4 +302,56 @@ export function mergeProfileRecord(row: Partial<ProfileRecord> | null | undefine
       ? row.circle_of_competence
       : [],
   };
+}
+
+export function resolveProfileIdentity({
+  email,
+  authDisplayName,
+  authAvatarUrl,
+  supabaseUrl,
+  profile,
+}: {
+  email?: string | null;
+  authDisplayName?: string | null;
+  authAvatarUrl?: string | null;
+  supabaseUrl?: string | null;
+  profile?: Partial<ProfileInput> | null;
+}) {
+  const name =
+    cleanText(profile?.display_name, 32) ||
+    cleanText(authDisplayName, 32) ||
+    cleanText(email?.split("@")[0], 32) ||
+    "用户";
+
+  return {
+    name,
+    avatarUrl: getAvatarPublicUrl(profile, {
+      supabaseUrl,
+      fallbackAvatarUrl: authAvatarUrl,
+    }),
+    email: cleanText(email, 320),
+  };
+}
+
+export function getAvatarPublicUrl(
+  profile?: Partial<ProfileInput> | null,
+  {
+    supabaseUrl,
+    fallbackAvatarUrl,
+  }: { supabaseUrl?: string | null; fallbackAvatarUrl?: string | null } = {},
+) {
+  const avatarPath = cleanText(profile?.avatar_path, 2048);
+  if (avatarPath) {
+    const base =
+      cleanText(supabaseUrl, 2048) ||
+      cleanText(process.env.NEXT_PUBLIC_SUPABASE_URL, 2048);
+    if (base) {
+      return `${base}/storage/v1/object/public/avatars/${avatarPath}`;
+    }
+  }
+
+  return (
+    cleanText(profile?.avatar_url, 2048) ||
+    cleanText(fallbackAvatarUrl, 2048)
+  );
 }

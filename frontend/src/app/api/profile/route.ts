@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/lib/supabase/auth";
 import { createClient } from "@/lib/supabase/server";
-import { EMPTY_PROFILE, type ProfileInput } from "@/lib/profile";
+import { EMPTY_PROFILE, getAvatarPublicUrl, type ProfileInput } from "@/lib/profile";
 import { getProfile, saveProfile } from "@/lib/profile-store";
 
 export async function GET() {
@@ -39,7 +39,7 @@ export async function PUT(req: Request) {
     await supabase.auth.updateUser({
       data: {
         display_name: profile.display_name,
-        avatar_url: profile.avatar_url,
+        avatar_url: getAvatarPublicUrl(profile),
       },
     });
 

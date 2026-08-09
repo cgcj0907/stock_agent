@@ -99,3 +99,73 @@ test("normalizeProfileInput enforces circle_of_competence limit", async () => {
     /circle_of_competence/,
   );
 });
+
+test("resolveProfileIdentity prefers profile fields over auth metadata", async () => {
+  const { resolveProfileIdentity } = await loadProfile();
+
+  const resolved = resolveProfileIdentity({
+    email: "investor@example.com",
+    authDisplayName: "邮箱昵称",
+    authAvatarUrl: "https://example.com/auth.png",
+    supabaseUrl: "https://doiffzrpziubnqgovmir.supabase.co",
+    profile: {
+      display_name: "资料昵称",
+      avatar_path: "user-1/avatar.png",
+      avatar_url: "https://example.com/profile.png",
+    },
+  });
+
+  assert.equal(resolved.name, "资料昵称");
+  assert.equal(
+    resolved.avatarUrl,
+    "https://doiffzrpziubnqgovmir.supabase.co/storage/v1/object/public/avatars/user-1/avatar.png",
+  );
+});
+
+test("resolveProfileIdentity falls back to auth metadata and email prefix", async () => {
+  const { resolveProfileIdentity } = await loadProfile();
+
+  const fromAuth = resolveProfileIdentity({
+    email: "investor@example.com",
+    authDisplayName: "认证昵称",
+    authAvatarUrl: "https://example.com/auth.png",
+    supabaseUrl: "https://doiffzrpziubnqgovmir.supabase.co",
+    profile: {
+      display_name: "",
+      avatar_path: "",
+      avatar_url: "",
+    },
+  });
+  assert.equal(fromAuth.name, "认证昵称");
+  assert.equal(fromAuth.avatarUrl, "https://example.com/auth.png");
+
+  const fromEmail = resolveProfileIdentity({
+    email: "investor@example.com",
+    authDisplayName: "",
+    authAvatarUrl: "",
+    profile: null,
+  });
+  assert.equal(fromEmail.name, "investor");
+  assert.equal(fromEmail.avatarUrl, "");
+});
+
+test("getAvatarPublicUrl falls back to legacy avatar_url when no storage path exists", async () => {
+  const { getAvatarPublicUrl } = await loadProfile();
+
+  assert.equal(
+    getAvatarPublicUrl({
+      avatar_path: "",
+      avatar_url: "https://example.com/legacy.png",
+    }),
+    "https://example.com/legacy.png",
+  );
+  assert.equal(
+    getAvatarPublicUrl({
+      avatar_path: "user-1/avatar.png",
+      avatar_url: "https://example.com/legacy.png",
+    }, {
+      supabaseUrl: "https://doiffzrpziubnqgovmir.supabase.co",
+    }),
+    "https://doiffzrpziubnqgovmir.supabase.co/storage/v1/object/public/avatars/user-1/avatar.png",
+  );
+});

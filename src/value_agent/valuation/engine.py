@@ -336,7 +336,32 @@ def _valuation_confidence(
     return round(min(1.0, conf), 3)
 
 
-# ---------------- 结果 ----------------
+def cheapness_score(price: float | None, intrinsic: dict) -> float:
+    """M4 估值便宜度：现价 vs 内在价值区间（分越高越便宜，与全系统「高分=更有价值」方向一致）。
+
+    口径（2026-08-09 修复：M4 分原为方法覆盖度，浪潮 M4=85 但现价是内在上沿 2 倍，展示误导）：
+    - 现价 ≤ 下沿 → 95（低估）
+    - 现价 ≤ 中值 → 70（合理偏下）
+    - 现价 ≤ 上沿 → 45（合理偏上）
+    - 现价 > 上沿 → 15（高估）
+    - 缺现价/内在价值 → 50（数据不足，中性；与 M8 unavailable 一致）
+    """
+    if price is None:
+        return 50.0
+    low = intrinsic.get("low")
+    mid = intrinsic.get("mid")
+    high = intrinsic.get("high")
+    if low is None or low <= 0 or mid is None:
+        return 50.0
+    if price <= low:
+        return 95.0
+    if price <= mid:
+        return 70.0
+    if price <= high:
+        return 45.0
+    return 15.0
+
+
 @dataclass
 class ValuationResult:
     business_type: str

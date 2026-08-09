@@ -60,6 +60,34 @@ function fmt(v: unknown): string {
   return String(v);
 }
 
+const QUALITY_TIER_LABEL: Record<string, string> = {
+  tier_1: "优",
+  tier_2: "良",
+  tier_3: "中",
+  tier_4: "差",
+  neutral: "中性",
+};
+
+const KILL_LABEL: Record<string, string> = {
+  LOSS_YEAR: "亏损年份",
+  OCF_NP_DIVERGENCE: "现金流/净利背离",
+  HIGH_LEVERAGE: "高杠杆",
+  CYCLICAL_DOWN: "周期下行",
+  NO_MOAT_POOR_GOV: "无护城河+治理差",
+};
+
+const PROFIT_BASE_LABEL: Record<string, string> = {
+  cash_proxy: "现金化利润代理",
+};
+
+/** 参数值里的英文枚举 → 中文（如 profit_base=cash_proxy）。 */
+function paramValueLabel(k: string, v: unknown): string {
+  if (k === "profit_base" && typeof v === "string") {
+    return PROFIT_BASE_LABEL[v] ?? v;
+  }
+  return fmt(v);
+}
+
 function Metric({
   label,
   value,
@@ -82,7 +110,9 @@ function Metric({
       <div className="text-[11px] font-semibold tracking-wide text-muted-foreground">
         {label}
       </div>
-      <div className="mt-0.5 text-sm font-bold tabular-nums">{value}</div>
+      <div className="mt-0.5 min-w-0 break-words text-sm font-bold tabular-nums">
+        {value}
+      </div>
     </div>
   );
 }
@@ -205,7 +235,7 @@ function Chips({ title, data }: { title: string; data: Record<string, unknown> }
             className="rounded-md border border-border/60 bg-muted/30 px-2 py-0.5 text-xs tabular-nums"
           >
             <span className="text-muted-foreground">{fieldLabel(k)}</span>{" "}
-            <span className="font-semibold">{fmt(v)}</span>
+            <span className="font-semibold">{paramValueLabel(k, v)}</span>
           </span>
         ))}
       </div>
@@ -304,7 +334,7 @@ export function M4Outputs({ outputs }: { outputs: Record<string, unknown> }) {
         <Metric label="质量乘数" value={fmt(o.quality_multiplier)} />
         <Metric label="风险折扣" value={fmt(o.risk_multiplier)} />
         <Metric label="综合乘数" value={fmt(o.total_multiplier)} />
-        <Metric label="质量档位" value={fmt(o.quality_tier)} />
+        <Metric label="质量档位" value={QUALITY_TIER_LABEL[String(o.quality_tier)] ?? fmt(o.quality_tier)} />
         <Metric label="质量分" value={fmt(o.quality_score)} />
         <Metric
           label="方法一致性"
@@ -315,13 +345,13 @@ export function M4Outputs({ outputs }: { outputs: Record<string, unknown> }) {
           label="风险开关"
           value={
             kill.length > 0 ? (
-              <span className="flex flex-wrap gap-1">
+              <span className="inline-flex max-w-full flex-wrap gap-1 align-top">
                 {kill.map((k) => (
                   <span
                     key={k}
-                    className="rounded bg-amber-500/15 px-1 py-0.5 text-[11px] font-semibold"
+                    className="max-w-full break-all rounded bg-amber-500/15 px-1 py-0.5 text-[11px] font-semibold"
                   >
-                    {k}
+                    {KILL_LABEL[k] ?? k}
                   </span>
                 ))}
               </span>

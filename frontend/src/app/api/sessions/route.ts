@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/lib/supabase/auth";
 import { createClient } from "@/lib/supabase/server";
+import { backendAuthHeaders } from "@/lib/backend-auth";
 import { decryptSecret } from "@/lib/llm/crypto";
 
 /** 宽松上限：Render 免费版冷启动可能较慢（Vercel Hobby 上限 60s） */
@@ -67,7 +68,10 @@ export async function POST(req: Request) {
   try {
     res = await fetch(`${base.replace(/\/+$/, "")}/api/sessions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(await backendAuthHeaders()),
+      },
       body: JSON.stringify({ ...body, llm_config }),
       cache: "no-store",
       signal: AbortSignal.timeout(45000),

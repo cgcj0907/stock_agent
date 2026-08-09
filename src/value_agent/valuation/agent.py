@@ -19,7 +19,7 @@ from value_agent.core.contracts import ReasonCode, build_meta
 from value_agent.core.scoring import confidence_from_completeness, llm_score
 from value_agent.sessions.models import ModuleResult, ModuleStatus
 
-from .engine import METHOD_WEIGHTS, load_routing, run_valuation
+from .engine import METHOD_WEIGHTS, cheapness_score, load_routing, run_valuation
 
 # 方法名 → 一句话说明（methods[].reason 用；note 用于跳过原因）
 _METHOD_REASON = {
@@ -89,7 +89,7 @@ class M4ValuationAgent(Agent):
             return ModuleResult(
                 module=self.spec.id,
                 status=ModuleStatus.DONE,
-                score=0.0,
+                score=50.0,  # 数据不足=便宜度未知=中性（与 M8 unavailable 一致）
                 outputs={
                     "business_type": "cyclical",
                     "methods": [],
@@ -270,6 +270,7 @@ class M4ValuationAgent(Agent):
             completeness = "medium"
 
         calib: dict = {}
+        cheapness = cheapness_score(close, result.intrinsic)
         score = llm_score(
             ctx, self.spec.id,
             facts={
@@ -277,11 +278,12 @@ class M4ValuationAgent(Agent):
                 "行业": industry,
                 "EPS": eps,
                 "现价": close,
+                "估值便宜度": cheapness,
                 "方法覆盖分": result.coverage_score,
                 "估值置信度": result.valuation_confidence,
                 "质量乘数": result.quality_multiplier,
             },
-            evidence=result.evidence, default=result.coverage_score, trace=calib,
+            evidence=result.evidence, default=cheapness, trace=calib,
             confidence=confidence_from_completeness(completeness),
         )
         # P4 试点：M1 画像路由落审计（plan_trace：adopted/override/conflict_fallback/fallback_rule）
@@ -317,6 +319,7 @@ class M4ValuationAgent(Agent):
                 "methods": methods_to_list(result.methods, result.method_confidences),
                 "intrinsic_value": result.intrinsic,
                 "current_price": close,
+                "cheapness_score": cheapness,
                 "params": result.params,
                 "valuation_confidence": result.valuation_confidence,
                 "quality_multiplier": result.quality_multiplier,

@@ -4,6 +4,8 @@ import { AppHeader } from "@/components/app-header";
 import { CommandPalette } from "@/components/command-palette";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import { resolveProfileIdentity } from "@/lib/profile";
+import { getProfile } from "@/lib/profile-store";
 import { createClient } from "@/lib/supabase/server";
 
 export default async function DashboardLayout({
@@ -18,14 +20,29 @@ export default async function DashboardLayout({
     redirect("/login");
   }
 
-  const name =
-    (user.user_metadata?.display_name as string | undefined) ||
-    user.email?.split("@")[0] ||
-    "用户";
+  let profile = null;
+  try {
+    profile = await getProfile(user.id);
+  } catch {
+    // profiles 表或新增字段尚未就绪时回退到 auth metadata
+  }
+
+  const identity = resolveProfileIdentity({
+    email: user.email,
+    authDisplayName: user.user_metadata?.display_name as string | undefined,
+    authAvatarUrl: user.user_metadata?.avatar_url as string | undefined,
+    profile,
+  });
 
   return (
     <SidebarProvider>
-      <AppSidebar user={{ name, email: user.email ?? "" }} />
+      <AppSidebar
+        user={{
+          name: identity.name,
+          email: identity.email,
+          avatarUrl: identity.avatarUrl,
+        }}
+      />
       <SidebarInset>
         <AppHeader />
         <main className="flex-1 p-4 md:p-6">{children}</main>

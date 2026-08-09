@@ -157,6 +157,10 @@ render open --service value-agent-api   # 打开 https://xxx.onrender.com
   `DATABASE_URL`（Supabase Session Pooler 连接串）、`LLM_API_KEY`（可选）。
 - 排错：Actions → 对应 run → 看日志；或手动点 **Run workflow** 触发调试。
 
+> ⚠️ **海外 IP 注意**：GitHub Actions runner 在海外，拉东财/巨潮/新浪经常被断连（`docs/10-fc-deployment.md`）。
+> 已迁 FC 的生产环境建议改用 **FC 定时触发器**跑 `POST /api/daily`（大陆 IP，同一份逻辑），见
+> [`docs/10-fc-deployment.md` 第十节](10-fc-deployment.md#十每日定时任务fc-定时触发器替代-github-actions)；本文件 §1.7 保留给未迁 FC 的场景。
+
 
 ### 1.8 推送到阿里云 ACR（国内构建/FC 部署）
 

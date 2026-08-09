@@ -211,12 +211,12 @@ def test_default_run_output_schema_stable(stub_data):
 def test_agent_inputs_match_expected_consumption():
     """关键模块 inputs 与引擎实际消费集合一致（批次 D 核对结果，防回归）。
 
-    注：M3 只读 ctx.data（M2 顺序依赖由 MODULE_DEPENDENCIES 保证）；
-    M10/M11 通过 ctx.inputs 消费的模块必须完整声明（不直接读全量 session.module_results）。
+    注：M3 消费 M1 生意类型（2026-08-09 周期口径一致化）；M10/M11 通过 ctx.inputs
+    消费的模块必须完整声明（不直接读全量 session.module_results）。
     """
     registry = register_builtin_agents(AgentRegistry())
     expected = {
-        "M3_growth": set(),
+        "M3_growth": {"M1_business_model"},
         "M4_valuation": {
             "M1_business_model", "M2_financial_quality", "M3_growth",
             "M5_moat", "M6_governance",

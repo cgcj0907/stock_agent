@@ -726,6 +726,18 @@ wheels = [
 ]
 
 [[package]]
+name = "ecdsa"
+version = "0.19.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "six" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/25/ca/8de7744cb3bc966c85430ca2d0fcaeea872507c6a4cf6e007f7fe269ed9d/ecdsa-0.19.2.tar.gz", hash = "sha256:62635b0ac1ca2e027f82122b5b81cb706edc38cd91c63dda28e4f3455a2bf930", size = 202432, upload-time = "2026-03-26T09:58:17.675Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/51/79/119091c98e2bf49e24ed9f3ae69f816d715d2904aefa6a2baa039a2ba0b0/ecdsa-0.19.2-py2.py3-none-any.whl", hash = "sha256:840f5dc5e375c68f36c1a7a5b9caad28f95daa65185c9253c0c08dd952bb7399", size = 150818, upload-time = "2026-03-26T09:58:15.808Z" },
+]
+
+[[package]]
 name = "et-xmlfile"
 version = "2.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3761,55 +3773,73 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "akshare" },
-    { name = "apscheduler" },
-    { name = "chromadb" },
-    { name = "duckdb" },
+    { name = "ecdsa" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "litellm" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "pandas" },
-    { name = "pandera" },
     { name = "psycopg2-binary" },
     { name = "pydantic" },
     { name = "pyyaml" },
+    { name = "uvicorn" },
+]
+
+[package.optional-dependencies]
+full = [
+    { name = "apscheduler" },
+    { name = "chromadb" },
+    { name = "duckdb" },
+    { name = "pandera" },
     { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "scipy", version = "1.18.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
-    { name = "uvicorn" },
 ]
 
 [package.dev-dependencies]
 dev = [
+    { name = "apscheduler" },
+    { name = "chromadb" },
+    { name = "duckdb" },
     { name = "mypy" },
+    { name = "pandera" },
     { name = "pytest" },
     { name = "ruff" },
+    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "scipy", version = "1.18.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "akshare", specifier = ">=1.14" },
-    { name = "apscheduler", specifier = ">=3.10" },
-    { name = "chromadb", specifier = ">=0.5" },
-    { name = "duckdb", specifier = ">=1.0" },
+    { name = "apscheduler", marker = "extra == 'full'", specifier = ">=3.10" },
+    { name = "chromadb", marker = "extra == 'full'", specifier = ">=0.5" },
+    { name = "duckdb", marker = "extra == 'full'", specifier = ">=1.0" },
+    { name = "ecdsa", specifier = ">=0.19" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "litellm", specifier = ">=1.44" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "pandas", specifier = ">=2.2" },
-    { name = "pandera", specifier = ">=0.20" },
+    { name = "pandera", marker = "extra == 'full'", specifier = ">=0.20" },
     { name = "psycopg2-binary", specifier = ">=2.9" },
     { name = "pydantic", specifier = ">=2.8" },
     { name = "pyyaml", specifier = ">=6.0" },
-    { name = "scipy", specifier = ">=1.13" },
+    { name = "scipy", marker = "extra == 'full'", specifier = ">=1.13" },
     { name = "uvicorn", specifier = ">=0.30" },
 ]
+provides-extras = ["full"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "apscheduler", specifier = ">=3.10" },
+    { name = "chromadb", specifier = ">=0.5" },
+    { name = "duckdb", specifier = ">=1.0" },
     { name = "mypy", specifier = ">=1.11" },
+    { name = "pandera", specifier = ">=0.20" },
     { name = "pytest", specifier = ">=8.3" },
     { name = "ruff", specifier = ">=0.6" },
+    { name = "scipy", specifier = ">=1.13" },
 ]
 
 [[package]]

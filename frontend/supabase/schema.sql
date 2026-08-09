@@ -5,6 +5,7 @@
 create table if not exists public.profiles (
   id uuid primary key references auth.users (id) on delete cascade,
   display_name text not null default '',
+  avatar_path text not null default '',
   avatar_url text,
   education_level text not null default '',
   education_major text not null default '',
@@ -26,6 +27,7 @@ create table if not exists public.profiles (
 );
 
 alter table public.profiles add column if not exists education_level text not null default '';
+alter table public.profiles add column if not exists avatar_path text not null default '';
 alter table public.profiles add column if not exists education_major text not null default '';
 alter table public.profiles add column if not exists education_note text not null default '';
 alter table public.profiles add column if not exists career_stage text not null default '';
@@ -53,6 +55,53 @@ create policy "profiles_insert_own" on public.profiles
 
 create policy "profiles_update_own" on public.profiles
   for update using (auth.uid() = id) with check (auth.uid() = id);
+
+-- 3.1) 头像存储桶（公开读）
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'avatars',
+  'avatars',
+  true,
+  5242880,
+  array['image/jpeg', 'image/png', 'image/webp']
+)
+on conflict (id) do update set
+  public = excluded.public,
+  file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists "avatars_public_read" on storage.objects;
+create policy "avatars_public_read" on storage.objects
+  for select to public
+  using (bucket_id = 'avatars');
+
+drop policy if exists "avatars_upload_own_folder" on storage.objects;
+create policy "avatars_upload_own_folder" on storage.objects
+  for insert to authenticated
+  with check (
+    bucket_id = 'avatars'
+    and (storage.foldername(name))[1] = (select auth.uid()::text)
+  );
+
+drop policy if exists "avatars_update_own_folder" on storage.objects;
+create policy "avatars_update_own_folder" on storage.objects
+  for update to authenticated
+  using (
+    bucket_id = 'avatars'
+    and (storage.foldername(name))[1] = (select auth.uid()::text)
+  )
+  with check (
+    bucket_id = 'avatars'
+    and (storage.foldername(name))[1] = (select auth.uid()::text)
+  );
+
+drop policy if exists "avatars_delete_own_folder" on storage.objects;
+create policy "avatars_delete_own_folder" on storage.objects
+  for delete to authenticated
+  using (
+    bucket_id = 'avatars'
+    and (storage.foldername(name))[1] = (select auth.uid()::text)
+  );
 
 -- 4) 注册时自动创建资料（security definer 绕开 RLS）
 create or replace function public.handle_new_user()
@@ -208,4 +257,36 @@ create policy "memos_select_own" on public.memos
 create policy "memos_insert_own" on public.memos
   for insert with check (auth.uid() = user_id);
 create policy "memos_delete_own" on public.memos
+  for delete using (auth.uid() = user_id);
+
+-- 监控规则（M11 物化：每次分析后写入；user_id 为空=系统全局规则，前端编辑后归属当前用户）
+create table if not exists public.monitor_rules (
+  id uuid primary key default gen_random_uuid(),
+  session_id text not null,
+  company_code text not null,
+  company_name text not null default '',
+  rule_type text not null,
+  source_module text not null default '',
+  trigger text not null default '',
+  message text not null default '',
+  severity text not null default 'info',
+  action text not null default 'watch',
+  params jsonb not null default '{}'::jsonb,
+  user_id uuid references auth.users (id) on delete cascade,
+  active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists monitor_rules_session_idx on public.monitor_rules (session_id);
+create index if not exists monitor_rules_company_idx on public.monitor_rules (company_code, active);
+
+alter table public.monitor_rules enable row level security;
+
+create policy "monitor_rules_select" on public.monitor_rules
+  for select using (user_id is null or auth.uid() = user_id);
+create policy "monitor_rules_insert" on public.monitor_rules
+  for insert with check (auth.uid() = user_id);
+create policy "monitor_rules_update" on public.monitor_rules
+  for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy "monitor_rules_delete" on public.monitor_rules
   for delete using (auth.uid() = user_id);

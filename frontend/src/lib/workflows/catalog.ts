@@ -24,7 +24,7 @@ export const WORKFLOWS: WorkflowInfo[] = [
     steps: [
       { id: "M1", agent: "M1_business_model", deps: [] },
       { id: "M2", agent: "M2_financial_quality", deps: [] },
-      { id: "M3", agent: "M3_growth", deps: ["M2"] },
+      { id: "M3", agent: "M3_growth", deps: ["M1", "M2"] },
       { id: "M4", agent: "M4_valuation", deps: ["M1", "M2", "M3", "M5", "M6"] },
       { id: "M5", agent: "M5_moat", deps: ["M1"] },
       { id: "M6", agent: "M6_governance", deps: [] },

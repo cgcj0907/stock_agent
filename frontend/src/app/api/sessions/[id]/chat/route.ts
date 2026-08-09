@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/lib/supabase/auth";
 import { createClient } from "@/lib/supabase/server";
+import { backendAuthHeaders } from "@/lib/backend-auth";
 import { decryptSecret } from "@/lib/llm/crypto";
 
 type Params = { params: Promise<{ id: string }> };
@@ -63,7 +64,10 @@ export async function POST(req: Request, { params }: Params) {
   try {
     res = await fetch(`${baseUrl.replace(/\/+$/, "")}/api/sessions/${id}/chat`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(await backendAuthHeaders()),
+      },
       body: JSON.stringify({ content: body.content, llm_config }),
       cache: "no-store",
       signal: AbortSignal.timeout(45000),

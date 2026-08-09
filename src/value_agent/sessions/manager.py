@@ -4,9 +4,12 @@
 """
 from __future__ import annotations
 
+import logging
 import re
 import time
 from collections.abc import Iterable
+
+from value_agent.monitor.rules_store import MonitorRuleStore
 
 from .models import (
     Message,
@@ -19,6 +22,8 @@ from .models import (
 )
 from .state_machine import transition
 from .store import SessionStore
+
+logger = logging.getLogger(__name__)
 
 # A 股代码：6 位数字（容忍 sh/sz/bj 前缀、点号与空白，如 "SH600519" / "600519.SH"）
 _CODE_RE = re.compile(r"^\d{6}$")
@@ -72,7 +77,7 @@ PIPELINE_ORDER: list[ModuleName] = [
 # 重算依赖：模块 -> 直接依赖模块（改依赖需重跑下游）
 MODULE_DEPENDENCIES: dict[ModuleName, set[ModuleName]] = {
     ModuleName.M2: {ModuleName.M1},  # 12.1：M2 按 M1 生意类型分行业口径（财务质量行业路由）
-    ModuleName.M3: {ModuleName.M2},
+    ModuleName.M3: {ModuleName.M1, ModuleName.M2},  # M1 判周期 → M3 周期增速正常化口径一致（2026-08-09）
     ModuleName.M7: {ModuleName.M1},  # 生意类型 → 主估值指标（周期/银行看 PB）
     ModuleName.M4: {
         ModuleName.M1,
@@ -130,8 +135,14 @@ def _ordered(modules: Iterable[ModuleName]) -> list[ModuleName]:
 
 
 class SessionManager:
-    def __init__(self, store: SessionStore) -> None:
+    def __init__(
+        self,
+        store: SessionStore,
+        rules_store: MonitorRuleStore | None = None,
+    ) -> None:
         self._store = store
+        # 监控规则物化存储（可选）：persist 时把 M11 monitor_rules 同步成表数据
+        self._rules_store = rules_store
         # session_id -> (monotonic_ts, llm_config)：密钥的进程内临时存储
         self._llm_config_cache: dict[str, tuple[float, dict]] = {}
 
@@ -275,6 +286,30 @@ class SessionManager:
         # 任意落库（步骤推进/终态）都刷新「最近活动」时间，保证 list 排序与断点续跑可见性
         session.updated_at = _now()
         self._store.save(session)
+        self._sync_monitor_rules(session)
+
+    def _sync_monitor_rules(self, session: Session) -> None:
+        """M11 规则物化：把会话里的 monitor_rules 同步进 monitor_rules 表。
+
+        - 表是每日监控的规则源；用户自定义行（user_id 非空）在 replace 时保留。
+        - 配置了 rules_store 才落表；没配（老部署/测试）不影响原 JSONB 行为。
+        """
+        if self._rules_store is None:
+            return
+        m11 = session.module_results.get("M11_monitor")
+        raw = m11.outputs.get("monitor_rules") if m11 and m11.outputs else None
+        rules = [r for r in raw if isinstance(r, dict)] if raw else []
+        rows = []
+        for r in rules:
+            row = dict(r)
+            row.setdefault("session_id", session.id)
+            row.setdefault("company_code", session.company_code)
+            row.setdefault("company_name", session.company_name or session.company_code)
+            rows.append(row)
+        try:
+            self._rules_store.replace_for_session(session.id, rows)
+        except Exception:
+            logger.exception("监控规则物化失败（不影响会话保存）")
 
     def load(self, session_id: str) -> Session:
         session = self._store.load(session_id)

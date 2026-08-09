@@ -20,30 +20,18 @@ from value_agent.agents import AgentRegistry
 from value_agent.agents.builtin import register_builtin_agents
 from value_agent.core.config import load_settings
 from value_agent.core.llm import get_llm
+from value_agent.core.watchlist import load_watchlist
+from value_agent.daily import run_daily_job
 from value_agent.data.manager import DataManager, _default_source
 from value_agent.data.pipelines.ingest import daily_update, ingest_company
 from value_agent.data.storage.factory import create_storage
+from value_agent.monitor.rules_store import create_rule_store
 from value_agent.monitor.runner import notify_webhooks, run_daily_monitor
 from value_agent.report.memo import build_memo
 from value_agent.sessions import InMemoryStore, SessionManager, SqliteStore, create_session_store
 from value_agent.workflow import WorkflowEngine, default_workflow
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-
-SAMPLE_CODES = ["600519", "300750", "000333", "600036", "601899"]
-
-
-def load_watchlist() -> list[str]:
-    """读取 config/watchlist.yaml 的自选股；无 pyyaml/文件时回退样本。"""
-    try:
-        import yaml  # type: ignore
-
-        with open("config/watchlist.yaml", encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
-        return [str(item["code"]) for item in data.get("watchlist", [])]
-    except (ImportError, FileNotFoundError, KeyError, OSError):
-        return SAMPLE_CODES
-
 
 def _make_store(kind: str):
     if kind == "sqlite":
@@ -129,9 +117,29 @@ def _ping_sources() -> None:
         print(f"[ping] {name:<8} FAIL ({time.time() - t0:.2f}s) {type(exc).__name__}: {str(exc)[:60]}")
 
 
+def _make_rule_store(kind: str):
+    """按 store 类型创建监控规则存储（与 _make_store 同路径/同 DSN，保证落到同一库）。"""
+    from value_agent.monitor.rules_store import (
+        InMemoryRuleStore,
+        SqliteRuleStore,
+        SupabaseRuleStore,
+    )
+
+    if kind == "sqlite":
+        settings = load_settings()
+        path = settings.get("storage", {}).get("path", "data/sessions.db")
+        return SqliteRuleStore(path)
+    if kind == "supabase":
+        dsn = os.getenv("DATABASE_URL", "")
+        if not dsn:
+            raise SystemExit("--store supabase 需要 DATABASE_URL（.env 或环境变量）")
+        return SupabaseRuleStore(dsn)
+    return InMemoryRuleStore()
+
+
 def _engine(store_kind: str = "memory") -> tuple[SessionManager, WorkflowEngine]:
     store = _make_store(store_kind)
-    manager = SessionManager(store)
+    manager = SessionManager(store, rules_store=_make_rule_store(store_kind))
     registry = register_builtin_agents(AgentRegistry())
     return manager, WorkflowEngine(registry, manager, data=DataManager(), llm=get_llm())
 
@@ -241,10 +249,15 @@ def cmd_monitor(args: argparse.Namespace) -> int:
     # 9.9：会话存储与生产一致（SESSION_STORE / DATABASE_URL / SESSIONS_DB），
     # 不再硬编码本地 SqliteStore，避免 GitHub Actions 全新 runner 读不到生产会话
     store = create_session_store()
+    rules_store = create_rule_store()
     sessions = store.list()
     source = _default_source()
     print(f"[monitor] 数据源: {source.name} | 已完成会话 {sum(1 for s in sessions if s.status.value == 'completed')} 个")
-    events = run_daily_monitor(sessions, source, quarterly_review=bool(getattr(args, "quarterly", False)))
+    events = run_daily_monitor(
+        sessions, source,
+        quarterly_review=bool(getattr(args, "quarterly", False)),
+        rules_store=rules_store,
+    )
     for e in events:
         print(f"[monitor] [{e.severity}] {e.company_name}({e.company_code}) {e.message}")
     # I-2 记忆闭环：命中写回存储（此前只改内存，进程退出即丢，下次分析读不到）
@@ -253,8 +266,38 @@ def cmd_monitor(args: argparse.Namespace) -> int:
             store.save(session)
     if events:
         notify_webhooks(events)
+    rules_store.close()
     print(f"[monitor] 检查完成，触发事件 {len(events)} 条")
     return 0
+
+
+def cmd_notify(args: argparse.Namespace) -> int:
+    """发送一条测试消息到已配置的飞书/企业微信 Webhook（FEISHU_WEBHOOK / WECHAT_WEBHOOK）。"""
+    from value_agent.monitor.runner import send_webhook_text
+
+    text = args.text or "Value Agent 测试消息 ✅"
+    sent = send_webhook_text(text)
+    if sent:
+        print(f"[notify] 已推送 {len(sent)} 个渠道：{'、'.join(sent)}")
+        return 0
+    print("[notify] 未配置 FEISHU_WEBHOOK / WECHAT_WEBHOOK，或全部推送失败")
+    return 1
+
+
+def cmd_daily(args: argparse.Namespace) -> int:
+    """每日任务：数据更新 + 监控评估 + Webhook 推送（FC 定时触发器同款逻辑）。"""
+    summary = run_daily_job(
+        lookback_days=getattr(args, "days", 10),
+        quarterly_review=bool(getattr(args, "quarterly", False)),
+    )
+    updated = summary["updated"]
+    print(f"[daily] 行情 +{updated.get('daily_price', 0)} / 估值 +{updated.get('valuation_history', 0)} / 跳过 {updated.get('skipped', 0)}")
+    print(f"[daily] 会话 {summary['session_count']} 个 | 触发事件 {summary['monitor_events']} 条 | 推送 {summary['pushed_channels']}")
+    for e in summary["events"]:
+        print(f"[monitor] [{e['severity']}] {e['company_name']}({e['company_code']}) {e['message']}")
+    for err in summary.get("errors", []):
+        print(f"[daily] 警告：{err}")
+    return 1 if summary.get("errors") else 0
 
 
 def cmd_backtest(args: argparse.Namespace) -> int:
@@ -330,6 +373,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--quarterly", action="store_true",
                    help="9.3：财报季模式——对 warn/critical 非价格 watch 补发复查提醒")
     p.set_defaults(func=cmd_monitor)
+
+    p = sub.add_parser("notify", help="发送测试消息到飞书/企业微信 Webhook")
+    p.add_argument("--text", default=None, help="测试消息内容（默认：Value Agent 测试消息 ✅）")
+    p.set_defaults(func=cmd_notify)
+
+    p = sub.add_parser("daily", help="每日任务：数据更新 + 监控 + 推送")
+    p.add_argument("--days", type=int, default=10, help="增量更新回看天数")
+    p.add_argument("--quarterly", action="store_true",
+                   help="9.3：财报季模式——对 warn/critical 非价格 watch 补发复查提醒")
+    p.set_defaults(func=cmd_daily)
 
     p = sub.add_parser("serve", help="启动 FastAPI 服务")
     p.add_argument("--host", default="0.0.0.0")

@@ -302,15 +302,27 @@ def assess_risk(inputs: dict[str, ModuleResult], assumptions: dict | None = None
         items.append(_risk_item(n, "安全边际", "high", "M8_safety_margin",
                                 "discount<0", "安全边际为负（现价高于内在价值下沿）"))
 
-    # 一票否决：行业明确下行 + 高杠杆（潜在永久损失路径：景气反转时高杠杆放大亏损）
+    # 一票否决：行业明确下行 + 高杠杆（潜在永久损失路径：景气反转时高杠杆放大亏损）。
+    # 生产稽核（2026-08-09）：仅凭 M3 prosperity=down（任何负 EPS CAGR 都触发）会误杀
+    # 盈利稳定高股息股——中国建筑（ROE 稳定 11%、股息 6%、M2=56 无亏损年）仅因 EPS 微降 +
+    # 建筑行业常规 77% 杠杆就被硬否决"回避"。故"明确下行"需真实恶化证据：
+    #   ① M2 存在亏损年（LOSS_YEAR）；② M3 周期特征（ROE 波动大，景气下行是高杠杆公司的
+    #      经典永久损失路径）；③ 财务质量 < 50。满足其一才构成否决。
     m2_metrics = m2.get("metrics") or {}
     debt = m2_metrics.get("debt_to_assets_latest")
+    deteriorating = (
+        "LOSS_YEAR" in m2_codes
+        or bool(m3_handoff.get("cyclicality_flag"))
+        or (m2_score is not None and m2_score < 50)
+    )
     if (
         m3_handoff.get("prosperity_code") == "down"
         and debt is not None
         and debt >= LEVERAGE_VETO_THRESHOLD
+        and deteriorating
     ):
-        veto(f"行业景气明确下行 + 高杠杆（M3 prosperity=down 且 M2 资产负债率 {debt:.0%} ≥ 60%）")
+        veto(f"行业景气明确下行 + 高杠杆（M3 prosperity=down 且 M2 资产负债率 {debt:.0%} ≥ 60%"
+             f"；恶化证据：{'亏损年' if 'LOSS_YEAR' in m2_codes else '周期特征' if m3_handoff.get('cyclicality_flag') else '财务质量偏弱'}）")
 
     # 显式否决（测试/用户覆盖）
     for reason in assumptions.get("veto_reasons") or []:

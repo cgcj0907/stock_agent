@@ -97,7 +97,7 @@ export function CommandPalette() {
     { id: "page-agents", label: "智能体广场", sub: "M1–M11 模块目录", href: "/agents", icon: Bot },
     { id: "page-workflows", label: "工作流", sub: "发起分析", href: "/workflows", icon: Workflow },
     { id: "page-conversations", label: "对话记录", sub: "历史分析", href: "/conversations", icon: History },
-    { id: "page-llm", label: "LLM 配置", sub: "服务商与模型", href: "/settings/llm", icon: Settings },
+    { id: "page-settings", label: "通用设置", sub: "LLM 与个人资料", href: "/settings", icon: Settings },
   ];
 
   return (

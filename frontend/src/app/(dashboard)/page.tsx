@@ -23,6 +23,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { LOCAL_AGENTS } from "@/lib/agents/catalog";
+import { resolveProfileIdentity } from "@/lib/profile";
+import { getProfile } from "@/lib/profile-store";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/supabase/auth";
 import { getWorkflow, WORKFLOWS } from "@/lib/workflows/catalog";
@@ -67,10 +69,7 @@ function StatLink({
 
 export default async function DashboardPage() {
   const user = await getCurrentUser();
-  const name =
-    (user?.user_metadata?.display_name as string | undefined) ||
-    user?.email?.split("@")[0] ||
-    "用户";
+  let name = "用户";
 
   let recent: Conversation[] = [];
   let conversationCount = 0;
@@ -80,6 +79,20 @@ export default async function DashboardPage() {
 
   if (user) {
     const supabase = await createClient();
+    try {
+      const profile = await getProfile(user.id);
+      name = resolveProfileIdentity({
+        email: user.email,
+        authDisplayName: user.user_metadata?.display_name as string | undefined,
+        authAvatarUrl: user.user_metadata?.avatar_url as string | undefined,
+        profile,
+      }).name;
+    } catch {
+      name = resolveProfileIdentity({
+        email: user.email,
+        authDisplayName: user.user_metadata?.display_name as string | undefined,
+      }).name;
+    }
     try {
       const { data, count } = await supabase
         .from("conversations")
@@ -147,7 +160,7 @@ export default async function DashboardPage() {
         <StatLink href="/agents" icon={Bot} label="智能体" value={LOCAL_AGENTS.length} />
         <StatLink href="/workflows" icon={Workflow} label="工作流" value={WORKFLOWS.length + custom.length} />
         <StatLink href="/conversations" icon={History} label="对话记录" value={conversationCount} />
-        <StatLink href="/settings/llm" icon={Cpu} label="LLM 服务商" value={llmCount} />
+        <StatLink href="/settings" icon={Cpu} label="LLM 服务商" value={llmCount} />
       </section>
 
       {/* 最近会话 + 快捷工作流 */}

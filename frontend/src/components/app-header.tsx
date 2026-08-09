@@ -17,7 +17,7 @@ const TITLES: Record<string, string> = {
   "/workflows": "工作流",
   "/conversations": "对话记录",
   "/settings": "通用设置",
-  "/settings/llm": "LLM 配置",
+  "/settings/llm": "通用设置",
   "/settings/profile": "个人资料",
 };
 

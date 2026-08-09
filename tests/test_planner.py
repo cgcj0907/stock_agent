@@ -169,6 +169,29 @@ def test_m1_profile_handoff_with_high_confidence_override(monkeypatch):
     assert handoff["plan_trace"]["adopted_business_type"] == "growth"
 
 
+def test_m1_outputs_include_llm_qualitative(monkeypatch):
+    """生产稽核回归：M1 outputs 必须带 llm_qualitative 整体对象。
+
+    此前 agent 只把 LLM 字段拆散到顶层（business_model/understandability/reasons），
+    从不存 llm_qualitative → 前端读 outputs.llm_qualitative 的"能力圈/判断理由"恒为空。
+    """
+    monkeypatch.setattr(
+        "value_agent.business_model.agent.CompanyReferences.fetch",
+        lambda self, code, limit=5, slot=0: [],
+    )
+    llm = _QueuedLLM([
+        ('{"business_type": "growth", "confidence": "high", "financial_subtype": "other", '
+         '"cyclicality": "medium", "primary_metric": "pe", '
+         '"business_model": "卖酒", "understandability": "可理解", "reasons": ["r"]}'),
+        '{"delta": 0, "reasons": ["合理"]}',
+    ])
+    res = _run_m1(llm)
+    assert res.outputs["understandability"] == "可理解"   # 顶层值（原先就有）
+    assert res.outputs["llm_qualitative"] is not None     # 修复：整体对象不再缺失
+    assert res.outputs["llm_qualitative"]["understandability"] == "可理解"
+    assert res.outputs["reasons"] == ["r"]
+
+
 def test_m1_profile_conflict_fallback_to_rule(monkeypatch):
     """P4：LLM 与规则冲突且置信度不足 → business_type 回退规则（白酒→consumer_monopoly）。"""
     monkeypatch.setattr(

@@ -42,8 +42,10 @@ const PROVIDER_VISUAL: Record<
 
 export function LlmSettingsClient({
   initialSettings,
+  embedded = false,
 }: {
   initialSettings: LlmSetting[];
+  embedded?: boolean;
 }) {
   const [settings, setSettings] = React.useState<LlmSetting[]>(initialSettings);
   const [dialogOpen, setDialogOpen] = React.useState(false);
@@ -125,10 +127,18 @@ export function LlmSettingsClient({
   }
 
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-6">
+    <div
+      className={
+        embedded
+          ? "flex flex-col gap-6"
+          : "mx-auto flex max-w-5xl flex-col gap-6"
+      }
+    >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">LLM 配置</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            {embedded ? "LLM 服务商" : "LLM 配置"}
+          </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             管理分析所用的 LLM 服务商，Key 加密存储在服务端
           </p>

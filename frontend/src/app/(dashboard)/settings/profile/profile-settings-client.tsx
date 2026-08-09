@@ -3,8 +3,11 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import {
+  Camera,
   BriefcaseBusiness,
   GraduationCap,
+  Loader2,
+  Trash2,
   Save,
   Target,
   UserRound,
@@ -46,6 +49,7 @@ import {
   INVESTMENT_STYLE_OPTIONS,
   LOSS_TOLERANCE_RANGE_OPTIONS,
   RISK_TOLERANCE_OPTIONS,
+  getAvatarPublicUrl,
   type ProfileInput,
 } from "@/lib/profile";
 
@@ -132,9 +136,13 @@ export function ProfileSettingsClient({
   const router = useRouter();
   const [profile, setProfile] = React.useState(initialProfile);
   const [saving, setSaving] = React.useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = React.useState(false);
+  const [removingAvatar, setRemovingAvatar] = React.useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
 
   const displayName = profile.display_name || email.split("@")[0] || "用户";
   const avatarInitial = displayName.charAt(0) || "用";
+  const avatarUrl = getAvatarPublicUrl(profile);
 
   function updateField<K extends keyof ProfileInput>(key: K, value: Required<ProfileInput>[K]) {
     setProfile((current) => ({ ...current, [key]: value }));
@@ -185,6 +193,54 @@ export function ProfileSettingsClient({
     }
   }
 
+  async function handleAvatarChange(
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    setUploadingAvatar(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const res = await fetch("/api/profile/avatar", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "头像上传失败");
+
+      setProfile((current) => ({ ...current, ...(data.profile ?? {}) }));
+      toast.success("头像已更新");
+      router.refresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "头像上传失败");
+    } finally {
+      setUploadingAvatar(false);
+    }
+  }
+
+  async function handleRemoveAvatar() {
+    setRemovingAvatar(true);
+    try {
+      const res = await fetch("/api/profile/avatar", {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "移除头像失败");
+
+      setProfile((current) => ({ ...current, ...(data.profile ?? {}) }));
+      toast.success("头像已移除");
+      router.refresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "移除头像失败");
+    } finally {
+      setRemovingAvatar(false);
+    }
+  }
+
   return (
     <form onSubmit={handleSubmit} className="mx-auto flex max-w-5xl flex-col gap-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -204,7 +260,7 @@ export function ProfileSettingsClient({
         <CardContent className="flex flex-col gap-5 p-5 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-4">
             <Avatar size="lg" className="size-14 rounded-2xl">
-              <AvatarImage src={profile.avatar_url || undefined} alt={displayName} />
+              <AvatarImage src={avatarUrl || undefined} alt={displayName} />
               <AvatarFallback className="rounded-2xl bg-muted text-base text-foreground">
                 {avatarInitial}
               </AvatarFallback>
@@ -223,13 +279,49 @@ export function ProfileSettingsClient({
                 onChange={(event) => updateField("display_name", event.target.value)}
               />
             </FieldShell>
-            <FieldShell label="头像 URL">
-              <Input
-                value={profile.avatar_url}
-                placeholder="https://..."
-                className="h-10 rounded-xl"
-                onChange={(event) => updateField("avatar_url", event.target.value)}
+            <FieldShell
+              label="头像"
+              description="支持 JPG、PNG、WebP，文件大小不超过 5MB。"
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="hidden"
+                onChange={handleAvatarChange}
               />
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-xl"
+                  disabled={uploadingAvatar}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  {uploadingAvatar ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Camera className="size-4" />
+                  )}
+                  {uploadingAvatar ? "上传中..." : "上传头像"}
+                </Button>
+                {(profile.avatar_path || profile.avatar_url) && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="rounded-xl text-destructive hover:text-destructive"
+                    disabled={removingAvatar}
+                    onClick={handleRemoveAvatar}
+                  >
+                    {removingAvatar ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="size-4" />
+                    )}
+                    {removingAvatar ? "移除中..." : "移除头像"}
+                  </Button>
+                )}
+              </div>
             </FieldShell>
           </div>
         </CardContent>

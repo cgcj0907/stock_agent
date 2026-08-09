@@ -524,17 +524,43 @@ def test_risk_pledge_below_threshold_no_veto():
 
 
 def test_risk_veto_industry_decline_high_leverage():
-    """设计否决项：行业明确下行 + 高杠杆（M3 prosperity=down 且 M2 资产负债率 ≥60%）。"""
+    """设计否决项：行业明确下行 + 高杠杆（M3 down + 资产负债率 ≥60% + 真实恶化证据）。"""
     inputs = {
         "M2_financial_quality": _mod("M2_financial_quality", {
             "metrics": {"debt_to_assets_latest": 0.7},
             "signals": [],
             "handoff": {"quality_score": 55, "risk_signal_codes": []},
         }, 55),
-        "M3_growth": _mod("M3_growth", {"handoff": {"prosperity_code": "down"}}),
+        "M3_growth": _mod("M3_growth", {
+            "handoff": {"prosperity_code": "down", "cyclicality_flag": True},
+        }),
     }
     r = assess_risk(inputs)
     assert any("高杠杆" in v for v in r.veto)
+
+
+def test_risk_industry_decline_high_leverage_stable_no_veto():
+    """生产稽核回归（中国建筑）：行业下行 + 高杠杆但**无真实恶化证据**
+    （非周期、无亏损年、财务质量 ≥50）→ 只进风险清单，不硬否决。
+
+    此前仅因 EPS 微降（M3 down）+ 行业常规杠杆就被"回避"，误杀盈利稳定高股息股。
+    """
+    inputs = {
+        "M2_financial_quality": _mod("M2_financial_quality", {
+            "metrics": {"debt_to_assets_latest": 0.77},
+            "signals": [{"code": "OCF_NP_DIVERGENCE", "severity": "medium",
+                         "metric": "ocf_to_np_min", "message": "经营现金流与净利润背离"}],
+            "handoff": {"quality_score": 56, "risk_signal_codes": ["OCF_NP_DIVERGENCE"]},
+        }, 56),
+        "M3_growth": _mod("M3_growth", {
+            "handoff": {"prosperity_code": "down", "cyclicality_flag": False},
+        }),
+    }
+    r = assess_risk(inputs)
+    assert r.veto == []
+    # 但"景气下行"风险项仍进清单（监控提示），只是不构成一票否决
+    assert any(it["category"] == "景气" and it["trigger"] == "prosperity_code=down"
+               for it in r.risk_items)
 
 
 def test_risk_industry_decline_low_leverage_no_veto():
@@ -716,9 +742,9 @@ def test_governance_control_event_high_concentration():
     assert any("股权集中度" in c["description"] for c in r.risk_codes if c["code"] == "CONTROL_RISK")
 
 
-def test_growth_cyclical_caps_and_discounts():
-    """生产稽核回归（江西铜业/中远海控）：周期特征（ROE 波动 CV>0.3）时
-    增速封顶 10% + 评分打折，杜绝景气高点 EPS CAGR 外推成 20% 长期增速。"""
+def test_growth_cyclical_normalizes_to_conservative_scenario():
+    """生产稽核回归（江西铜业/中远海控/浪潮）：周期特征（ROE 波动或 M1 判周期）时
+    增速正常化为**保守情景**（数据派生：20%→12%），不写死上限，并评分打折。"""
     roe_seq = [3, 22, 5, 25, 4, 26, 6, 24, 5, 23]  # 大幅波动 → CV>0.3
     recs = [
         {"period": f"{2026 - i}1231", "eps": round(2.0 * (1.2 ** (9 - i)), 4),
@@ -727,9 +753,10 @@ def test_growth_cyclical_caps_and_discounts():
     ]
     r = assess_growth({"records": recs})
     assert r.cyclicality_flag is True
-    assert r.growth_estimate <= 0.10                    # 封顶 10%
-    assert r.scenarios["neutral"] <= 0.10
-    assert any("正常化" in e for e in r.evidence)
+    # 历史 CAGR 20% → 保守情景 = 20% × 0.6 = 12%（数据派生，非写死上限）
+    assert r.growth_estimate == pytest.approx(0.12, abs=0.01)
+    assert r.scenarios["neutral"] == pytest.approx(0.12, abs=0.01)
+    assert any("正常化至保守情景" in e for e in r.evidence)
 
     stable = [
         {"period": f"{2026 - i}1231", "eps": round(2.0 * (1.2 ** (9 - i)), 4),
@@ -760,3 +787,38 @@ def test_risk_max_severity_is_most_severe():
     }
     r = assess_risk(inputs)
     assert r.max_severity == "high"  # 最严重是 high（此前错误返回 medium/low）
+
+
+def test_growth_cyclical_from_m1_business_type():
+    """生产稽核回归（浪潮信息）：M1 判周期但 ROE 波动不显著时，M3 仍按周期处理
+    （增速封顶 10% + 质量折扣），修复 M1/M3 周期口径不一致。"""
+    recs = [
+        {"period": f"{2026 - i}1231", "eps": round(2.0 * (1.2 ** (9 - i)), 4),
+         "roe": 12, "debt_to_assets": 0.55}
+        for i in range(8)
+    ]
+    # 不传 business_type：ROE 稳定 → 非周期，20% 增速不被封顶
+    r0 = assess_growth({"records": recs})
+    assert r0.cyclicality_flag is False
+    assert r0.growth_estimate == pytest.approx(0.20, abs=0.02)
+    # M1 判 cyclical → 按周期：增速正常化为保守情景（20%→12%）+ 评分打折 + 明确证据
+    r1 = assess_growth({"records": recs}, business_type="cyclical")
+    assert r1.cyclicality_flag is True
+    assert r1.growth_estimate == pytest.approx(0.12, abs=0.01)
+    assert r1.score < r0.score
+    assert any("M1 生意类型判为周期" in e for e in r1.evidence)
+
+
+def test_growth_reinvestment_quality_roe_wacc_units():
+    """生产稽核回归：再投资质量分按 ROE% 与 WACC% 同口径比较。
+
+    此前 `roe >= 2*wacc`（百分数 12 与小数 0.20 比较恒真）→ ROE 12% 也被判"≥2×WACC"给 +30，
+    实际只应 +20；只有 ROE ≥ 20% 才 +30。
+    """
+    base = [{"period": f"{2026 - i}1231", "eps": 4.0, "roe": 12, "debt_to_assets": 0.3}
+            for i in range(8)]
+    r_mid = assess_growth({"records": base})   # ROE 12%：≥WACC 但 <2×WACC → +20
+    r_high = assess_growth({"records": [dict(x, roe=25) for x in base]})  # ROE 25% → +30
+    assert r_high.score - r_mid.score == pytest.approx(10.0)
+    # 反向校验：ROE 12% 不得与 25% 同分（旧 bug 下两者都 +30）
+    assert r_mid.score < r_high.score

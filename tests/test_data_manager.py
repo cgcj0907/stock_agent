@@ -169,3 +169,56 @@ def test_daily_prices_incremental_refresh_only_fetches_new(tmp_path):
     # 同进程第二次调用命中合并缓存，不再拉取
     dm.daily_prices("600519")
     assert calls["n"] == 1
+
+
+def test_postgres_storage_reconnects_after_stale_connection(monkeypatch):
+    """生产稽核回归：pooler 静默断开（SSL EOF）后，下一次读取自动重连而非无限阻塞。
+
+    M7 卡「价格与估值分位」根因之一：单连接被断开后无重连，后续读取永久挂起。
+    """
+    import psycopg2
+
+    from value_agent.data.storage.postgres_storage import PostgresMarketStorage
+
+    state = {"connect": 0, "select": 0}
+
+    class _FakeCursor:
+        def __init__(self):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def execute(self, sql, params=None):
+            if sql.lstrip().startswith("SELECT"):
+                state["select"] += 1
+                if state["select"] == 1:
+                    raise psycopg2.OperationalError("SSL SYSCALL error: EOF detected")
+
+        def fetchone(self):
+            return ("20260801",)
+
+        def fetchall(self):
+            return []
+
+    class _FakeConn:
+        closed = False
+        autocommit = True
+
+        def __init__(self):
+            state["connect"] += 1
+
+        def cursor(self):
+            return _FakeCursor()
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(PostgresMarketStorage, "_connect", lambda self: _FakeConn())
+    st = PostgresMarketStorage("postgresql://fake")
+    # 第一次 SELECT 触发 OperationalError → 重连（_connect 第 2 次）后重试成功
+    assert st.latest("valuation_history", "600519") == "20260801"
+    assert state["connect"] == 2, "断线后应自动重连一次"

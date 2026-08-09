@@ -411,29 +411,89 @@ def test_daily_runner_falls_back_to_m8_without_rules():
     assert len(events) == 1 and events[0].rule_type == "price_buy"
 
 
-def test_notify_webhooks_pushes_events():
-    """9.10：notify_webhooks 推送飞书/企微（httpx MockTransport），失败兜底不抛错。"""
+def _mock_httpx_post(handler):
+    """把 httpx.post 替换为 MockTransport 处理器，返回还原函数。"""
     import httpx
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.host in ("feishu.example", "wechat.example")
-        return httpx.Response(200, json={"ok": True})
 
     transport = httpx.MockTransport(handler)
     orig_post = httpx.post
     httpx.post = lambda url, **kw: transport.handle_request(
         httpx.Request("POST", url, json=kw.get("json"), headers={"content-type": "application/json"})
     )
+    return orig_post
+
+
+def test_notify_webhooks_pushes_events():
+    """9.10：notify_webhooks 推送飞书/企微（httpx MockTransport），失败兜底不抛错。"""
     import os
+
+    import httpx
+
+    seen: list[str] = []
+
+    def handler(request):
+        seen.append(request.url.host)
+        if request.url.host == "feishu.example":
+            return httpx.Response(200, json={"code": 0, "msg": "success"})
+        return httpx.Response(200, json={"errcode": 0, "errmsg": "ok"})
+
+    orig_post = _mock_httpx_post(handler)
     old_feishu, old_wechat = os.environ.get("FEISHU_WEBHOOK"), os.environ.get("WECHAT_WEBHOOK")
     os.environ["FEISHU_WEBHOOK"] = "https://feishu.example/hook"
     os.environ["WECHAT_WEBHOOK"] = "https://wechat.example/hook"
     try:
         ev = MonitorEvent("600519", "测试", "price_buy", "现价低", "info")
-        notify_webhooks([ev])  # 不应抛错
-        notify_webhooks([])    # 空事件不推送
+        sent = notify_webhooks([ev])  # 不应抛错
+        assert set(sent) == {"飞书", "企业微信"}
+        assert seen == ["feishu.example", "wechat.example"]
+        assert notify_webhooks([]) == []  # 空事件不推送
     finally:
         httpx.post = orig_post
+        if old_feishu is None:
+            os.environ.pop("FEISHU_WEBHOOK", None)
+        else:
+            os.environ["FEISHU_WEBHOOK"] = old_feishu
+        if old_wechat is None:
+            os.environ.pop("WECHAT_WEBHOOK", None)
+        else:
+            os.environ["WECHAT_WEBHOOK"] = old_wechat
+
+
+def test_notify_webhooks_reports_business_failure():
+    """平台返回 code/errcode≠0（如关键词不匹配、签名错误）→ 渠道不计入成功，不抛错。"""
+    import os
+
+    import httpx
+
+    def handler(request):
+        return httpx.Response(200, json={"errcode": 93000, "errmsg": "invalid webhook url"})
+
+    orig_post = _mock_httpx_post(handler)
+    old_wechat = os.environ.get("WECHAT_WEBHOOK")
+    os.environ["WECHAT_WEBHOOK"] = "https://wechat.example/hook"
+    try:
+        sent = notify_webhooks([MonitorEvent("600519", "测试", "price_buy", "现价低", "info")])
+        assert sent == []  # 业务失败不计入成功渠道
+    finally:
+        httpx.post = orig_post
+        if old_wechat is None:
+            os.environ.pop("WECHAT_WEBHOOK", None)
+        else:
+            os.environ["WECHAT_WEBHOOK"] = old_wechat
+
+
+def test_send_webhook_text_no_channels():
+    """未配置任何 Webhook → 不推送、返回空列表。"""
+    import os
+
+    old_feishu, old_wechat = os.environ.get("FEISHU_WEBHOOK"), os.environ.get("WECHAT_WEBHOOK")
+    os.environ.pop("FEISHU_WEBHOOK", None)
+    os.environ.pop("WECHAT_WEBHOOK", None)
+    try:
+        from value_agent.monitor.runner import send_webhook_text
+
+        assert send_webhook_text("测试") == []
+    finally:
         if old_feishu is None:
             os.environ.pop("FEISHU_WEBHOOK", None)
         else:
@@ -460,3 +520,191 @@ def test_daily_runner_quarterly_review_emits_watch_alerts():
     # 非财报季模式不产生复查提醒
     events2 = run_daily_monitor([session], _RulesSource())
     assert not any("财报季复查" in e.message for e in events2)
+
+
+# ---------- 9.11：monitor_rules 表（规则源物化 + runner 从表读） ----------
+
+def test_rules_store_sqlite_roundtrip(tmp_path):
+    """monitor_rules 表：写读回环；重物化保留用户自定义行（user_id 非空）。"""
+    from value_agent.monitor.rules_store import SqliteRuleStore
+
+    store = SqliteRuleStore(str(tmp_path / "sessions.db"))
+    try:
+        store.replace_for_session("s1", [
+            {"rule_type": "price_buy", "company_code": "600519", "company_name": "贵州茅台",
+             "message": "跌破买入区间", "severity": "info", "params": {"price": 42.5}},
+        ])
+        rows = store.list_by_session("s1")
+        assert len(rows) == 1
+        assert rows[0]["company_code"] == "600519"
+        assert rows[0]["params"]["price"] == 42.5
+        assert rows[0]["active"] is True
+        # 用户自定义行（user_id 非空）在重物化时保留
+        store.replace_for_session("s1", [
+            {"rule_type": "price_buy", "company_code": "600519",
+             "user_id": "u-1", "params": {"price": 30.0}},
+        ])
+        kept = store.replace_for_session("s1", [
+            {"rule_type": "price_sell", "company_code": "600519", "params": {"price": 100.0}},
+        ])
+        assert kept == 1
+        types = {r["rule_type"] for r in store.list_by_session("s1")}
+        assert types == {"price_sell", "price_buy"}  # 系统规则替换 + 用户行保留
+        user_rows = [r for r in store.list_by_session("s1") if r.get("user_id") == "u-1"]
+        assert len(user_rows) == 1 and user_rows[0]["params"]["price"] == 30.0
+        assert store.list_by_company("600519")
+    finally:
+        store.close()
+
+
+def test_run_daily_monitor_reads_rules_from_store():
+    """runner 以 monitor_rules 表为规则源：会话无 JSONB 规则时用表规则（用户可改阈值）。"""
+    from value_agent.monitor.rules_store import InMemoryRuleStore
+
+    session = _session_with_rules([])  # M11 存在但规则为空
+    rules_store = InMemoryRuleStore()
+    rules_store.replace_for_session(session.id, [
+        {"rule_type": "price_buy", "company_code": "600519", "company_name": "测试",
+         "message": "跌破用户买入线", "severity": "info", "action": "action",
+         "source_module": "M8_safety_margin", "params": {"price": 50.0}},
+    ])
+    events = run_daily_monitor([session], _RulesSource(), rules_store=rules_store)
+    assert len(events) == 1
+    assert events[0].rule_type == "price_buy"
+    assert "50.0" in events[0].message
+
+
+def test_run_daily_monitor_rules_store_falls_back_to_jsonb():
+    """表里没有该会话规则 → 回退会话 JSONB 的 M11 规则（老数据兼容）。"""
+    from value_agent.monitor.rules_store import InMemoryRuleStore
+
+    session = _session_with_rules([
+        {"rule_type": "price_buy", "trigger": "现价 ≤ 42.5 元", "message": "跌破买入区间",
+         "severity": "info", "source_module": "M8_safety_margin", "action": "action",
+         "params": {"price": 42.5}},
+    ])
+    events = run_daily_monitor([session], _RulesSource(), rules_store=InMemoryRuleStore())
+    assert len(events) == 1 and events[0].rule_type == "price_buy"
+
+
+def test_persist_materializes_rules_to_store(tmp_path):
+    """SessionManager.persist 把 M11 规则物化进 monitor_rules 表，runner 从表读到。"""
+    from value_agent.monitor.rules_store import SqliteRuleStore
+    from value_agent.sessions import SessionManager
+    from value_agent.sessions.store import SqliteStore
+
+    db = str(tmp_path / "sessions.db")
+    store = SqliteStore(db)
+    rules_store = SqliteRuleStore(db)
+    manager = SessionManager(store, rules_store=rules_store)
+    try:
+        session = manager.create_session("600519", "贵州茅台")
+        session.status = SessionStatus.COMPLETED
+        session.module_results["M11_monitor"] = _mod("M11_monitor", _m11_outputs([
+            {"rule_type": "price_buy", "message": "跌破买入区间", "severity": "info",
+             "source_module": "M8_safety_margin", "action": "action",
+             "params": {"price": 42.5}},
+        ]))
+        manager.persist(session)
+
+        rows = rules_store.list_by_session(session.id)
+        assert len(rows) == 1
+        assert rows[0]["company_code"] == "600519"
+        assert rows[0]["params"]["price"] == 42.5
+        # runner 从表读到该规则并触发
+        loaded = store.list()
+        events = run_daily_monitor(loaded, _RulesSource(), rules_store=rules_store)
+        assert len(events) == 1 and events[0].rule_type == "price_buy"
+    finally:
+        rules_store.close()
+
+
+# ---------- 9.12：每日任务 run_daily_job（数据更新 + 监控 + 推送，FC 定时同款） ----------
+
+class _StubStorage:
+    """market 存储替身：latest 永远无缓存、upsert 计数。"""
+
+    name = "stub"
+
+    def __init__(self) -> None:
+        self.written = {"daily_price": 0, "valuation_history": 0}
+
+    def latest(self, table, code):
+        return None
+
+    def upsert(self, table, code, records):
+        n = len(records)
+        self.written[table] = self.written.get(table, 0) + n
+        return n
+
+
+class _StubSource:
+    """数据源替身：固定一条行情 + 一条估值。"""
+
+    name = "stub"
+
+    def daily_prices(self, code, start=None, end=None):
+        return {"records": [{"trade_date": "20260805", "close": 15.0}]}
+
+    def valuation_history(self, code):
+        return {"records": [{"trade_date": "20260805", "pe": 20.0}]}
+
+
+def test_run_daily_job_updates_and_monitors():
+    """daily 任务：行情/估值入库 → 表规则评估触发 → 汇总返回（无 webhook 时推送为空）。"""
+    from value_agent.daily import run_daily_job
+    from value_agent.monitor.rules_store import InMemoryRuleStore
+    from value_agent.sessions.store import InMemoryStore
+
+    store = InMemoryStore()
+    session = _session_with_rules([])  # JSONB 无规则，走表
+    store.save(session)
+    rules_store = InMemoryRuleStore()
+    rules_store.replace_for_session(session.id, [
+        {"rule_type": "price_buy", "company_code": "600519", "company_name": "测试",
+         "message": "跌破买入区间", "severity": "info", "action": "action",
+         "source_module": "M8_safety_margin", "params": {"price": 50.0}},
+    ])
+
+    summary = run_daily_job(
+        storage=_StubStorage(), source=_StubSource(), store=store,
+        rules_store=rules_store, codes=["600519"],
+    )
+    assert summary["updated"]["daily_price"] == 1
+    assert summary["updated"]["valuation_history"] == 1
+    assert summary["session_count"] == 1
+    assert summary["monitor_events"] == 1
+    assert summary["events"][0]["rule_type"] == "price_buy"
+    assert summary["events"][0]["message"].startswith("现价 15.0")
+    assert summary["pushed_channels"] == []  # 未配置 webhook
+    # I-2 记忆闭环：命中写回会话
+    assert store.list()[0].monitor_hits
+
+
+def test_run_daily_job_degrades_on_data_source_failure():
+    """数据源失败（如海外 IP 被断）→ 记录 errors、不抛错，监控因无最新价跳过。"""
+    from value_agent.daily import run_daily_job
+    from value_agent.monitor.rules_store import InMemoryRuleStore
+    from value_agent.sessions.store import InMemoryStore
+
+    class _FailSource:
+        name = "fail"
+
+        def daily_prices(self, code, start=None, end=None):
+            raise ConnectionError("eastmoney blocked")
+
+        def valuation_history(self, code):
+            raise ConnectionError("eastmoney blocked")
+
+    store = InMemoryStore()
+    store.save(_session_with_rules([
+        {"rule_type": "price_buy", "message": "跌破买入区间", "severity": "info",
+         "source_module": "M8_safety_margin", "action": "action", "params": {"price": 42.5}},
+    ]))
+    summary = run_daily_job(
+        storage=_StubStorage(), source=_FailSource(), store=store,
+        rules_store=InMemoryRuleStore(), codes=["600519"],
+    )
+    assert summary["updated"]["error"]          # 数据更新失败被记录
+    assert summary["errors"]                    # 不抛错
+    assert summary["monitor_events"] == 0       # 无最新价 → 规则跳过
