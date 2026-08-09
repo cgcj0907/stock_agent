@@ -107,7 +107,6 @@ export function WorkflowRunView({
 
       {/* DAG 可视化 */}
       <Card className="overflow-hidden rounded-2xl">
-        <div className={`h-1 bg-gradient-to-r ${workflow.accent}`} />
         <div className="p-3 md:p-4">
           <WorkflowDag steps={workflow.steps} statuses={statuses} />
         </div>
