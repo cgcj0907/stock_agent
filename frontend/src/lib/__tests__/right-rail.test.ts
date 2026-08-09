@@ -37,3 +37,14 @@ test("right rail shell keeps a left divider and collapse toggle", async () => {
   assert.doesNotMatch(source, /createPortal/);
   assert.doesNotMatch(source, /RightRailViewport/);
 });
+
+test("right rail provider is hydration-safe (server snapshot, no localStorage in initial render)", async () => {
+  const source = await readSource("../../components/ui/right-rail.tsx");
+
+  // 服务端快照恒为 true，水合后再经 getSnapshot 同步 localStorage 偏好
+  assert.match(source, /useSyncExternalStore\(subscribe, readStoredOpen, \(\) => true\)/);
+  // 不允许在 useState 初始值里读 window/localStorage（会导致 SSR/客户端首帧不一致）
+  assert.doesNotMatch(source, /React\.useState\(\(\) => \{\s*if \(typeof window === "undefined"\)/);
+  // 读取偏好必须包裹 try/catch（隐私模式等）
+  assert.match(source, /function readStoredOpen\(\)[\s\S]*?try \{[\s\S]*?localStorage\.getItem/);
+});

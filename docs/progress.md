@@ -121,6 +121,13 @@
 
 ## 历史变更日志（详细）
 
+> ✅ 2026-08-09 **右栏 hydration mismatch 修复**：`RightRailProvider` 原在 `useState` 初始值读取 `localStorage`
+>   （服务端无法读 window 恒为展开，客户端首帧可能折叠）→ SSR HTML 与客户端首帧不一致触发 Hydration failed；
+>   改用 `useSyncExternalStore`（服务端快照恒 true，水合后经 getSnapshot 同步偏好，写入仍持久化 localStorage + 跨标签页同步），
+>   right-rail.test.ts 新增回归锁定（服务端快照 / 不在初始渲染读 localStorage / 读取 try/catch）；
+>   tsc/eslint 全绿、前端 58 测试通过、webpack 生产构建通过。
+
+
 > ✅ 2026-08-09 **前端 UI 全面优化落地（17 项）**：
 > ① **P0 快赢**：新增 `lib/format.ts`（千分位/亿元/百分比口径统一，workflow-rail·memo-card·m4-outputs 接入）+ `lib/chart-theme.ts`（ECharts 硬编码色改读 CSS 变量，随亮/暗切换）；
 >    新增结果卡骨架 `ResultCardSkeleton` + 运行中结果占位 + agents/conversations/workflows 路由 loading；顶栏移动端搜索按钮；运行页自动滚动到进度流 + 「正在建立实时连接」提示；

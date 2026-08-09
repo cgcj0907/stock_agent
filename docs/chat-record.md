@@ -151,3 +151,8 @@
 
 - `progress.md` 原本混有"任务清单 + 大量历史日志"，不利于快速定位当前状态；
 - 新增 `milestones.md` 让"非常关键性进展"一眼可见；新增 `chat-record.md` 让每段对话的来龙去脉可追溯。
+
+### 轮次 3 · 2026-08-09
+- 修复右栏 hydration mismatch：`RightRailProvider` 原来在 `useState` 初始值里读 `localStorage`（服务端恒展开、客户端可能折叠），
+  导致 SSR HTML 与客户端首帧不一致报「Hydration failed」；改为 `useSyncExternalStore`（服务端快照恒 true，水合后再同步本地偏好），
+  并新增回归测试锁定「服务端快照 + 不在初始渲染读 localStorage + try/catch 读取」；tsc/eslint 全绿、前端 58 测试通过、webpack 构建通过。

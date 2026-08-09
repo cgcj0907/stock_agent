@@ -17,23 +17,52 @@ type RightRailContextValue = {
 
 const RightRailContext = React.createContext<RightRailContextValue | null>(null);
 
-export function RightRailProvider({ children }: { children: React.ReactNode }) {
-  const [open, setOpenState] = React.useState(() => {
-    if (typeof window === "undefined") return true;
+/** 折叠偏好外部存储：localStorage + 跨标签页同步。 */
+const listeners = new Set<() => void>();
+
+function emit() {
+  for (const l of listeners) l();
+}
+
+/** 读取用户折叠偏好；服务端（SSR）恒返回 true，保证首帧与服务器 HTML 一致。 */
+function readStoredOpen(): boolean {
+  if (typeof window === "undefined") return true;
+  try {
     return window.localStorage.getItem(RIGHT_RAIL_STORAGE_KEY) !== "collapsed";
-  });
+  } catch {
+    return true;
+  }
+}
+
+function subscribe(callback: () => void) {
+  listeners.add(callback);
+  window.addEventListener("storage", callback);
+  return () => {
+    listeners.delete(callback);
+    window.removeEventListener("storage", callback);
+  };
+}
+
+export function RightRailProvider({ children }: { children: React.ReactNode }) {
+  // useSyncExternalStore：水合期间使用服务端快照（展开），水合后再同步 localStorage，
+  // 避免「服务端展开 / 客户端折叠」导致的 hydration mismatch。
+  const open = React.useSyncExternalStore(subscribe, readStoredOpen, () => true);
 
   const setOpen = React.useCallback((nextOpen: boolean) => {
-    setOpenState(nextOpen);
-    window.localStorage.setItem(
-      RIGHT_RAIL_STORAGE_KEY,
-      nextOpen ? "expanded" : "collapsed",
-    );
+    try {
+      window.localStorage.setItem(
+        RIGHT_RAIL_STORAGE_KEY,
+        nextOpen ? "expanded" : "collapsed",
+      );
+    } catch {
+      // 隐私模式等写入失败时忽略
+    }
+    emit();
   }, []);
 
   const toggle = React.useCallback(() => {
-    setOpen(!open);
-  }, [open, setOpen]);
+    setOpen(!readStoredOpen());
+  }, [setOpen]);
 
   const value = React.useMemo(
     () => ({ open, setOpen, toggle }),
