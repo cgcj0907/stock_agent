@@ -5,6 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  BellRing,
   Bot,
   History,
   LayoutDashboard,
@@ -43,6 +44,10 @@ const NAV_GROUPS = [
   {
     label: "记录",
     items: [{ title: "对话记录", href: "/conversations", icon: History }],
+  },
+  {
+    label: "监控",
+    items: [{ title: "监控中心", href: "/monitor", icon: BellRing }],
   },
   {
     label: "设置",

@@ -9,11 +9,15 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { MasonryGrid } from "@/components/ui/masonry-grid";
+import { RightRailShell } from "@/components/ui/right-rail";
 import { StepActivityFeed } from "@/components/workflow/step-activity-feed";
 import { StatusIndicator, WorkflowDag } from "@/components/workflow/workflow-dag";
 import { ResultCard } from "@/components/workflow/result-card";
+import { ResultCardSkeleton } from "@/components/ui/result-skeleton";
+import { CardEntrance } from "@/components/motion/card-entrance";
+import { hasRiskContent } from "@/lib/module-risk";
 import { MemoCard } from "@/components/workflow/memo-card";
-import { WorkflowRail } from "@/components/workflow/workflow-rail";
+import { RailMiniSummary, WorkflowRail } from "@/components/workflow/workflow-rail";
 import { findAgent } from "@/lib/agents/catalog";
 import { useWorkflowRun } from "@/hooks/use-workflow-run";
 import type { StepStatus, WorkflowInfo } from "@/lib/workflows/catalog";
@@ -62,12 +66,22 @@ export function WorkflowRunView({
     { initialCompanyCode: initialCode, initialCompanyName: initialName }
   );
 
+  const feedRef = React.useRef<HTMLDivElement>(null);
+  const [riskOnly, setRiskOnly] = React.useState(false);
+
   const doneCount = stepIds.filter(
     (id) => statuses[id] === "done" || statuses[id] === "skipped"
   ).length;
   const progress = stepIds.length
     ? Math.round((doneCount / stepIds.length) * 100)
     : 0;
+
+  // 开始分析后自动滚动到实时进度流，避免用户停留在顶部看不到过程
+  React.useEffect(() => {
+    if (running) {
+      feedRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [running]);
 
   // module_results 以 agent id 为键（如 M2_financial_quality）
   const orderedResults = workflow.steps
@@ -81,15 +95,17 @@ export function WorkflowRunView({
   const showResults =
     orderedResults.length > 0 &&
     (runStatus === "completed" || runStatus === "failed");
+  const visibleResults = riskOnly
+    ? orderedResults.filter((x) => hasRiskContent(x.result))
+    : orderedResults;
 
   const hasRun = running || Object.keys(statuses).length > 0;
   const hasResults = Object.keys(results).length > 0;
 
   return (
-    <div className="mx-auto flex max-w-7xl flex-col gap-6">
-      <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
-        {/* 左列：过程 + 结果 + 备忘录 */}
-        <div className="flex min-w-0 flex-1 flex-col gap-6">
+    <div className="mx-auto flex max-w-7xl gap-6">
+      {/* 左列：过程 + 结果 + 备忘录 */}
+      <div className="flex min-w-0 flex-1 flex-col gap-6">
       {/* 头部 */}
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -163,6 +179,13 @@ export function WorkflowRunView({
       </div>
 
       {/* Codex 风格：对话中逐行展示每一步处理动作 */}
+      {running && !connected && (
+        <div className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-700 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-300">
+          <Loader2 className="size-3.5 animate-spin" />
+          正在建立实时连接，进度稍后同步…
+        </div>
+      )}
+      <div ref={feedRef}>
       {(running || Object.keys(statuses).length > 0) && (
         <StepActivityFeed
           steps={workflow.steps}
@@ -177,6 +200,7 @@ export function WorkflowRunView({
           className="animate-in fade-in slide-in-from-top-2"
         />
       )}
+      </div>
 
       {error && (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/50 dark:text-red-300">
@@ -184,19 +208,64 @@ export function WorkflowRunView({
         </div>
       )}
 
+      {/* 结果（运行中占位骨架） */}
+      {running && (
+        <section className="flex flex-col gap-3" aria-hidden={true}>
+          <h2 className="text-base font-semibold">分析结果</h2>
+          <MasonryGrid>
+            {Array.from({ length: 3 }).map((_, i) => (
+              <ResultCardSkeleton key={i} />
+            ))}
+          </MasonryGrid>
+        </section>
+      )}
+
       {/* 结果 */}
       {showResults && (
         <section className="flex flex-col gap-3">
-          <h2 className="text-base font-semibold">分析结果</h2>
-          <MasonryGrid>
-            {orderedResults.map(({ step, agent, result }) => (
-              <ResultCard
-                key={step}
-                agent={agent ? findAgent(agent) : undefined}
-                result={result}
-              />
-            ))}
-          </MasonryGrid>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-base font-semibold">分析结果</h2>
+            <div className="flex items-center gap-1 rounded-full border bg-muted/40 p-0.5 text-xs">
+              <button
+                type="button"
+                onClick={() => setRiskOnly(false)}
+                className={`rounded-full px-3 py-1 font-medium transition-colors ${
+                  !riskOnly
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                全部
+              </button>
+              <button
+                type="button"
+                onClick={() => setRiskOnly(true)}
+                className={`rounded-full px-3 py-1 font-medium transition-colors ${
+                  riskOnly
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                只看风险
+              </button>
+            </div>
+          </div>
+          {visibleResults.length === 0 ? (
+            <p className="rounded-xl border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
+              该工作流结果中没有风险条目
+            </p>
+          ) : (
+            <MasonryGrid>
+              {visibleResults.map(({ step, agent, result }, i) => (
+                <CardEntrance key={step} index={i}>
+                  <ResultCard
+                    agent={agent ? findAgent(agent) : undefined}
+                    result={result}
+                  />
+                </CardEntrance>
+              ))}
+            </MasonryGrid>
+          )}
         </section>
       )}
 
@@ -228,23 +297,21 @@ export function WorkflowRunView({
           ) : null}
         </section>
       )}
-        </div>
-
-        {/* 右列：sticky 运行概览 / 投资结论栏 */}
-        {hasRun && (
-          <aside className="w-full lg:sticky lg:top-20 lg:max-h-[calc(100vh_-_5rem)] lg:w-80 lg:shrink-0 lg:overflow-y-auto lg:overscroll-contain lg:pb-3 lg:pr-1">
-            <WorkflowRail
-              workflow={workflow}
-              statuses={statuses}
-              running={running}
-              sessionId={sessionId}
-              results={results}
-              showResults={showResults}
-              hasResults={hasResults}
-            />
-          </aside>
-        )}
       </div>
+
+      {hasRun && (
+        <RightRailShell collapsedContent={<RailMiniSummary running={running} results={results} />}>
+          <WorkflowRail
+            workflow={workflow}
+            statuses={statuses}
+            running={running}
+            sessionId={sessionId}
+            results={results}
+            showResults={showResults}
+            hasResults={hasResults}
+          />
+        </RightRailShell>
+      )}
     </div>
   );
 }

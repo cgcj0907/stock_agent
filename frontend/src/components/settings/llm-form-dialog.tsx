@@ -2,7 +2,9 @@
 
 import * as React from "react";
 import { CheckCircle2, Loader2, PlugZap, XCircle } from "lucide-react";
+import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
+import { z } from "zod";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -24,6 +26,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { LLM_PROVIDERS, getProvider } from "@/lib/llm/providers";
+import { zodResolver } from "@/lib/zod-resolver";
 import type { LlmSetting, LlmSettingInput } from "@/types/llm";
 
 interface Props {
@@ -33,7 +36,33 @@ interface Props {
   onSaved: () => void;
 }
 
-/** 表单主体：通过 key 重挂载初始化，避免 effect 内 setState */
+function buildSchema(editing: boolean) {
+  return z
+    .object({
+      provider: z.string().min(1, "请选择服务商"),
+      name: z.string(),
+      base_url: z.string().url("Base URL 格式不正确，需以 https:// 开头"),
+      model: z.string().min(1, "模型必填"),
+      api_key: z.string(),
+      is_default: z.boolean(),
+    })
+    .superRefine((val, ctx) => {
+      if (!val.api_key.trim() && val.provider !== "ollama" && !editing) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["api_key"],
+          message: "请填写 API Key（ollama 可留空）",
+        });
+      }
+    });
+}
+
+function FieldError({ message }: { message?: string }) {
+  if (!message) return null;
+  return <p className="text-xs text-red-600 dark:text-red-400">{message}</p>;
+}
+
+/** 表单主体：通过 key 重挂载初始化，react-hook-form + zod 校验 */
 function LlmFormFields({
   editing,
   onCancel,
@@ -43,7 +72,8 @@ function LlmFormFields({
   onCancel: () => void;
   onSaved: () => void;
 }) {
-  const [form, setForm] = React.useState<LlmSettingInput>(() => {
+  const schema = React.useMemo(() => buildSchema(Boolean(editing)), [editing]);
+  const defaultValues = React.useMemo<LlmSettingInput>(() => {
     if (editing) {
       return {
         provider: editing.provider,
@@ -63,7 +93,23 @@ function LlmFormFields({
       api_key: "",
       is_default: false,
     };
+  }, [editing]);
+
+  const {
+    register,
+    handleSubmit,
+    control,
+    setValue,
+    getValues,
+    formState: { errors, isSubmitting },
+  } = useForm<LlmSettingInput>({
+    resolver: zodResolver(schema),
+    defaultValues,
+    mode: "onBlur",
   });
+
+  const provider = useWatch({ control, name: "provider" });
+  const preset = getProvider(provider);
   const [saving, setSaving] = React.useState(false);
   const [testing, setTesting] = React.useState(false);
   const [testResult, setTestResult] = React.useState<{
@@ -72,22 +118,21 @@ function LlmFormFields({
     latencyMs?: number;
   } | null>(null);
 
-  const preset = getProvider(form.provider);
-
-  function handleProviderChange(provider: string) {
-    const next = getProvider(provider);
-    setForm((prev) => ({
-      ...prev,
-      provider,
-      base_url: next.baseUrl,
-      model:
-        prev.provider === provider && prev.model
-          ? prev.model
-          : (next.models[0] ?? prev.model),
-    }));
+  function handleProviderChange(next: string) {
+    const presetNext = getProvider(next);
+    const prevModel = getValues("model");
+    setValue("provider", next);
+    setValue("base_url", presetNext.baseUrl);
+    setValue(
+      "model",
+      provider === next && prevModel
+        ? prevModel
+        : (presetNext.models[0] ?? prevModel),
+    );
   }
 
   async function handleTest() {
+    const form = getValues();
     setTesting(true);
     setTestResult(null);
     try {
@@ -111,15 +156,7 @@ function LlmFormFields({
     }
   }
 
-  async function handleSave() {
-    if (!form.base_url.trim() || !form.model.trim()) {
-      toast.error("Base URL 与模型为必填");
-      return;
-    }
-    if (!editing && !form.api_key.trim() && form.provider !== "ollama") {
-      toast.error("请填写 API Key");
-      return;
-    }
+  async function onValidSubmit(form: LlmSettingInput) {
     setSaving(true);
     try {
       const url = editing
@@ -143,6 +180,8 @@ function LlmFormFields({
     }
   }
 
+  const busy = saving || isSubmitting;
+
   return (
     <>
       <DialogHeader>
@@ -152,10 +191,10 @@ function LlmFormFields({
         </DialogDescription>
       </DialogHeader>
 
-      <div className="flex flex-col gap-4 py-1">
+      <form onSubmit={handleSubmit(onValidSubmit)} className="flex flex-col gap-4 py-1">
         <div className="flex flex-col gap-2">
           <Label>服务商</Label>
-          <Select value={form.provider} onValueChange={handleProviderChange}>
+          <Select value={provider} onValueChange={handleProviderChange}>
             <SelectTrigger>
               <SelectValue placeholder="选择服务商" />
             </SelectTrigger>
@@ -177,8 +216,7 @@ function LlmFormFields({
           <Input
             id="llm-name"
             placeholder={preset.label}
-            value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
+            {...register("name")}
           />
         </div>
 
@@ -187,9 +225,10 @@ function LlmFormFields({
           <Input
             id="llm-base-url"
             placeholder="https://api.example.com/v1"
-            value={form.base_url}
-            onChange={(e) => setForm({ ...form, base_url: e.target.value })}
+            aria-invalid={Boolean(errors.base_url)}
+            {...register("base_url")}
           />
+          <FieldError message={errors.base_url?.message} />
         </div>
 
         <div className="flex flex-col gap-2">
@@ -198,14 +237,15 @@ function LlmFormFields({
             id="llm-model"
             list="llm-model-suggestions"
             placeholder="deepseek-chat"
-            value={form.model}
-            onChange={(e) => setForm({ ...form, model: e.target.value })}
+            aria-invalid={Boolean(errors.model)}
+            {...register("model")}
           />
           <datalist id="llm-model-suggestions">
             {preset.models.map((m) => (
               <option key={m} value={m} />
             ))}
           </datalist>
+          <FieldError message={errors.model?.message} />
         </div>
 
         <div className="flex flex-col gap-2">
@@ -221,9 +261,10 @@ function LlmFormFields({
                 ? (editing.api_key_masked ?? "••••••••")
                 : preset.keyPlaceholder
             }
-            value={form.api_key}
-            onChange={(e) => setForm({ ...form, api_key: e.target.value })}
+            aria-invalid={Boolean(errors.api_key)}
+            {...register("api_key")}
           />
+          <FieldError message={errors.api_key?.message} />
         </div>
 
         <div className="flex items-center justify-between rounded-lg border p-3">
@@ -235,8 +276,8 @@ function LlmFormFields({
           </div>
           <Switch
             id="llm-default"
-            checked={form.is_default}
-            onCheckedChange={(v) => setForm({ ...form, is_default: v })}
+            checked={useWatch({ control, name: "is_default" })}
+            onCheckedChange={(v) => setValue("is_default", v, { shouldValidate: true })}
           />
         </div>
 
@@ -257,37 +298,32 @@ function LlmFormFields({
             {testResult.latencyMs != null && `（${testResult.latencyMs}ms）`}
           </div>
         )}
-      </div>
 
-      <DialogFooter className="gap-2 sm:justify-between">
-        <Button
-          type="button"
-          variant="outline"
-          onClick={handleTest}
-          disabled={testing || saving}
-        >
-          {testing ? (
-            <Loader2 className="size-4 animate-spin" />
-          ) : (
-            <PlugZap className="size-4" />
-          )}
-          测试连通
-        </Button>
-        <div className="flex gap-2">
+        <DialogFooter className="gap-2 sm:justify-between">
           <Button
             type="button"
-            variant="ghost"
-            onClick={onCancel}
-            disabled={saving}
+            variant="outline"
+            onClick={handleTest}
+            disabled={testing || busy}
           >
-            取消
+            {testing ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <PlugZap className="size-4" />
+            )}
+            测试连通
           </Button>
-          <Button type="button" onClick={handleSave} disabled={saving}>
-            {saving && <Loader2 className="size-4 animate-spin" />}
-            保存
-          </Button>
-        </div>
-      </DialogFooter>
+          <div className="flex gap-2">
+            <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>
+              取消
+            </Button>
+            <Button type="submit" disabled={busy}>
+              {busy && <Loader2 className="size-4 animate-spin" />}
+              保存
+            </Button>
+          </div>
+        </DialogFooter>
+      </form>
     </>
   );
 }

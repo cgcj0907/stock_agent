@@ -21,6 +21,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { MasonryGrid } from "@/components/ui/masonry-grid";
+import { RightRailShell } from "@/components/ui/right-rail";
+import { StickySectionNav } from "@/components/ui/section-nav";
+import { hasRiskContent } from "@/lib/module-risk";
+import { CardEntrance } from "@/components/motion/card-entrance";
 import {
   Select,
   SelectContent,
@@ -30,6 +34,7 @@ import {
 } from "@/components/ui/select";
 import { StepActivityFeed } from "@/components/workflow/step-activity-feed";
 import { WorkflowDag } from "@/components/workflow/workflow-dag";
+import { RailMiniSummary, WorkflowRail } from "@/components/workflow/workflow-rail";
 import { ResultCard } from "@/components/workflow/result-card";
 import { MemoCard } from "@/components/workflow/memo-card";
 import { findAgent } from "@/lib/agents/catalog";
@@ -96,6 +101,7 @@ export function ConversationDetailView({
   // 追问对话流式：AI 正在生成的正文 / 思考过程（打字机气泡）
   const [pendingReply, setPendingReply] = React.useState("");
   const [pendingThinking, setPendingThinking] = React.useState("");
+  const [riskOnly, setRiskOnly] = React.useState(false);
   const [selectedLlmId, setSelectedLlmId] = React.useState<string | null>(
     initialLlmSettings.find((l) => l.is_default)?.id ??
       initialLlmSettings[0]?.id ??
@@ -401,9 +407,15 @@ export function ConversationDetailView({
             !!x.result
         )
     : [];
+  const railResults = session?.module_results ?? {};
+  const hasRail = Boolean(workflow && session);
+  const hasRailResults = Object.keys(railResults).length > 0;
+  const showRailResults = hasRailResults && !showRunning;
+  const showRail = hasRail && (showRunning || hasRailResults);
 
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-6">
+    <div className="mx-auto flex max-w-7xl gap-6">
+      <div className="flex min-w-0 flex-1 flex-col gap-6">
       {/* 头部 */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -470,6 +482,18 @@ export function ConversationDetailView({
         </div>
       </div>
 
+      <StickySectionNav
+        items={[
+          { id: "conv-chat", label: "对话" },
+          ...(orderedResults.length > 0
+            ? [{ id: "conv-results", label: "分析结果" }]
+            : []),
+          ...(memo || (session && Object.keys(session.module_results ?? {}).length > 0)
+            ? [{ id: "conv-memo", label: "投资备忘录" }]
+            : []),
+        ]}
+      />
+
       {loading && (
         <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
           <Loader2 className="size-4 animate-spin" />
@@ -506,7 +530,7 @@ export function ConversationDetailView({
         </Card>
       )}
 
-      <section className="flex flex-col gap-3">
+      <section id="conv-chat" className="flex scroll-mt-20 flex-col gap-3">
         <h2 className="text-base font-semibold">对话</h2>
         <Card className="rounded-2xl">
           <CardContent className="flex flex-col gap-3 p-4">
@@ -644,26 +668,75 @@ export function ConversationDetailView({
       </section>
 
       {orderedResults.length > 0 && (
-        <section className="flex flex-col gap-3">
-          <h2 className="text-base font-semibold">分析结果</h2>
-          <MasonryGrid>
-            {orderedResults.map(({ step, agent, result }) => (
-              <ResultCard
-                key={step}
-                agent={agent ? findAgent(agent) : undefined}
-                result={result}
-              />
-            ))}
-          </MasonryGrid>
+        <section id="conv-results" className="flex scroll-mt-20 flex-col gap-3">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-base font-semibold">分析结果</h2>
+            <div className="flex items-center gap-1 rounded-full border bg-muted/40 p-0.5 text-xs">
+              <button
+                type="button"
+                onClick={() => setRiskOnly(false)}
+                className={`rounded-full px-3 py-1 font-medium transition-colors ${
+                  !riskOnly
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                全部
+              </button>
+              <button
+                type="button"
+                onClick={() => setRiskOnly(true)}
+                className={`rounded-full px-3 py-1 font-medium transition-colors ${
+                  riskOnly
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                只看风险
+              </button>
+            </div>
+          </div>
+          {(() => {
+            const visible = riskOnly
+              ? orderedResults.filter((x) => hasRiskContent(x.result))
+              : orderedResults;
+            if (visible.length === 0) {
+              return (
+                <p className="rounded-xl border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
+                  该会话结果中没有风险条目
+                </p>
+              );
+            }
+            return (
+              <MasonryGrid>
+                {visible.map(({ step, agent, result }, i) => (
+                  <CardEntrance key={step} index={i}>
+                    <ResultCard
+                      agent={agent ? findAgent(agent) : undefined}
+                      result={result}
+                    />
+                  </CardEntrance>
+                ))}
+              </MasonryGrid>
+            );
+          })()}
         </section>
       )}
 
       {(memo || (session && Object.keys(session.module_results ?? {}).length > 0)) && (
-        <section className="flex flex-col gap-3">
-          <h2 className="flex items-center gap-2 text-base font-semibold">
-            <FileText className="size-4 text-emerald-600 dark:text-emerald-400" />
-            投资备忘录
-          </h2>
+        <section id="conv-memo" className="flex scroll-mt-20 flex-col gap-3">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="flex items-center gap-2 text-base font-semibold">
+              <FileText className="size-4 text-emerald-600 dark:text-emerald-400" />
+              投资备忘录
+            </h2>
+            <Button asChild variant="outline" size="sm" className="rounded-lg">
+              <Link href={`/memo/${conversation.id}`}>
+                <FileText className="size-3.5" />
+                分享 / 打印
+              </Link>
+            </Button>
+          </div>
           {session && Object.keys(session.module_results ?? {}).length > 0 ? (
             <MemoCard
               companyCode={conversation.company_code}
@@ -685,6 +758,21 @@ export function ConversationDetailView({
             </Card>
           ) : null}
         </section>
+      )}
+      </div>
+
+      {showRail && workflow && (
+        <RightRailShell collapsedContent={<RailMiniSummary running={showRunning} results={railResults} />}>
+          <WorkflowRail
+            workflow={workflow}
+            statuses={statuses}
+            running={showRunning}
+            sessionId={session?.id ?? conversation.session_id}
+            results={railResults}
+            showResults={showRailResults}
+            hasResults={hasRailResults}
+          />
+        </RightRailShell>
       )}
     </div>
   );

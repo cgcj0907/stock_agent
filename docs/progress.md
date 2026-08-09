@@ -11,7 +11,7 @@
 ## 当前状态（2026-08-09）
 
 - 全模块真实实现 + V2 升级（P1–P5）已落地；前端 F0–F6 完成，生产部署链路（FC + Supabase + Vercel）打通；
-- 本周聚焦真实会话稽核修复：M4 下沿/便宜度、M3 数据派生增速、M9 否决误杀、数据层超时加固等，全量测试 **522 通过**；
+- 本周聚焦真实会话稽核修复：M4 下沿/便宜度、M3 数据派生增速、M9 否决误杀、M9 安全边际严重度分级、数据层超时加固等，全量测试 **568 通过**；
 - 待办集中在：S0 数据推送/部署收尾、LLM 定性层接 key 验证、S5 会话重算→备忘录 v2 端到端验证、FC 超时调 600s。
 
 ## 总览
@@ -121,7 +121,85 @@
 
 ## 历史变更日志（详细）
 
+> ✅ 2026-08-09 **前端 UI 全面优化落地（17 项）**：
+> ① **P0 快赢**：新增 `lib/format.ts`（千分位/亿元/百分比口径统一，workflow-rail·memo-card·m4-outputs 接入）+ `lib/chart-theme.ts`（ECharts 硬编码色改读 CSS 变量，随亮/暗切换）；
+>    新增结果卡骨架 `ResultCardSkeleton` + 运行中结果占位 + agents/conversations/workflows 路由 loading；顶栏移动端搜索按钮；运行页自动滚动到进度流 + 「正在建立实时连接」提示；
+> ② **P1 重点**：备忘录分享/打印页 `/memo/[id]`（SSR + 复制 Markdown/导出 .md/打印 PDF，对话详情页加入口）；对话详情锚点导航 `StickySectionNav`；
+>    监控中心 `/monitor`（user_webhooks 渠道状态 + 后端会话 monitor_hits 命中时间线 + monitor_rules 规则分组，接入侧边栏/顶栏/命令面板）；
+>    结果区「全部/只看风险」过滤（`lib/module-risk.ts`）；M4 输出接入方法对比图；仪表盘 hero 品牌区 + 最近分析结论芯片 + 估值分布条（并行拉取会话结论）；
+>    右栏折叠态迷你总分/状态点 `RailMiniSummary`；
+> ③ **P2 后续**：安装 motion/react-hook-form/@tanstack/react-query/zod；`PageTransition`+`CardEntrance`+右栏滑入动效；LLM 与通知表单改 react-hook-form+zod（`lib/zod-resolver.ts` 轻量 resolver）；
+>    @tanstack/react-query 接入命令面板缓存；Builder 增加标准分析/快速估值模板、清空、点击连线移除；会话列表按今天/昨天/更早分组 + 加载更多；
+> ④ 验证：`tsc --noEmit`/`eslint` 全绿；前端 **57 测试全通过**（新增 format 5 + module-risk 4 + zod-resolver 2）；`next build --webpack` 生产构建通过
+>    （Turbopack 默认构建在当前沙箱环境被「绑定端口/创建进程」限制阻断，属环境限制非代码问题）；
+> ⑤ 新增依赖：motion@13、react-hook-form@7.85、@tanstack/react-query@5.101、zod@4（显式声明）。
+
+
+> 📋 2026-08-09 **前端 UI 优化盘点（仅分析，无代码改动）**：对照 frontend 代码与 docs/08-frontend-plan.md 产出分级清单——
+> ① **P0 快赢**：金额千分位/单位与 % 展示规范统一（workflow-rail/result-card/m4-outputs/memo-card 的 fmtNum/fmtPct）、
+>   ECharts 硬编码色（#7c3edc/#8a8a92/#232329 等）接入主题 CSS 变量以修暗色对比度、agents/conversations 列表页与运行中结果区补 Skeleton、
+>   顶栏搜索 md 以下隐藏导致移动端无 ⌘K 入口、运行页开始后自动滚动到 StepActivityFeed、结果字段折叠记忆；
+> ② **P1 重点**：备忘录分享/打印页 `/memo/[id]`（08-plan 已规划未实现，可复制 Markdown/导出 PDF）、对话详情页 Tabs 化（ui/tabs 组件已存在未用）、
+>   M11 监控中心页（monitor_hits/rules + webhook 目前仅备忘录被动展示）、结果卡评分条与「只看风险」过滤、PE/PB band 与 K 线图、
+>   仪表盘统计卡升级为真实信息（最近结论/监控命中/便宜度分布）、右栏折叠态微信息、会话列表公司分组/日期筛选/分页；
+> ③ **P2 后续**：引入 Motion 动效体系（08-plan 选型未装）、react-hook-form+zod 表单校验、TanStack Query 数据缓存、
+>   Builder 拖拽编排体验（React Flow 已在依赖）、可访问性/暗色对比度审计、长结果懒渲染与虚拟化；
+> ④ 依据：package.json 缺 motion/@tanstack/react-query/react-hook-form；ui/tabs、ui/progress、ui/sheet 组件未在页面使用；
+>   memo-charts 颜色硬编码；bg-grid-faint 仅 auth 页使用；无 memo 分享路由。
+
+
 > 要点版见 [milestones.md](milestones.md)；此处为完整明细，按时间倒序。
+
+> ✅ 2026-08-09 **估值引擎三处 P1 修复 + 估值法现值/未来标注（会话稽核驱动）**：
+> ① **P1-1 成长次新股保护（2.3b）**：近 N 年年化 EPS CAGR ≥ 20% 时，`relative_median_pe` 改用「最近 250 交易日」PE 中位
+>    （pe_history 最新在前）；东鹏案例还原：相对PE 356→123（历史中位 42 被上市初期高 PE 主导 vs 近端 14.5）；
+> ② **P1-2 现金化基数夹逼收紧**：`CASH_RATIO` [0.5,1.5]→[0.6,1.3]（高 OCF/NP 是质量信号，不宜全额放大 DCF 基数），
+>    原始 OCF/净利 偏离 1（0.7~1.3 外）时 evidence 显式提示；
+> ③ **P1-3 r−g 价差校验保增速**：折现率先抬满到上限 12%，再降增速到 10%（旧逻辑降到原折现率−2%=7%，把 LLM 增速上调吞掉、
+>    与 M3 脱节）；12%/9% 案例 g=7%→10%；
+> ④ **估值法现值/未来标注**：M4 方法 evidence 显式「（现值）/（N年后·未来值）」；`methods_to_list` 新增
+>    `value_type`（present/future）+ `horizon_label`；备忘录方法表现值也标注「（现值）」；前端 m4-outputs 方法行
+>    现值绿徽章 + 未来琥珀徽章；顺带修复 `graham_formula` 当期 PE 取序 bug（pe_history 最新在前 → [0]）；
+> ⑤ 新增 7 个回归测试（近期窗口×2 / 现值未来证据×1 / 现金偏离×1 / r−g 保增速×1 / 当期PE取序×1 / 备忘录标注×1），
+>    全量 **575 通过** + ruff；前端 43 测试全绿 + tsc/eslint。
+
+
+> ✅ 2026-08-09 **生产会话稽核：估值引擎（M4）行为分析（6 个 completed 会话）**：
+> ① 样本：国电南瑞×2（growth）/ 东鹏饮料（growth）/ 中策橡胶（cyclical）/ 中国平安（financial·insurance）/ 东方财富（financial·broker）；
+>    全部 4 类路由与 M1 一致（plan=adopted/override），方法/权重/参数/区间/校准（base/delta/final）逐一会话核对；
+> ② 机制验证均生效：周期券商正常化 PE 封顶 25（东财 51.24→25）、kill_switch HIGH_LEVERAGE ×0.85、下沿保护
+>    max(最保守方法, mid−std)（东财 9.25→10.0）、质量乘数（中策 0.9）、校准压分（国电/东鹏 cheapness 95→90）；
+>    决策链保守一致：全部 watch、无买入大仓（东财高估 15/仓位 0，平安 attractive 仅 4%）；
+> ③ **P1 发现**（东鹏饮料，中值 262.97 vs 现价 122.8）：a) relative_median_pe=历史中位 PE 41.3 × 当期 EPS 8.49=350，
+>    次新股 PE 历史被上市初期高 PE 主导（跨期不可比，backlog 2.3 只覆盖样本量不覆盖盈利增长/上市年限）；
+>    b) DCF 现金化基数放大（cash_eps 11.87 vs EPS 8.49，ocf_to_np≈1.4）；c) `apply_calibration` 的 r−g≥2% 校验会把
+>    LLM 建议 growth 0.12/discount 0.09 静默回退为 growth 0.07（本地复现与东鹏/中策会话一致），DCF 增速与 M3 推荐（0.178/0.107）脱节；
+> ④ **P2**：M4「高估」与 M7「极低估」同会话冲突（东财 PE 分位 0.06）；保险仍缺 EV（backlog 1.3）；LLM 校准引入
+>    run-to-run 差异（国电两次 low 25.08 vs 26.92）；改进建议见 chat-record Chat #5 / backlog 2.3·1.2 延伸。
+
+
+> ✅ 2026-08-09 **右栏收敛：仅分析/聊天详情出现 + 全面去卡片（用户反馈驱动）**：
+> ① 现象：右栏作为布局级视口在仪表盘/智能体/设置等所有页面都出现（空白占位），且运行态容器带 `bg-card/70` 圆角、风险清单/备忘录导航仍是 `Card`；
+> ② 修复：删除 `RightRailViewport/RightRailPortal`，右栏改回页面内 `RightRailShell` 按需渲染——工作流页 `hasRun`（分析中/有结果）、聊天记录详情 `showRail`（运行中或有模块结果）才出现；
+> ③ `WorkflowRail` 全面去卡片：外层统一 `divide-y` 分割线，运行概览/模块状态/结果占位/投资结论/风险清单/备忘录导航全部改普通 `section`，去掉 `Card` 与圆角卡片背景；
+> ④ 更新 `right-rail.test.ts`/`workflow-rail.test.ts` 锁定新结构（布局不再含 viewport、视图按条件渲染 shell、rail 无 `<Card>`），前端 43 测试全绿 + `tsc`/`eslint` 通过。
+
+> ✅ 2026-08-09 **完善 chat-record 右侧栏记录（文档维护）**：
+> ① 对照当前代码与 progress.md，补全 Chat #1 轮次 4–8 的右栏迭代描述：轮次 4 合并三张运行卡为 `divide-y` 单区块、轮次 5 全局折叠 + `localStorage` 持久化、
+>    轮次 6 布局级 `RightRailViewport + RightRailPortal`（`main` 外侧真实视口）、轮次 7 投资结论去盒化、轮次 8 去 Card 化（用户反馈驱动）；
+> ② Chat #1 主题/摘要与 Chat 索引同步反映前端右栏迭代，新增 Chat #4 记录本轮；无代码改动，右栏回归测试 5/5 通过复核。
+
+> ✅ 2026-08-09 **M9 安全边际风险严重度分级（8.9→8.12）+ M8 证据算术修正**：
+> ① 现象（603049 中策橡胶会话稽核）：M9 的 R-005「安全边际为负」只要 `discount<0`（现价 > 下沿）就恒判 high，
+>    与 M8「合理偏下/fair」标签打架，且与茅台 −445% 折扣同等严重度，区分度差；
+> ② 修复：新增 `_safety_margin_severity`，按 M4 intrinsic_value + M8 price 分级——下沿~中值（合理偏下）→ **low/medium**
+>    （贴近下沿 ≤1.10×low → low，其余 → medium）、中值~上沿（合理偏上）→ high、>上沿（高估）→ high；
+>    M4 缺失时保守回退 high（fail-safe）；
+>    影响：合理偏下场景 M9 max_severity 降为 medium（M10 风险修正 0.7→0.9）、R-005 不再进 M11 监控候选
+>    （买入区间仍由 M8 price_buy 规则覆盖），压力情景估算不变；
+> ③ M8 证据算术修正：确定性分级行显示情绪调整前中间值（50%×1.00×1.10=**55%**），情绪调整单独一行
+>    （−5% → 净 50%），不再出现「50%×1.10=50%」的误导；
+> ④ 新增 7 个测试（M9 分级 ×5 + 回退 ×1 + M8 证据 ×1），全量 **568 通过**；ruff 通过。
 
 > ✅ 2026-08-09 **Supabase Google 登录（前端）**：
 > ① 浏览器端 Supabase 客户端启用 `auth.flowType = "pkce"`，OAuth 与邮箱确认回调统一以 `?code=` 回跳 `/auth/callback` 兑换会话，token 不再进 URL hash；
@@ -140,6 +218,36 @@
 > ① `memo-charts.tsx::ValueBandChart` 由 ECharts `canvas` 柱图改为与 `m4-outputs.tsx::IntrinsicBand` 一致的静态估值区间条；
 > ② `memo-card.tsx` 传入离散度/方法一致性并移除重复的低/中/高文字行，备忘录与结果卡片的估值展示统一；
 > ③ 新增 `frontend/src/lib/__tests__/memo-charts.test.ts` 锁定这条渲染约束，`node --test`、`eslint`、`tsc` 通过。
+
+> ✅ 2026-08-09 **前端估值结论卡收敛（去边框 / 去冗余参数）**：
+> ① `memo-charts.tsx::ValueBandChart` 去掉内层边框，仅保留静态估值区间条与低/中/高关键值；
+> ② `memo-card.tsx` 删除置信度、质量乘数、风险折扣、安全边际说明四类辅助信息，买入/卖出区间块改为无边框浅色底；
+> ③ 更新 `memo-charts.test.ts` 锁定“无二级边框 + 无冗余参数行”约束，`node --test`、`eslint`、`tsc` 通过。
+
+> ✅ 2026-08-09 **工作流运行态侧栏去卡片化（改为分隔线分层）**：
+> ① `workflow-rail.tsx` 将“运行概览 / 模块状态 / 结果占位”三张独立卡片合并为单个连续容器，改用 `divide-y` 分隔；
+> ② 保留原有信息结构与状态点，仅去掉重复矩形边框，运行态视觉更轻；
+> ③ 新增 `frontend/src/lib/__tests__/workflow-rail.test.ts` 锁定该结构，`node --test`、`eslint`、`tsc` 通过。
+
+> ✅ 2026-08-09 **右侧栏全局折叠与详情页复用**：
+> ① 新增 `components/ui/right-rail.tsx`，提供 `RightRailProvider` 与 `RightRailShell`，用 `localStorage(right_rail_state)` 持久化全局折叠状态；
+> ② `app/(dashboard)/layout.tsx` 注入全局 provider，`workflow-run-view.tsx` 与 `conversation-detail-view.tsx` 都改为复用 `RightRailShell + WorkflowRail`；
+> ③ 右侧栏恢复桌面端左分割线，并在折叠后保留展开按钮；新增 `frontend/src/lib/__tests__/right-rail.test.ts`，`node --test`、`eslint`、`tsc` 通过。
+
+> ✅ 2026-08-09 **右侧栏升级为布局级视口（`main` 外侧真实存在）**：
+> ① `components/ui/right-rail.tsx` 新增 `RightRailViewport + RightRailPortal`，通过 `createPortal` 把页面内容挂载到布局级右栏；
+> ② `app/(dashboard)/layout.tsx` 在 `SidebarInset` 中引入 `RightRailViewport`，右栏不再是页面内部临时 `aside`；
+> ③ `workflow-run-view.tsx` 与 `conversation-detail-view.tsx` 改为用 `RightRailPortal` 注册 `WorkflowRail` 内容，`node --test`、`eslint`、`tsc` 通过。
+
+> ✅ 2026-08-09 **右栏投资结论卡改为单条上下分割线**：
+> ① `workflow-rail.tsx` 移除“加权总分 / 建议仓位”两个圆角描边指标盒，改为无边框纯文本指标块；
+> ② 卡片内部结构调整为“上半结论区 + 单条 `border-t` 分割线 + 下半明细区”，去掉多余弧度与分块感；
+> ③ `frontend/src/lib/__tests__/workflow-rail.test.ts` 新增对应约束，`node --test`、`eslint`、`tsc` 通过。
+
+> ✅ 2026-08-09 **右栏投资结论彻底去 Card 化**：
+> ① `workflow-rail.tsx` 将“投资结论”从 `Card/CardHeader/CardContent` 改为普通 `section`，去掉外层 `data-slot="card"` 容器；
+> ② 保留标题、结论、关键数字与单条上下分割线，但不再带外层圆角/边框语义；
+> ③ `frontend/src/lib/__tests__/workflow-rail.test.ts` 增补“该分支不以 `<Card>` 开头”的约束，`node --test`、`eslint`、`tsc` 通过。
 
 > ✅ 2026-08-09 **M5 护城河 ROE 比较时间口径对齐（周期股）**
 > ① 现象：周期股公司侧用近 8 年跨周期均值 ROE（去周期位置），但同行侧 PeerBenchmarkProvider

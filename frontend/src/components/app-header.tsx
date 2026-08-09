@@ -16,6 +16,7 @@ const TITLES: Record<string, string> = {
   "/agents": "智能体广场",
   "/workflows": "工作流",
   "/conversations": "对话记录",
+  "/monitor": "监控中心",
   "/settings": "通用设置",
   "/settings/llm": "LLM 配置",
   "/settings/profile": "个人资料",
@@ -52,6 +53,15 @@ export function AppHeader() {
         </BreadcrumbList>
       </Breadcrumb>
       <div className="ml-auto flex items-center gap-2">
+        {/* 移动端搜索入口（⌘K 面板） */}
+        <button
+          type="button"
+          onClick={() => window.dispatchEvent(new Event(OPEN_PALETTE_EVENT))}
+          aria-label="搜索"
+          className="flex size-8 items-center justify-center rounded-lg bg-muted/50 text-muted-foreground transition-colors hover:bg-muted/70 md:hidden"
+        >
+          <Search className="size-4" />
+        </button>
         <button
           type="button"
           onClick={() => window.dispatchEvent(new Event(OPEN_PALETTE_EVENT))}

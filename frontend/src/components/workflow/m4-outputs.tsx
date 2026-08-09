@@ -2,7 +2,9 @@
 
 import * as React from "react";
 import { AlertTriangle, BadgeCheck, Gauge, Scale } from "lucide-react";
+import { MethodCompareChart } from "@/components/workflow/memo-charts";
 import { fieldLabel } from "@/lib/labels";
+import { formatNumber, formatPrice } from "@/lib/format";
 
 interface MethodView {
   method?: string;
@@ -15,6 +17,9 @@ interface MethodView {
   confidence?: number;
   /** v2.3：估值时点口径——null/undefined=现值；3=三年后估值（唐朝法，不进入当前内在价值区间） */
   horizon_years?: number | null;
+  /** 2026-08-09：显式时点——present=现值（进入内在价值区间）；future=N年后（仅参考） */
+  value_type?: "present" | "future" | null;
+  horizon_label?: string | null;
 }
 
 interface IntrinsicView {
@@ -55,7 +60,7 @@ interface M4OutputsShape {
 
 function fmt(v: unknown): string {
   if (v === null || v === undefined || v === "") return "—";
-  if (typeof v === "number") return Number.isFinite(v) ? String(Math.round(v * 100) / 100) : "—";
+  if (typeof v === "number") return formatNumber(v);
   if (typeof v === "boolean") return v ? "是" : "否";
   return String(v);
 }
@@ -159,16 +164,16 @@ function IntrinsicBand({ iv, price }: { iv: IntrinsicView; price?: number | null
         )}
       </div>
       <div className="mt-2 flex justify-between text-xs text-muted-foreground tabular-nums">
-        <span>低 {fmt(low)}</span>
-        <span className="font-bold text-foreground">中 {fmt(mid)}</span>
-        <span>高 {fmt(high)}</span>
+        <span>低 {formatPrice(low)}</span>
+        <span className="font-bold text-foreground">中 {formatPrice(mid)}</span>
+        <span>高 {formatPrice(high)}</span>
       </div>
       <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
         {iv.std != null && <span>离散度 ±{fmt(iv.std)}</span>}
         {iv.method_agreement != null && (
           <span>方法一致性 {fmt(iv.method_agreement)}</span>
         )}
-        {price != null && <span>现价 {fmt(price)}</span>}
+        {price != null && <span>现价 {formatPrice(price)}</span>}
       </div>
     </div>
   );
@@ -200,12 +205,20 @@ function MethodTable({ methods }: { methods: MethodView[] }) {
                       {m.horizon_years}年后
                     </span>
                   )}
+                  {m.applicable && m.horizon_years == null && (
+                    <span className="rounded bg-emerald-500/15 px-1 py-0.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">
+                      现值
+                    </span>
+                  )}
                 </span>
               </td>
               <td className="px-2.5 py-1.5 text-right tabular-nums">
                 {m.applicable ? fmt(m.value) : "跳过"}
                 {m.applicable && m.horizon_years != null && (
                   <span className="ml-1 text-[10px] text-muted-foreground">未来值</span>
+                )}
+                {m.applicable && m.horizon_years == null && (
+                  <span className="ml-1 text-[10px] text-muted-foreground">现值</span>
                 )}
               </td>
               <td className="px-2.5 py-1.5 text-right tabular-nums text-muted-foreground">
@@ -376,6 +389,7 @@ export function M4Outputs({ outputs }: { outputs: Record<string, unknown> }) {
         <div className="flex flex-col gap-1.5 border-t border-border/40 pt-2.5">
           <SectionTitle icon={Scale}>估值方法</SectionTitle>
           <MethodTable methods={methods} />
+          <MethodCompareChart methods={methods} />
         </div>
       )}
 

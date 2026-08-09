@@ -35,6 +35,7 @@ import {
   type ConnectionHint,
 } from "@/lib/workflows/connection-hints";
 import { layoutWorkflow } from "@/lib/workflows/layout";
+import { WORKFLOWS } from "@/lib/workflows/catalog";
 import type {
   CustomWorkflow,
   CustomWorkflowStep,
@@ -292,6 +293,53 @@ export function WorkflowBuilder({
     toast.success("已自动排版");
   }
 
+  /** 载入内置工作流模板：节点 + 依赖连线 + 自动排版 */
+  function applyPreset(wf: (typeof WORKFLOWS)[number]) {
+    const layout = layoutWorkflow(wf.steps, {
+      columnGap: 230,
+      rowGap: 110,
+      nodeWidth: 150,
+    });
+    setNodes(
+      wf.steps.map((s) => ({
+        id: s.id,
+        type: "builderNode",
+        position: layout.positions[s.id] ?? { x: 60, y: 40 },
+        data: {
+          agent:
+            LOCAL_AGENTS.find((a) => a.id === s.agent) ?? LOCAL_AGENTS[0],
+        },
+      })) as Node<BuilderNodeData>[]
+    );
+    setEdges(
+      wf.steps.flatMap((s) =>
+        s.deps.map((dep) => ({
+          id: `${dep}-${s.id}`,
+          source: dep,
+          target: s.id,
+          type: "smoothstep",
+          style: { stroke: "#10b981", strokeWidth: 1.75 },
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            width: 14,
+            height: 14,
+            color: "#10b981",
+          },
+        }))
+      ) as Edge[]
+    );
+    setSelectedId(null);
+    toast.success(`已载入模板「${wf.name}」（${wf.steps.length} 个智能体）`);
+  }
+
+  /** 清空画布 */
+  function clearCanvas() {
+    setNodes([]);
+    setEdges([]);
+    setSelectedId(null);
+    toast.success("已清空画布");
+  }
+
   const handleConnect = React.useCallback(
     (conn: Connection) => {
       if (!conn.source || !conn.target || conn.source === conn.target) return;
@@ -499,20 +547,47 @@ export function WorkflowBuilder({
           </div>
 
           <Card className="overflow-hidden rounded-2xl">
-            <div className="flex items-center justify-between border-b bg-muted/30 px-4 py-2 dark:bg-muted/20">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/30 px-4 py-2 dark:bg-muted/20">
               <span className="text-xs font-medium text-muted-foreground">
-                DAG 画布 · 拖拽节点可自由调整位置
+                DAG 画布 · {nodes.length} 个节点 · 拖拽可调整位置
               </span>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 rounded-lg px-2.5 text-xs"
-                onClick={handleAutoLayout}
-                disabled={nodes.length === 0}
-              >
-                <LayoutGrid className="size-3.5" />
-                自动排版
-              </Button>
+              <div className="flex items-center gap-1.5">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 rounded-lg px-2.5 text-xs"
+                  onClick={() => applyPreset(WORKFLOWS[0])}
+                >
+                  标准分析模板
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 rounded-lg px-2.5 text-xs"
+                  onClick={() => applyPreset(WORKFLOWS[1])}
+                >
+                  快速估值模板
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 rounded-lg px-2.5 text-xs text-destructive"
+                  onClick={clearCanvas}
+                  disabled={nodes.length === 0}
+                >
+                  清空
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 rounded-lg px-2.5 text-xs"
+                  onClick={handleAutoLayout}
+                  disabled={nodes.length === 0}
+                >
+                  <LayoutGrid className="size-3.5" />
+                  自动排版
+                </Button>
+              </div>
             </div>
             <DeleteContext.Provider value={handleDelete}>
               <div className="h-[460px]">
@@ -526,6 +601,10 @@ export function WorkflowBuilder({
                   onNodesDelete={handleNodesDelete}
                   onNodeClick={(_, node) => setSelectedId(node.id)}
                   onPaneClick={() => setSelectedId(null)}
+                  onEdgeClick={(_, edge) => {
+                    setEdges((eds) => eds.filter((e) => e.id !== edge.id));
+                    toast.success("已移除连线");
+                  }}
                   deleteKeyCode={["Backspace", "Delete"]}
                   fitView
                   fitViewOptions={{ padding: 0.15 }}
@@ -539,7 +618,7 @@ export function WorkflowBuilder({
             </DeleteContext.Provider>
             <div className="border-t px-4 py-2.5 text-xs text-muted-foreground">
               从左侧点击添加智能体；拖拽节点右侧圆点到另一节点表示「依赖」；
-              选中节点查看「连接提示」；选中节点按 Delete / 点击 × 移除；连线杂乱时可用「自动排版」一键整理
+              选中节点查看「连接提示」；选中节点按 Delete / 点击 × 移除；点击连线可移除；连线杂乱时可用「自动排版」一键整理
             </div>
           </Card>
 

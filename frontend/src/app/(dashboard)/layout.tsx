@@ -2,7 +2,9 @@ import { redirect } from "next/navigation";
 
 import { AppHeader } from "@/components/app-header";
 import { CommandPalette } from "@/components/command-palette";
+import { PageTransition } from "@/components/motion/page-transition";
 import { AppSidebar } from "@/components/app-sidebar";
+import { RightRailProvider } from "@/components/ui/right-rail";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { resolveProfileIdentity } from "@/lib/profile";
 import { getProfile } from "@/lib/profile-store";
@@ -36,17 +38,21 @@ export default async function DashboardLayout({
 
   return (
     <SidebarProvider>
-      <AppSidebar
-        user={{
-          name: identity.name,
-          email: identity.email,
-          avatarUrl: identity.avatarUrl,
-        }}
-      />
-      <SidebarInset>
-        <AppHeader />
-        <main className="flex-1 p-4 md:p-6">{children}</main>
-      </SidebarInset>
+      <RightRailProvider>
+        <AppSidebar
+          user={{
+            name: identity.name,
+            email: identity.email,
+            avatarUrl: identity.avatarUrl,
+          }}
+        />
+        <SidebarInset>
+          <div className="flex min-w-0 flex-1 flex-col">
+            <AppHeader />
+            <main className="flex-1 p-4 md:p-6"><PageTransition>{children}</PageTransition></main>
+          </div>
+        </SidebarInset>
+      </RightRailProvider>
       <CommandPalette />
     </SidebarProvider>
   );

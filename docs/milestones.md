@@ -22,6 +22,12 @@
 
 ## 关键里程碑明细
 
+### 2026-08-09 · 前端 UI 全面优化落地（17 项）
+P0 快赢（数字/百分比口径统一、ECharts 主题色、骨架屏、移动端搜索、运行页滚动/连接提示）+
+P1 重点（备忘录分享/打印页 /memo/[id]、监控中心 /monitor、对话详情锚点导航、结果区风险过滤、仪表盘 hero+最近结论+估值分布、右栏折叠态微信息）+
+P2 后续（Motion 动效、react-hook-form+zod、TanStack Query、Builder 模板/连线删除、会话分组分页）；
+验证：tsc/eslint 全绿、前端 57 测试全通过、webpack 生产构建通过（Turbopack 默认构建受当前沙箱环境限制）。
+
 ### 2026-08-09 · 生产链路卡点定位与加固（FC 300s 超时 + 数据层超时缺失）
 「卡在价格与估值分位」根因：FC 配置超时 300s 掐断长分析 → SSE 中断。加固：
 ① PostgresMarketStorage 断线重连 + 超时（connect_timeout/statement_timeout）；② 实时源 socket 45s 兜底；

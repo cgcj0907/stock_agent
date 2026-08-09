@@ -4,7 +4,7 @@ import * as React from "react";
 import { Loader2, TriangleAlert } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { formatNumber, formatPct, formatSignedPct } from "@/lib/format";
 import { MEMO_ANCHORS } from "@/components/workflow/memo-card";
 import { findAgent } from "@/lib/agents/catalog";
 import type { ModuleResultView } from "@/hooks/use-workflow-run";
@@ -69,7 +69,7 @@ function num(v: unknown): number | null {
 
 function pct(v: unknown): string | null {
   const n = num(v);
-  return n == null ? null : `${Math.round(n * 100)}%`;
+  return n == null ? null : formatPct(n);
 }
 
 function isObj(v: unknown): v is Record<string, unknown> {
@@ -77,7 +77,7 @@ function isObj(v: unknown): v is Record<string, unknown> {
 }
 
 function fmtNum(v: number | null | undefined): string {
-  return v == null ? "—" : String(v);
+  return formatNumber(v);
 }
 
 function KvLine({ k, v, vCls }: { k: string; v: React.ReactNode; vCls?: string }) {
@@ -85,6 +85,47 @@ function KvLine({ k, v, vCls }: { k: string; v: React.ReactNode; vCls?: string }
     <div className="flex items-baseline justify-between border-b border-dashed border-border/60 py-1.5 text-xs last:border-0">
       <span className="text-muted-foreground">{k}</span>
       <span className={cn("font-semibold tabular-nums", vCls)}>{v}</span>
+    </div>
+  );
+}
+
+/** 右栏折叠态迷你信息：运行中 → 脉冲点 + 「运行中」；已完成 → 状态点 + 加权总分。 */
+export function RailMiniSummary({
+  running,
+  results,
+}: {
+  running: boolean;
+  results: Record<string, ModuleResultView>;
+}) {
+  const m10 = results.M10_decision?.outputs;
+  const total =
+    typeof m10?.total === "number" && Number.isFinite(m10.total)
+      ? m10.total
+      : null;
+
+  if (running) {
+    return (
+      <div
+        className="flex flex-col items-center gap-1.5 py-1"
+        title="分析中"
+      >
+        <span className="size-2.5 animate-pulse rounded-full bg-emerald-500" />
+        <span className="text-[10px] text-muted-foreground">运行中</span>
+      </div>
+    );
+  }
+  if (total == null) return null;
+  const tone =
+    total >= 60 ? "bg-emerald-500" : total >= 40 ? "bg-amber-500" : "bg-red-500";
+  return (
+    <div
+      className="flex flex-col items-center gap-1.5 py-1"
+      title={`加权总分 ${Math.round(total)}`}
+    >
+      <span className={`size-2.5 rounded-full ${tone}`} />
+      <span className="text-[10px] font-bold tabular-nums">
+        {Math.round(total)}
+      </span>
     </div>
   );
 }
@@ -131,6 +172,7 @@ export function WorkflowRail({
   const buyPrice = num(m8?.buy_price);
   const sellPrice = num(m8?.sell_price);
   const confidence = num(m4?.valuation_confidence);
+  const showRunningRail = !showResults && (running || Object.keys(statuses).length > 0);
 
   const riskItems = (Array.isArray(m9?.risk_items) ? m9.risk_items : [])
     .filter((r): r is Record<string, unknown> => isObj(r))
@@ -185,80 +227,77 @@ export function WorkflowRail({
   }
 
   return (
-    <div className="flex flex-col gap-3">
-      {/* 运行概览 */}
-      {(!showResults || running) && (running || Object.keys(statuses).length > 0) && (
-        <Card className="rounded-xl">
-          <CardHeader className="pb-2">
-            <div className="text-sm font-semibold">运行概览</div>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-2.5">
-            <div className="flex items-baseline gap-2">
-              <span className="text-3xl font-extrabold tabular-nums">
-                {progress}%
-              </span>
-              <span className="text-xs text-muted-foreground">
-                · {doneCount} / {workflow.steps.length} 已完成
-              </span>
-            </div>
-            <div className="h-2 overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full rounded-full bg-emerald-500 transition-all duration-500"
-                style={{ width: `${progress}%` }}
-              />
-            </div>
-            <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-              <span>
-                {currentAgent
-                  ? `${currentAgent.code} ${currentAgent.name}`
-                  : running
-                    ? "步骤切换中"
-                    : "等待开始"}
-              </span>
-              {running ? (
-                <span className="flex items-center gap-1 font-medium text-emerald-600 dark:text-emerald-400">
-                  <Loader2 className="size-3 animate-spin" />
-                  分析中
+    <div className="flex flex-col divide-y divide-border/60">
+      {showRunningRail && (
+        <>
+          <section className="py-4">
+            <div className="mb-2 text-sm font-semibold">运行概览</div>
+            <div className="flex flex-col gap-2.5">
+              <div className="flex items-baseline gap-2">
+                <span className="text-3xl font-extrabold tabular-nums">
+                  {progress}%
                 </span>
-              ) : (
-                <span className="font-medium text-emerald-600 dark:text-emerald-400">
-                  已完成
+                <span className="text-xs text-muted-foreground">
+                  · {doneCount} / {workflow.steps.length} 已完成
                 </span>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-full rounded-full bg-emerald-500 transition-all duration-500"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+              <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                <span>
+                  {currentAgent
+                    ? `${currentAgent.code} ${currentAgent.name}`
+                    : running
+                      ? "步骤切换中"
+                      : "等待开始"}
+                </span>
+                {running ? (
+                  <span className="flex items-center gap-1 font-medium text-emerald-600 dark:text-emerald-400">
+                    <Loader2 className="size-3 animate-spin" />
+                    分析中
+                  </span>
+                ) : (
+                  <span className="font-medium text-emerald-600 dark:text-emerald-400">
+                    已完成
+                  </span>
+                )}
+              </div>
+              {sessionId && (
+                <KvLine
+                  k="会话 ID"
+                  v={
+                    <span className="font-mono text-[11px]">
+                      {sessionId.slice(0, 18)}…
+                    </span>
+                  }
+                />
               )}
             </div>
-            {sessionId && (
-              <KvLine
-                k="会话 ID"
-                v={
-                  <span className="font-mono text-[11px]">
-                    {sessionId.slice(0, 18)}…
-                  </span>
-                }
-              />
-            )}
-          </CardContent>
-        </Card>
-      )}
+          </section>
 
-      {/* 模块状态（运行中） */}
-      {!showResults && (running || Object.keys(statuses).length > 0) && (
-        <Card className="rounded-xl">
-          <CardHeader className="pb-2">
-            <div className="text-sm font-semibold">
+          <section className="py-4">
+            <div className="mb-2 text-sm font-semibold">
               模块状态
               <span className="ml-1 text-xs font-normal text-muted-foreground">
                 （{workflow.steps.length}）
               </span>
             </div>
-          </CardHeader>
-          <CardContent>
             <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
               {workflow.steps.map((s) => {
                 const agent = findAgent(s.agent);
                 const st = statuses[s.id] ?? "pending";
                 return (
-                  <div key={s.id} className="flex min-w-0 items-center gap-1.5 text-[11px] text-foreground/80">
-                    <span className={cn("size-1.5 shrink-0 rounded-full", STATUS_DOT[st])} />
+                  <div
+                    key={s.id}
+                    className="flex min-w-0 items-center gap-1.5 text-[11px] text-foreground/80"
+                  >
+                    <span
+                      className={cn("size-1.5 shrink-0 rounded-full", STATUS_DOT[st])}
+                    />
                     <span className="truncate">
                       {agent?.code ?? s.id} {agent?.name ?? ""}
                     </span>
@@ -266,69 +305,66 @@ export function WorkflowRail({
                 );
               })}
             </div>
-          </CardContent>
-        </Card>
-      )}
+          </section>
 
-      {/* 关键指标占位（运行中） */}
-      {!showResults && running && (
-        <Card className="rounded-xl">
-          <CardContent className="py-4 text-center text-xs leading-6 text-muted-foreground">
-            ⏳ 结果生成中
-            <br />
-            <b className="text-emerald-700 dark:text-emerald-400">
-              加权总分 · 建议仓位 · 内在价值
-            </b>
-            <br />
-            完成后固定显示，不随滚动消失
-          </CardContent>
-        </Card>
+          {running && (
+            <section className="py-4 text-center text-xs leading-6 text-muted-foreground">
+              ⏳ 结果生成中
+              <br />
+              <b className="text-emerald-700 dark:text-emerald-400">
+                加权总分 · 建议仓位 · 内在价值
+              </b>
+              <br />
+              完成后固定显示，不随滚动消失
+            </section>
+          )}
+        </>
       )}
 
       {/* 投资结论（已完成） */}
       {showResults && (conclusion || total != null || ivMid != null) && (
-        <Card className="rounded-xl">
-          <CardHeader className="pb-2">
-            <div className="text-sm font-semibold">投资结论</div>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-2.5">
-            {conclusion && (
-              <div className="rounded-xl border-l-4 border-l-primary bg-muted/40 px-3 py-2.5 text-xs leading-5">
-                <b>结论：</b>
-                {conclusion}
-                {vetoed.length > 0 && (
-                  <span className="mt-1 flex items-center gap-1 text-[11px] text-destructive">
-                    <TriangleAlert className="size-3" />
-                    触发否决：{vetoed.join("、")}
-                  </span>
-                )}
-              </div>
-            )}
-            {(total != null || position != null) && (
-              <div className="grid grid-cols-2 gap-2">
-                {total != null && (
-                  <div className="rounded-xl border bg-card px-3 py-2">
-                    <div className="text-[10px] text-muted-foreground">
-                      加权总分
+        <section className="flex flex-col gap-3 py-4">
+          <div className="text-sm font-semibold">投资结论</div>
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-3">
+              {conclusion && (
+                <div className="border-l-4 border-l-primary bg-muted/30 px-3 py-2.5 text-xs leading-5">
+                  <b>结论：</b>
+                  {conclusion}
+                  {vetoed.length > 0 && (
+                    <span className="mt-1 flex items-center gap-1 text-[11px] text-destructive">
+                      <TriangleAlert className="size-3" />
+                      触发否决：{vetoed.join("、")}
+                    </span>
+                  )}
+                </div>
+              )}
+              {(total != null || position != null) && (
+                <div className="grid grid-cols-2 gap-4">
+                  {total != null && (
+                    <div className="min-w-0">
+                      <div className="text-[11px] text-muted-foreground">
+                        加权总分
+                      </div>
+                      <div className="mt-0.5 text-2xl font-extrabold tabular-nums">
+                        {Math.round(total)}
+                      </div>
                     </div>
-                    <div className="mt-0.5 text-2xl font-extrabold tabular-nums">
-                      {Math.round(total)}
+                  )}
+                  {position != null && (
+                    <div className="min-w-0">
+                      <div className="text-[11px] text-muted-foreground">
+                        建议仓位
+                      </div>
+                      <div className="mt-0.5 text-2xl font-extrabold tabular-nums">
+                        {position}
+                      </div>
                     </div>
-                  </div>
-                )}
-                {position != null && (
-                  <div className="rounded-xl border bg-card px-3 py-2">
-                    <div className="text-[10px] text-muted-foreground">
-                      建议仓位
-                    </div>
-                    <div className="mt-0.5 text-2xl font-extrabold tabular-nums">
-                      {position}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-            <div className="flex flex-col">
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="border-t border-border/60 pt-3">
               {ivMid != null && <KvLine k="内在价值中值" v={`${fmtNum(ivMid)} 元`} />}
               {(currentPrice != null || discount != null) && (
                 <KvLine
@@ -339,8 +375,7 @@ export function WorkflowRail({
                       {discount != null && (
                         <span className={discount >= 0 ? "text-emerald-600" : "text-amber-600"}>
                           {" "}
-                          · {discount >= 0 ? "+" : ""}
-                          {(discount * 100).toFixed(1)}%
+                          · {formatSignedPct(discount)}
                         </span>
                       )}
                     </>
@@ -348,7 +383,7 @@ export function WorkflowRail({
                 />
               )}
               {confidence != null && (
-                <KvLine k="估值置信度" v={`${Math.round(confidence * 100)}%`} />
+                <KvLine k="估值置信度" v={formatPct(confidence)} />
               )}
               {(buyPrice != null || sellPrice != null) && (
                 <KvLine
@@ -357,26 +392,24 @@ export function WorkflowRail({
                 />
               )}
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </section>
       )}
 
       {/* 风险清单（已完成） */}
       {showResults && riskItems.length > 0 && (
-        <Card className="rounded-xl">
-          <CardHeader className="pb-2">
-            <div className="flex items-center gap-2 text-sm font-semibold">
-              风险清单
-              <Badge variant="outline" className="rounded-md border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/60 dark:text-red-300">
-                {riskItems.length}
-              </Badge>
-            </div>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-2">
+        <section className="py-4">
+          <div className="flex items-center gap-2 text-sm font-semibold">
+            风险清单
+            <Badge variant="outline" className="rounded-md border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/60 dark:text-red-300">
+              {riskItems.length}
+            </Badge>
+          </div>
+          <div className="mt-3 flex flex-col gap-2">
             {riskItems.map((r, i) => {
               const sev = SEVERITY_BADGE[String(r.severity)] ?? SEVERITY_BADGE.info;
               return (
-                <div key={i} className="flex items-start gap-2 rounded-lg border bg-card px-2.5 py-2 text-xs">
+                <div key={i} className="flex items-start gap-2 py-1 text-xs">
                   <Badge variant="outline" className={`shrink-0 rounded-md ${sev.cls}`}>
                     {sev.label}
                   </Badge>
@@ -386,17 +419,15 @@ export function WorkflowRail({
                 </div>
               );
             })}
-          </CardContent>
-        </Card>
+          </div>
+        </section>
       )}
 
       {/* 备忘录导航 */}
       {hasResults && visibleAnchors.length > 0 && (
-        <Card className="rounded-xl">
-          <CardHeader className="pb-2">
-            <div className="text-sm font-semibold">备忘录导航</div>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-0.5">
+        <section className="py-4">
+          <div className="text-sm font-semibold">备忘录导航</div>
+          <div className="mt-3 flex flex-col gap-0.5">
             {visibleAnchors.map((a) => (
               <button
                 key={a.id}
@@ -419,8 +450,8 @@ export function WorkflowRail({
                 {a.label}
               </button>
             ))}
-          </CardContent>
-        </Card>
+          </div>
+        </section>
       )}
     </div>
   );

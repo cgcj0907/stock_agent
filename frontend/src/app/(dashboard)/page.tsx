@@ -25,6 +25,7 @@ import {
 import { LOCAL_AGENTS } from "@/lib/agents/catalog";
 import { resolveProfileIdentity } from "@/lib/profile";
 import { getProfile } from "@/lib/profile-store";
+import { backendAuthHeaders } from "@/lib/backend-auth";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/supabase/auth";
 import { getWorkflow, WORKFLOWS } from "@/lib/workflows/catalog";
@@ -38,6 +39,40 @@ const DEFAULT_FEATURED = [
   "M4_valuation",
   "M8_safety_margin",
 ];
+
+/** 便宜度（M8 mos_state）展示 */
+const MOS_BAR: Record<string, string> = {
+  attractive: "bg-emerald-500",
+  fair: "bg-sky-500",
+  expensive: "bg-amber-500",
+};
+const MOS_LABEL: Record<string, { label: string; cls: string }> = {
+  attractive: {
+    label: "便宜",
+    cls: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300",
+  },
+  fair: {
+    label: "合理",
+    cls: "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-800 dark:bg-sky-950/60 dark:text-sky-300",
+  },
+  expensive: {
+    label: "偏贵",
+    cls: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-300",
+  },
+  unavailable: {
+    label: "无法判断",
+    cls: "border-border bg-muted/50 text-muted-foreground",
+  },
+};
+
+interface SessionSummary {
+  conversationId: string;
+  company: string;
+  code: string;
+  conclusion: string | null;
+  total: number | null;
+  mos: string | null;
+}
 
 function StatLink({
   href,
@@ -76,6 +111,7 @@ export default async function DashboardPage() {
   let custom: CustomWorkflow[] = [];
   let llmCount = 0;
   let favoriteIds: string[] = [];
+  let summaries: SessionSummary[] = [];
 
   if (user) {
     const supabase = await createClient();
@@ -133,6 +169,49 @@ export default async function DashboardPage() {
     } catch {
       // agent_favorites 表未创建时忽略
     }
+
+    // 最近会话结论（M10 conclusion/total + M8 mos_state；后端不可用时降级为空）
+    const base =
+      process.env.API_BASE_SERVER || process.env.NEXT_PUBLIC_API_BASE || "";
+    if (base && recent.length > 0) {
+      const root = base.replace(/\/+$/, "");
+      const headers = await backendAuthHeaders();
+      const fetched = await Promise.all(
+        recent.map(async (c): Promise<SessionSummary | null> => {
+          try {
+            const res = await fetch(`${root}/api/sessions/${c.session_id}`, {
+              headers,
+              cache: "no-store",
+              signal: AbortSignal.timeout(4000),
+            });
+            if (!res.ok) return null;
+            const s = (await res.json()) as {
+              module_results?: Record<string, { outputs?: Record<string, unknown> }>;
+            };
+            const m10 = s.module_results?.M10_decision?.outputs;
+            const m8 = s.module_results?.M8_safety_margin?.outputs;
+            const conclusion =
+              typeof m10?.conclusion === "string" ? m10.conclusion : null;
+            const total =
+              typeof m10?.total === "number" && Number.isFinite(m10.total)
+                ? m10.total
+                : null;
+            const mos = typeof m8?.mos_state === "string" ? m8.mos_state : null;
+            return {
+              conversationId: c.id,
+              company: c.company_name || c.company_code,
+              code: c.company_code,
+              conclusion,
+              total,
+              mos,
+            };
+          } catch {
+            return null;
+          }
+        }),
+      );
+      summaries = fetched.filter((s): s is SessionSummary => s !== null);
+    }
   }
 
   const featuredIds =
@@ -142,15 +221,88 @@ export default async function DashboardPage() {
     .filter((a): a is (typeof LOCAL_AGENTS)[number] => Boolean(a))
     .slice(0, 4);
 
+  // 估值分布（按 M8 mos_state 计数）
+  const mosCount: Record<string, number> = {};
+  for (const s of summaries) {
+    if (!s.mos) continue;
+    mosCount[s.mos] = (mosCount[s.mos] ?? 0) + 1;
+  }
+  const mosTotal = Object.values(mosCount).reduce((a, b) => a + b, 0);
+  const mosOrder = ["attractive", "fair", "expensive"] as const;
+
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6">
-      {/* 问候 */}
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">你好，{name}</h1>
-        <p className="text-sm text-muted-foreground">
-          今天想分析哪家公司？输入代码、选一个工作流即可开始。
-        </p>
-      </div>
+      {/* Hero：品牌渐变 + 网格底 + 最近结论 */}
+      <section className="relative overflow-hidden rounded-2xl border bg-gradient-to-br from-emerald-500/10 via-teal-500/5 to-transparent px-6 py-7 md:px-8">
+        <div className="pointer-events-none absolute inset-0 bg-grid-faint [mask-image:radial-gradient(ellipse_at_top_left,black,transparent_75%)]" />
+        <div className="relative flex flex-col gap-4">
+          <div className="flex flex-col gap-1">
+            <h1 className="text-2xl font-semibold tracking-tight">你好，{name}</h1>
+            <p className="text-sm text-muted-foreground">
+              今天想分析哪家公司？输入代码、选一个工作流即可开始。
+            </p>
+          </div>
+
+          {summaries.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                最近分析结论
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {summaries.map((s) => {
+                  const mos = MOS_LABEL[s.mos ?? ""] ?? MOS_LABEL.unavailable;
+                  return (
+                    <Link
+                      key={s.conversationId}
+                      href={`/conversations/${s.conversationId}`}
+                      className="group flex items-center gap-2 rounded-xl border bg-background/70 px-3 py-2 transition-colors hover:border-foreground/20 hover:bg-background"
+                    >
+                      <span className="text-sm font-semibold">{s.company}</span>
+                      <Badge variant="secondary" className="rounded-md font-mono text-[10px]">
+                        {s.code}
+                      </Badge>
+                      {s.total != null && (
+                        <span className="text-sm font-bold tabular-nums">
+                          {Math.round(s.total)}
+                        </span>
+                      )}
+                      <Badge variant="outline" className={`rounded-md ${mos.cls}`}>
+                        {mos.label}
+                      </Badge>
+                      {s.conclusion && (
+                        <span className="hidden max-w-36 truncate text-xs text-muted-foreground sm:inline">
+                          {s.conclusion}
+                        </span>
+                      )}
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {mosTotal > 0 && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span className="shrink-0">估值分布</span>
+              <div className="flex h-2 flex-1 overflow-hidden rounded-full bg-muted">
+                {mosOrder.map((k) => {
+                  const n = mosCount[k] ?? 0;
+                  if (n === 0) return null;
+                  return (
+                    <div
+                      key={k}
+                      title={`${MOS_LABEL[k].label} ${n} 家`}
+                      className={MOS_BAR[k] ?? "bg-muted"}
+                      style={{ width: `${(n / mosTotal) * 100}%` }}
+                    />
+                  );
+                })}
+              </div>
+              <span className="shrink-0 tabular-nums">{mosTotal} 家</span>
+            </div>
+          )}
+        </div>
+      </section>
 
       {/* 快速分析 */}
       <QuickStart workflows={WORKFLOWS} custom={custom} />
@@ -160,41 +312,21 @@ export default async function DashboardPage() {
         <StatLink href="/agents" icon={Bot} label="智能体" value={LOCAL_AGENTS.length} />
         <StatLink href="/workflows" icon={Workflow} label="工作流" value={WORKFLOWS.length + custom.length} />
         <StatLink href="/conversations" icon={History} label="对话记录" value={conversationCount} />
-        <StatLink href="/settings" icon={Cpu} label="LLM 服务商" value={llmCount} />
+        <StatLink href="/settings/llm" icon={Cpu} label="LLM 配置" value={llmCount} />
       </section>
 
       {/* 最近会话 + 快捷工作流 */}
-      <section className="grid gap-4 md:grid-cols-2">
+      <section className="grid gap-4 lg:grid-cols-2">
         <Card className="rounded-xl">
-          <CardHeader className="flex-row items-center justify-between space-y-0">
-            <div>
-              <CardTitle className="text-base">最近会话</CardTitle>
-              <CardDescription>继续上次的分析或查看历史记录</CardDescription>
-            </div>
-            {recent.length > 0 && (
-              <Button asChild variant="ghost" size="sm" className="rounded-lg">
-                <Link href="/conversations">
-                  查看全部 <ArrowRight className="ml-1 size-3.5" />
-                </Link>
-              </Button>
-            )}
+          <CardHeader>
+            <CardTitle className="text-base">最近会话</CardTitle>
+            <CardDescription>继续之前的分析或查看结果</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-2">
             {recent.length === 0 ? (
-              <div className="flex min-h-40 flex-col items-center justify-center gap-3 rounded-xl border border-dashed text-center">
-                <div className="flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                  <History className="size-6" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium">还没有对话记录</p>
-                  <p className="text-xs text-muted-foreground">
-                    在上方输入代码发起一次分析，会话会出现在这里
-                  </p>
-                </div>
-                <Button asChild variant="outline" size="sm" className="rounded-lg">
-                  <Link href="/workflows/default">发起分析</Link>
-                </Button>
-              </div>
+              <p className="py-4 text-center text-xs text-muted-foreground">
+                还没有分析记录，从上方快速分析开始
+              </p>
             ) : (
               recent.map((c) => {
                 const wf = getWorkflow(c.workflow_id);
@@ -204,23 +336,26 @@ export default async function DashboardPage() {
                   <Link
                     key={c.id}
                     href={`/conversations/${c.id}`}
-                    className="group flex items-center gap-3 rounded-xl border p-3 transition-colors hover:border-foreground/20 hover:bg-muted/40"
+                    className="group flex items-center justify-between gap-3 rounded-xl border px-4 py-3 transition-colors hover:border-foreground/20 hover:bg-muted/40"
                   >
-                    <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground transition-colors group-hover:text-primary">
-                      <TrendingUp className="size-5" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="truncate text-sm font-medium">
-                          {c.company_name || c.company_code}
-                        </span>
-                        <Badge variant="outline" className={`gap-1 rounded-md px-1.5 py-0 text-[10px] ${status.className}`}>
-                          {status.label}
-                        </Badge>
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground transition-colors group-hover:text-primary">
+                        <TrendingUp className="size-4.5" />
                       </div>
-                      <div className="truncate text-xs text-muted-foreground">
-                        {c.company_code}
-                        {wf ? ` · ${wf.name}` : ""} · {timeAgo(c.updated_at)}
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 text-sm font-medium">
+                          {c.company_name || c.company_code}
+                          <Badge
+                            variant="outline"
+                            className={`gap-1 rounded-md ${status.className}`}
+                          >
+                            {status.label}
+                          </Badge>
+                        </div>
+                        <div className="truncate text-xs text-muted-foreground">
+                          {c.company_code}
+                          {wf ? ` · ${wf.name}` : ""} · {timeAgo(c.updated_at)}
+                        </div>
                       </div>
                     </div>
                     <ArrowRight className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />

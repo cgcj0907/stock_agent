@@ -12,6 +12,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { SourceLinks } from "@/components/workflow/source-links";
+import { formatNumber, formatPct } from "@/lib/format";
 import {
   MethodCompareChart,
   RadarScoreChart,
@@ -59,14 +60,15 @@ const STATUS_DOT: Record<string, string> = {
 
 function fmt(v: unknown): string {
   if (v === null || v === undefined) return "—";
-  if (typeof v === "number") return Number.isFinite(v) ? String(v) : "—";
+  if (typeof v === "number") return formatNumber(v);
+  if (typeof v === "boolean") return v ? "是" : "否";
   return String(v);
 }
 
 function fmtPct(v: unknown): string {
   const n = typeof v === "number" ? v : Number(v);
   if (!Number.isFinite(n)) return "—";
-  return `${(n * 100).toFixed(0)}%`;
+  return formatPct(n);
 }
 
 export function MemoCard({
@@ -247,41 +249,15 @@ export function MemoCard({
                     mid={iv.mid}
                     high={iv.high}
                     currentPrice={m4?.current_price}
-                    std={iv.std}
-                    methodAgreement={iv.method_agreement}
                   />
                 ) : null}
-                {(m4?.valuation_confidence != null || m4?.quality_multiplier != null) && (
-                  <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
-                    {m4?.valuation_confidence != null && (
-                      <span>
-                        置信度{" "}
-                        <b className="text-foreground tabular-nums">
-                          {(m4.valuation_confidence * 100).toFixed(0)}%
-                        </b>
-                      </span>
-                    )}
-                    {m4?.quality_multiplier != null && (
-                      <span>
-                        质量乘数{" "}
-                        <b className="text-foreground tabular-nums">{m4.quality_multiplier}</b>
-                      </span>
-                    )}
-                    {m4?.risk_multiplier != null && m4.risk_multiplier < 1 && (
-                      <span>
-                        风险折扣{" "}
-                        <b className="text-foreground tabular-nums">{m4.risk_multiplier}</b>
-                      </span>
-                    )}
-                  </div>
-                )}
                 {m4?.kill_switches && m4.kill_switches.length > 0 && (
-                  <div className="mt-1.5 text-[11px] text-amber-600 dark:text-amber-400">
+                  <div className="mt-2 text-[11px] text-amber-600 dark:text-amber-400">
                     ⚠️ 触发风险开关：{m4.kill_switches.join("、")}
                   </div>
                 )}
                 <div className="mt-4 grid grid-cols-2 gap-2">
-                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 dark:border-emerald-800 dark:bg-emerald-950/40">
+                  <div className="rounded-xl bg-emerald-50/80 px-3 py-2.5 dark:bg-emerald-950/30">
                     <div className="text-[11px] text-emerald-700 dark:text-emerald-300">
                       买入区间
                     </div>
@@ -289,7 +265,7 @@ export function MemoCard({
                       ≤ {m8?.buy_price ?? "—"}
                     </div>
                   </div>
-                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-800 dark:bg-amber-950/40">
+                  <div className="rounded-xl bg-amber-50/80 px-3 py-2.5 dark:bg-amber-950/30">
                     <div className="text-[11px] text-amber-700 dark:text-amber-300">
                       卖出区间
                     </div>
@@ -298,11 +274,6 @@ export function MemoCard({
                     </div>
                   </div>
                 </div>
-                {m8?.status && (
-                  <div className="mt-2 text-[11px] text-muted-foreground">
-                    安全边际：{m8.status}
-                  </div>
-                )}
               </div>
             )}
           </div>

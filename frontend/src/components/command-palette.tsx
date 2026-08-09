@@ -3,7 +3,9 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Command } from "cmdk";
+import { useQuery } from "@tanstack/react-query";
 import {
+  BellRing,
   Bot,
   History,
   LayoutDashboard,
@@ -33,19 +35,19 @@ const ITEM_CLS =
 export function CommandPalette() {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
-  const [recent, setRecent] = React.useState<Conversation[]>([]);
-  const [custom, setCustom] = React.useState<CustomWorkflow[]>([]);
-
-  // 会话与自定义工作流（登录态下一次性拉取）
-  React.useEffect(() => {
-    let alive = true;
-    (async () => {
+  // 会话与自定义工作流（TanStack Query 缓存，60s 内不重复拉取）
+  const { data: paletteData } = useQuery({
+    queryKey: ["palette", "recent"],
+    queryFn: async (): Promise<{
+      recent: Conversation[];
+      custom: CustomWorkflow[];
+    }> => {
       try {
         const supabase = createClient();
         const {
           data: { user },
         } = await supabase.auth.getUser();
-        if (!user || !alive) return;
+        if (!user) return { recent: [], custom: [] };
         const [convRes, cwfRes] = await Promise.all([
           supabase
             .from("conversations")
@@ -59,17 +61,19 @@ export function CommandPalette() {
             .eq("user_id", user.id)
             .order("updated_at", { ascending: false }),
         ]);
-        if (!alive) return;
-        setRecent((convRes.data ?? []) as Conversation[]);
-        setCustom((cwfRes.data ?? []) as CustomWorkflow[]);
+        return {
+          recent: (convRes.data ?? []) as Conversation[],
+          custom: (cwfRes.data ?? []) as CustomWorkflow[],
+        };
       } catch {
         // 表未创建时忽略
+        return { recent: [], custom: [] };
       }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, []);
+    },
+    staleTime: 60_000,
+  });
+  const recent = paletteData?.recent ?? [];
+  const custom = paletteData?.custom ?? [];
 
   // ⌘K / Ctrl+K 唤起 + 顶部搜索框点击
   React.useEffect(() => {
@@ -97,6 +101,7 @@ export function CommandPalette() {
     { id: "page-agents", label: "智能体广场", sub: "M1–M11 模块目录", href: "/agents", icon: Bot },
     { id: "page-workflows", label: "工作流", sub: "发起分析", href: "/workflows", icon: Workflow },
     { id: "page-conversations", label: "对话记录", sub: "历史分析", href: "/conversations", icon: History },
+    { id: "page-monitor", label: "监控中心", sub: "规则与命中", href: "/monitor", icon: BellRing },
     { id: "page-settings", label: "通用设置", sub: "LLM 与个人资料", href: "/settings", icon: Settings },
   ];
 
