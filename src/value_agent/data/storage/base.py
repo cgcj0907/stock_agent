@@ -149,4 +149,8 @@ class MarketStorage(ABC):
         """返回各表行数与公司数，用于 status 展示。"""
 
     @abstractmethod
+    def list_codes(self) -> list[str]:
+        """返回 company 表全部股票代码（daily 任务默认遍历这些代码）。"""
+
+    @abstractmethod
     def close(self) -> None: ...

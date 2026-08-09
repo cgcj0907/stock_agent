@@ -241,10 +241,10 @@ class AkShareDataSource(DataSource):
                 logger.warning("[daily] %s 回退 %s 失败：%s", code, name, exc)
         raise ConnectionError("日线全部数据源失败：" + "；".join(errors))
 
-    def valuation_history(self, code: str) -> dict:
-        return self._retry("valuation_history", lambda: self._valuation_history(code))
+    def valuation_history(self, code: str, start: str | None = None) -> dict:
+        return self._retry("valuation_history", lambda: self._valuation_history(code, start))
 
-    def _valuation_history(self, code: str) -> dict:
+    def _valuation_history(self, code: str, start: str | None = None) -> dict:
         # 百度股市通估值历史：按指标分别拉取后按日期合并（akshare>=1.18 已移除乐咕接口）。
         # 注意：stock_zh_valuation_baidu 不支持「市销率」（可选值见 akshare docstring），
         # 传入会返回空结构报 NoneType 错；PS 无下游消费，records.ps 保持 None。
@@ -276,6 +276,7 @@ class AkShareDataSource(DataSource):
                 "total_mv": None,
             }
             for d, v in sorted(merged.items())
+            if start is None or d >= start  # 真增量：只保留 start 及之后的估值
         ]
         return {"records": records, "source": self.name, "url": source_url("valuation_history", code)}
 

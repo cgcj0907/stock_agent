@@ -2,6 +2,8 @@
 
 > 📌 最新状态：**V2 升级（P1–P5）已全部落地（2026-08-08）**——评分校准 v2、画像 Planner、函数注册表、
 > 校准 A/B 与模块级 PIT 回测均已实现，见 [12-v2-upgrade.md](12-v2-upgrade.md)。
+> 记录体系：对话脉络见 [chat-record.md](chat-record.md)，非常关键性进展见 [milestones.md](milestones.md)，
+> 任务清单与历史日志见 [progress.md](progress.md)；Agent 维护规则见根 [AGENTS.md](../AGENTS.md)。
 
 按阅读顺序使用：
 
@@ -20,11 +22,13 @@
 | 11 | [11-valuation-backlog.md](11-valuation-backlog.md) | **估值与成长体系改进待办**：未实施项清单（数据门槛/优先级/方案） | 排期估值/成长优化时读 |
 | 12 | [12-v2-upgrade.md](12-v2-upgrade.md) | **V2 升级方案（已落地）**：画像 Planner（LLM 规划层）+ 评分校准 v2（delta 制/证据校验/动态上限/档位保护）+ 函数注册表 + 校准 A/B 与模块 PIT 回测 | 维护校准/规划/回测机制时读 |
 | 13 | [13-investor-profile-agent.md](13-investor-profile-agent.md) | **投资者画像智能体（M0，可选）**：学历/投资风格/能力圈 → 个人可理解性 + 安全边际/风险注入 | 新增/维护投资者画像与个性化注入时读 |
-| 14 | [templates/module-spec.md](templates/module-spec.md) | **模块规格模板**：新增/完善模块时填写 | 开发某个模块时 |
-| 15 | [progress.md](progress.md) | **开发进度追踪**：勾选已完成任务，记录日期 | 每个里程碑结束时更新 |
+| 14 | [chat-record.md](chat-record.md) | **对话档案**：每次新对话（Chat）+ 每轮 1–2 句总结（轮次），Agent 自动维护 | 新对话开始 / 每轮结束时更新 |
+| 15 | [milestones.md](milestones.md) | **里程碑记录**：非常关键性项目进展（体系成型/重大方向/关键修复/上线部署），Agent 自动维护 | 有关键进展时更新 |
+| 16 | [templates/module-spec.md](templates/module-spec.md) | **模块规格模板**：新增/完善模块时填写 | 开发某个模块时 |
+| 17 | [progress.md](progress.md) | **任务清单 + 历史日志**：勾选已完成任务并写日期；要点版见 milestones.md | 每个里程碑结束时更新 |
 
 ## 开发节奏（一句话版）
 
 > 读 `01-design` → 按 `04-development-guide` 的里程碑推进 → 每完成一个模块填 `templates/module-spec` 规格、
-> 跑测试、更新 `progress.md`、提交一次 → 智能体与工作流见 `02-agent-architecture`，
-> 会话管理见 `03-session-management`，工程细节见 `05-coding-conventions`。
+> 跑测试、更新 `progress.md`、提交一次 → 每轮结束把对话总结写进 `chat-record.md`、关键进展写进 `milestones.md` →
+> 智能体与工作流见 `02-agent-architecture`，会话管理见 `03-session-management`，工程细节见 `05-coding-conventions`。

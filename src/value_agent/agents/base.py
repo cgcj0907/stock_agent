@@ -16,6 +16,20 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
+class AgentManifest:
+    """输出自描述（docs/13 §12 试点）：静态、每 agent 一份，引导下游/LLM 消费本模块输出。
+
+    与 handoff 契约互补：handoff 规定「字段叫什么」，manifest 说明「字段什么意思、
+    下游该怎么处理」——尤其对自定义 agent 互操作（来源可枚举，语义靠 manifest 解释）。
+    """
+
+    agent: str  # 产出的 agent id
+    summary: str  # 一句话：这个模块产出什么
+    output_fields: dict[str, str]  # 字段路径（如 handoff.competence_level）→ 含义/取值说明
+    how_to_consume: str  # 下游怎么用：读哪些字段、缺失/None 时怎么兜底
+
+
+@dataclass(frozen=True)
 class AgentSpec:
     """智能体的静态描述（注册表索引用）。"""
 
@@ -25,6 +39,10 @@ class AgentSpec:
     inputs: list[str] = field(default_factory=list)  # 依赖的 agent id
     requires_llm: bool = False
     version: str = "0.1.0"
+    manifest: AgentManifest | None = None  # 输出自描述（可选，docs/13 §12）
+    # P1（docs/13 §13）：缺失会导致「结果降级/硬约束失效」的关键上游。
+    # 工作流 validate 后据此给出连接覆盖警告（提示不拦截，语义自由度保留）。
+    required_inputs: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -69,6 +87,23 @@ class AgentContext:
             if kind == "content":
                 parts.append(delta)
         return "".join(parts)
+
+
+def format_inputs_for_llm(inputs: dict[str, ModuleResult]) -> str:
+    """把 ctx.inputs 整理成「来源 + 一句话自描述」文本，供下游 LLM 提示词引用。
+
+    每个模块的 outputs 里可带 summary（产出的一句话说明，docs/13 §12），
+    缺失时退化为 agent id。用于让下游 LLM 知道收到的数据来自哪些 agent、分别是什么，
+    从而正确解读任意（含自定义）上游输入。
+    """
+    lines: list[str] = []
+    for aid in sorted(inputs):
+        result = inputs[aid]
+        outputs = getattr(result, "outputs", None) or {}
+        summary = outputs.get("summary")
+        summary = str(summary).strip() if summary else ""
+        lines.append(f"- {aid}" + (f"：{summary}" if summary else ""))
+    return "\n".join(lines) if lines else "（无上游输入）"
 
 
 # 数据源拉取失败时的可操作提示（Render 海外 IP 常被 A 股数据源拦截）

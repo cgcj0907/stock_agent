@@ -202,6 +202,14 @@ class PostgresMarketStorage(MarketStorage):
 
         return self._read(_q)
 
+    def list_codes(self) -> list[str]:
+        def _q():
+            with self._cursor() as cur:
+                cur.execute("SELECT DISTINCT code FROM company ORDER BY code")
+                return [r[0] for r in cur.fetchall()]
+
+        return self._read(_q)
+
     def close(self) -> None:
         if self._conn is not None and not self._conn.closed:
             self._conn.close()

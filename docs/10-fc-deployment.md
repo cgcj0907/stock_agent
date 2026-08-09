@@ -87,6 +87,8 @@ docker push registry.cn-chengdu.aliyuncs.com/zgy_20223090903005/value-agent:late
 - **读穿缓存**（`data/manager.py`）：先读 Supabase，缺失才拉实时源（AkShare），拉成功后台回写。
 - **同步写入**：`DATA_WRITE_BACK=sync` 时写入在请求内完成（serverless 友好）；本地默认 async。
 - **日线增量刷新**：`daily_prices` 有缓存时只拉「最新交易日之后」、只写新增行，失败回退缓存；进程内一次分析只刷新一次。
+- **daily 任务只读**：不再批量写行情/估值（见第十节）；`value-agent data update`（手动/CLI）仍可增量写库，
+  `daily_update` 对每只股票传 `start=库内最新交易日` 真增量拉取。
 - **预取命令**（本地稳定网络跑一次，写全 5 张表）：
   ```bash
   uv run value-agent data fetch <代码>     # 例如：value-agent data fetch 600519
@@ -133,9 +135,9 @@ curl https://value-agent-vjdugjsdaa.cn-chengdu.fcapp.run/health   # → {"status
 
 ### 10.1 代码侧（已完成）
 
-- `src/value_agent/daily.py::run_daily_job()`：数据更新（行情/估值增量入库）→ 监控评估
-  （规则以 `monitor_rules` 表为准，回退 JSONB/M8）→ 命中推送飞书/企微。任一步失败只记
-  `errors` 不中断（数据源抖动时用缓存行情继续监控）。
+- `src/value_agent/daily.py::run_daily_job()`：**只读模式**——读已完成会话 + `monitor_rules` 表
+  （回退 JSONB/M8）→ 按规则代码**实时拉最新价**判断 → 命中按用户推送飞书/企微。
+  **不做任何行情/估值数据写入**（Supabase 只读、不占连接池）；价格获取失败只跳过不中断。
 - `src/value_agent/main.py`：两个入口，任选其一：
   - `POST /api/daily`：HTTP 直接调用（curl / FC「HTTP 触发」模式），可选鉴权头 `x-daily-token`
   - `POST /`：**FC 定时触发器（异步事件）入口**——FC 把定时事件以 HTTP POST 发到函数根路径 `/`，

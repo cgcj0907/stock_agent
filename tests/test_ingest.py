@@ -134,3 +134,44 @@ def test_valuation_history_existing_rows_are_not_overwritten(tmp_path):
     assert sorted(by_date) == ["20260731", "20260803"]
     assert by_date["20260731"]["pe"] == 22.0, "已存在交易日应保留首次入库值"
     assert by_date["20260803"]["pe"] == 22.4, "新交易日应正常插入"
+
+
+class _SpySource(MockDataSource):
+    """记录 daily_prices / valuation_history 收到的 start，验证真增量传参。"""
+
+    def __init__(self) -> None:
+        self.daily_starts: list[str | None] = []
+        self.val_starts: list[str | None] = []
+
+    def daily_prices(self, code, start=None, end=None):
+        self.daily_starts.append(start)
+        return super().daily_prices(code, start, end)
+
+    def valuation_history(self, code, start=None):
+        self.val_starts.append(start)
+        return super().valuation_history(code, start)
+
+
+def test_daily_update_passes_incremental_start(tmp_path):
+    """真增量：库里有缓存 → 给 source 传 start=最新交易日；无缓存 → 传 None（全量）。"""
+    storage = SqliteMarketStorage(str(tmp_path / "market.db"))
+    storage.upsert("daily_price", "600519", [
+        {"trade_date": "20260731", "open": 99.5, "close": 100.0, "high": 101.0, "low": 98.5, "volume": 1_000_000},
+    ])
+    spy = _SpySource()
+    daily_update(storage, spy, ["600519"])
+    assert spy.daily_starts == ["20260731"]
+    assert spy.val_starts == ["20260731"]
+
+    spy2 = _SpySource()
+    daily_update(SqliteMarketStorage(str(tmp_path / "m2.db")), spy2, ["600519"])
+    assert spy2.daily_starts == [None]
+    assert spy2.val_starts == [None]
+
+
+def test_storage_list_codes(tmp_path):
+    """company 表代码枚举（daily 默认遍历这些代码）。"""
+    storage = SqliteMarketStorage(str(tmp_path / "market.db"))
+    ingest_company(storage, MockDataSource(), "600519")
+    ingest_company(storage, MockDataSource(), "000333")
+    assert storage.list_codes() == sorted(["600519", "000333"])

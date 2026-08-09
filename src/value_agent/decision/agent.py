@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 
-from value_agent.agents.base import Agent, AgentContext, AgentSpec
+from value_agent.agents.base import Agent, AgentContext, AgentSpec, format_inputs_for_llm
 from value_agent.core.llm import LLM_JSON_RULE, parse_llm_json
 from value_agent.core.scoring import llm_score
 from value_agent.sessions.models import ModuleResult, ModuleStatus
@@ -51,6 +51,8 @@ class M10DecisionAgent(Agent):
         inputs=["M1_business_model", "M2_financial_quality", "M3_growth", "M4_valuation",
                 "M5_moat", "M6_governance", "M7_market", "M8_safety_margin", "M9_risk"],
         requires_llm=False,
+        # P1：缺 M8/M9 → 安全边际门禁 / 一票否决静默失效（硬约束不可让渡）
+        required_inputs=["M8_safety_margin", "M9_risk"],
     )
 
     def run(self, ctx: AgentContext) -> ModuleResult:
@@ -85,6 +87,8 @@ class M10DecisionAgent(Agent):
         if ctx.llm is not None and not final.vetoed:
             try:
                 prompt = (
+                    "上游输入来源（供解读参考，各模块 outputs 可带 summary 自描述）：\n"
+                    f"{format_inputs_for_llm(inputs)}\n\n"
                     f"五维评分（0-100，**分数越高越好**；governance_risk 实为治理质量分，"
                     f"85 分代表治理优秀而非高风险）：{final.dimensions}\n"
                     f"加权总分：{final.total}"

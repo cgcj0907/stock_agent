@@ -43,7 +43,7 @@ class DataSource(ABC):
         """日行情：{records: [{date, open, close, high, low, volume}]}。"""
 
     @abstractmethod
-    def valuation_history(self, code: str) -> dict:
+    def valuation_history(self, code: str, start: str | None = None) -> dict:
         """估值历史（PE/PB/股息率）：{records: [{date, pe, pb, dividend_yield}]}。"""
 
     @abstractmethod

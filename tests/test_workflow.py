@@ -399,3 +399,80 @@ def test_engine_preserves_started_at(engine):
         assert r.started_at is not None, f"{aid} started_at 不应为 None"
         assert r.finished_at is not None
         assert r.finished_at >= r.started_at
+
+
+# ---------- P1/P2（docs/13 §13）：连接覆盖警告 + 质量门禁 ----------
+
+def test_coverage_warnings_missing_required_input(registry):
+    """M8 缺 M4（只连 M0）→ 覆盖警告（提示不拦截）。"""
+    from value_agent.workflow.engine import coverage_warnings
+
+    flow = Workflow(
+        id="bad_m8",
+        name="M8 缺 M4",
+        steps=[
+            WorkflowStep(id="M0", agent_id="M0_investor_profile"),
+            WorkflowStep(id="M8", agent_id="M8_safety_margin", deps=["M0"]),
+        ],
+    )
+    warns = coverage_warnings(flow, registry)
+    assert any(
+        w["agent"] == "M8_safety_margin" and "M4_valuation" in w["missing"]
+        for w in warns
+    )
+
+
+def test_coverage_warnings_default_flow_empty(registry):
+    """默认流所有 required_inputs 都被覆盖 → 无警告。"""
+    from value_agent.workflow.engine import coverage_warnings
+
+    assert coverage_warnings(default_workflow(), registry) == []
+
+
+def test_engine_sets_session_warnings(engine):
+    """引擎运行后把覆盖警告落 Session.warnings（P1）。"""
+    manager = SessionManager(InMemoryStore())
+    session = manager.create_session("600519", "贵州茅台")
+    flow = Workflow(
+        id="m8_only",
+        name="只跑 M8",
+        steps=[WorkflowStep(id="M8", agent_id="M8_safety_margin")],
+    )
+    engine.run(session, flow)
+    assert any(w["agent"] == "M8_safety_margin" for w in session.warnings)
+
+
+def test_quality_gate_marks_incomplete_when_m8_unavailable(engine):
+    """M8 缺 M4 → 降级 unavailable → 会话标记不完整（状态仍 COMPLETED），memo 顶部 banner。"""
+    from tests.helpers import StubAgent
+    from value_agent.agents import AgentRegistry
+    from value_agent.report.memo import build_memo
+
+    manager = SessionManager(InMemoryStore())
+    session = manager.create_session("600519", "贵州茅台")
+    reg = AgentRegistry()
+    reg.register(StubAgent(AgentSpec(id="M4_valuation", name="stub4"), "no intrinsic"))
+    reg.register(engine._registry.get("M8_safety_margin"))
+    eng = WorkflowEngine(reg, manager)
+    flow = Workflow(
+        id="m4_stub_m8",
+        name="M8 降级",
+        steps=[
+            WorkflowStep(id="M4", agent_id="M4_valuation"),
+            WorkflowStep(id="M8", agent_id="M8_safety_margin", deps=["M4"]),
+        ],
+    )
+    eng.run(session, flow)
+    assert session.status == SessionStatus.COMPLETED
+    assert session.incomplete is True
+    assert any("M8_safety_margin" in r for r in session.incomplete_reasons)
+    assert "本报告不完整" in build_memo(session)
+
+
+def test_quality_gate_default_flow_not_incomplete(engine):
+    """默认流关键模块正常 → 不标记不完整。"""
+    manager = SessionManager(InMemoryStore())
+    session = manager.create_session("600519", "贵州茅台")
+    engine.run(session, default_workflow())
+    assert session.incomplete is False
+    assert session.incomplete_reasons == []

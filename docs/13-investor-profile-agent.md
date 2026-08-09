@@ -387,3 +387,66 @@ steps:
 - [ ] M8 门禁 / M9 veto / M10 档位硬约束不被个人画像覆盖
 - [ ] 前端：BFF 按需附加画像快照；M0 卡片渲染；备忘录有画像小节
 - [ ] 全量单测通过（当前 464 → 新增后全绿）
+
+---
+
+## 12. 已落地加固（2026-08-09）
+
+> 承接「随便连」评估：两个短板已补，见下文。
+
+### 12.1 P0：局部重算支持自定义智能体与自定义拓扑
+
+- **依赖图从会话工作流推导**：`sessions/manager.py` 新增 `_affected_by_session` /
+  `_topo_order` / `_ordered_by_session`——自定义流按 `workflow_steps` 的 deps 推导
+  下游级联与执行顺序，默认流回退内置 `MODULE_DEPENDENCIES`（行为不变）。
+- **rerun 接受任意 agent id**：`M0_investor_profile` 等自定义智能体可增量重算，
+  不再 `AttributeError`（旧实现只认内置 ModuleName）；会话中无该模块结果时补 PENDING 占位。
+- **API**：`POST /api/sessions/{id}/rerun` 去掉 `ModuleName` 强转，返回 `rerun_order`（agent id 列表）。
+- 测试：`tests/test_sessions.py` 新增自定义流级联重算 / 占位 / 默认流回归三条。
+
+### 12.2 输出自描述（manifest）试点（M0）
+
+- **`AgentManifest`**（`agents/base.py`）：静态、每 agent 一份——`summary` +
+  `output_fields`（字段路径 → 含义）+ `how_to_consume`（下游怎么处理、缺失怎么兜底）。
+  挂在 `AgentSpec.manifest`，**不随每次运行重复序列化**（只有一句 `outputs["summary"]` 进结果）。
+- **M0 试点**：manifest 声明 `competence.dimensions` / `handoff.competence_level` /
+  `required_discount_adjustment` / `risk_amplification` / `position_cap` / `profile_used`
+  的含义与消费方式。
+- **通用 helper `format_inputs_for_llm(inputs)`**：把 `ctx.inputs` 整理成
+  「来源 agent id + 一句话 summary」文本；M10 的 LLM 提示词已接入，
+  让下游 LLM 知道收到的数据来自哪些 agent、分别是什么（含自定义 agent）。
+- 契约测试：`tests/test_investor_profile.py` 断言 M0 manifest 声明的每个字段路径
+  **必须真实存在于输出**（含空画像中性态），防描述与实现漂移。
+
+> 说明：manifest 解决「收到数据怎么解释」，不替代「数据在不在」——后者仍靠
+> P1 连接覆盖检查（validate 检查步骤 deps 是否覆盖 `spec.inputs`）与
+> P2 会话质量门禁（关键模块降级 → 标记不完整）兜底，未排期。
+
+---
+
+## 13. 已落地加固 II：连接覆盖警告（P1）+ 质量门禁（P2）（2026-08-09）
+
+> 承接 §12，「随便连」的最后两块短板已补：**静默降级 → 显式警告 + 不完整标记**。
+
+### 13.1 P1：连接覆盖警告（提示不拦截）
+
+- `AgentSpec.required_inputs`：声明「缺失会导致结果降级 / 硬约束失效」的关键上游，
+  只标最硬的两处避免噪音：
+  - `M8 → M4_valuation`（缺 → 安全边际 unavailable）
+  - `M10 → M8/M9`（缺 → 安全边际门禁 / 一票否决静默失效）
+- 引擎 `run()` 在 `validate` 后计算 `coverage_warnings(workflow, registry)`，
+  落 `Session.warnings`（每次运行重算）；默认流全覆盖 → 无警告。
+- 语义自由度保留：只提示，不拦截（后端仍只拦环/未注册/依赖缺失）。
+
+### 13.2 P2：会话质量门禁
+
+- `_apply_quality_gate(session, workflow)`：工作流内的关键模块
+  （M4/M8/M9）失败/跳过/降级（`meta.degraded`）→ `Session.incomplete=True` +
+  `incomplete_reasons[]`；**状态仍 COMPLETED**（不阻断结论），由 memo 顶部 banner 提示。
+- `build_memo` 顶部输出「> ⚠️ **本报告不完整，结论需谨慎使用**」+ 原因/警告列表。
+- `Session.to_dict` 序列化 `warnings / incomplete / incomplete_reasons`，前端 `SessionView` 类型已同步。
+
+### 13.3 测试
+
+`tests/test_workflow.py` 新增 5 条：M8 缺 M4 覆盖警告 / 默认流无警告 /
+引擎落 Session.warnings / M8 降级 → 不完整 + memo banner / 默认流不标记不完整。

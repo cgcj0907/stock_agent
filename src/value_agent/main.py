@@ -32,7 +32,6 @@ from value_agent.monitor.user_webhooks import create_user_webhook_store
 from value_agent.profile.models import strip_pii
 from value_agent.report.memo import build_memo
 from value_agent.sessions import (
-    ModuleName,
     Session,
     SessionManager,
     SessionStatus,
@@ -410,12 +409,9 @@ def chat_stream(session_id: str, req: ChatRequest) -> StreamingResponse:
 @app.post("/api/sessions/{session_id}/rerun")
 def rerun_session(session_id: str, req: RerunRequest) -> dict:
     session = _load_session(session_id)
-    try:
-        modules = [ModuleName(m) for m in req.modules]
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=f"未知模块: {req.modules}") from exc
-    ordered = _manager.rerun(session, modules, assumptions=req.assumptions)
-    return {"rerun_order": [m.value for m in ordered], "session": _public_session(session)}
+    # 支持内置模块（ModuleName）与自定义智能体（任意 agent id，如 M0_investor_profile）
+    ordered = _manager.rerun(session, req.modules, assumptions=req.assumptions)
+    return {"rerun_order": ordered, "session": _public_session(session)}
 
 
 @app.post("/api/sessions/{session_id}/memo")

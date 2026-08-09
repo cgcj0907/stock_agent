@@ -97,5 +97,9 @@ class SqliteMarketStorage(MarketStorage):
         counts["_companies"] = self._conn.execute("SELECT COUNT(DISTINCT code) FROM company").fetchone()[0]
         return counts
 
+    def list_codes(self) -> list[str]:
+        rows = self._conn.execute("SELECT DISTINCT code FROM company ORDER BY code").fetchall()
+        return [r[0] for r in rows]
+
     def close(self) -> None:
         self._conn.close()

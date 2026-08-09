@@ -290,12 +290,9 @@ def cmd_notify(args: argparse.Namespace) -> int:
 def cmd_daily(args: argparse.Namespace) -> int:
     """每日任务：数据更新 + 监控评估 + Webhook 推送（FC 定时触发器同款逻辑）。"""
     summary = run_daily_job(
-        lookback_days=getattr(args, "days", 10),
         quarterly_review=bool(getattr(args, "quarterly", False)),
     )
-    updated = summary["updated"]
-    print(f"[daily] 行情 +{updated.get('daily_price', 0)} / 估值 +{updated.get('valuation_history', 0)} / 跳过 {updated.get('skipped', 0)}")
-    print(f"[daily] 会话 {summary['session_count']} 个 | 触发事件 {summary['monitor_events']} 条 | 推送 {summary['pushed_channels']}")
+    print(f"[daily] 只读监控（不写行情/估值）：会话 {summary['session_count']} 个 | 触发事件 {summary['monitor_events']} 条 | 推送 {summary['pushed_channels']}")
     for e in summary["events"]:
         print(f"[monitor] [{e['severity']}] {e['company_name']}({e['company_code']}) {e['message']}")
     for err in summary.get("errors", []):

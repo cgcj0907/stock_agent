@@ -376,3 +376,47 @@ def test_overall_level_missing_dims_is_neutral():
     assert overall_level({"dimensions": {}}, "consumer_monopoly") is None
     assert overall_level({"dimensions": {"consumer": {"level": "in_circle", "score": 90.0, "reasons": []}}},
                          "growth") is None  # growth 需要 technology/healthcare/internet，缺 → 中性
+
+
+# ---- 输出自描述 manifest 试点（docs/13 §12）----
+_MISSING = object()
+
+
+def _resolve_path(outputs: dict, path: str):
+    """按路径取字段；键缺失返回 _MISSING 哨兵（值为 None 不算缺失）。"""
+    cur: object = outputs
+    for part in path.split("."):
+        if not isinstance(cur, dict) or part not in cur:
+            return _MISSING
+        cur = cur[part]
+    return cur
+
+
+def test_m0_manifest_fields_resolve_in_outputs():
+    """M0 manifest 声明的字段路径必须真实存在于 M0 输出（防描述与实现漂移）。"""
+    from value_agent.agents.base import AgentManifest
+
+    manifest: AgentManifest | None = M0InvestorProfileAgent.spec.manifest
+    assert manifest is not None and manifest.how_to_consume
+    session = Session(id="s13", company_code="600519", status=SessionStatus.CREATED,
+                      investor_profile=strip_pii(RAW_PROFILE))
+    res = M0InvestorProfileAgent().run(_m0_ctx(session))
+    for path in manifest.output_fields:
+        assert _resolve_path(res.outputs, path) is not _MISSING, f"manifest 字段缺失: {path}"
+    # 空画像（中性）时字段仍存在（值为 None/空）
+    session2 = Session(id="s14", company_code="600519", status=SessionStatus.CREATED)
+    res2 = M0InvestorProfileAgent().run(_m0_ctx(session2))
+    for path in manifest.output_fields:
+        assert _resolve_path(res2.outputs, path) is not _MISSING, f"空画像 manifest 字段缺失: {path}"
+
+
+def test_format_inputs_for_llm_includes_summary():
+    """下游 LLM 提示词可拿到「来源 + 一句话自描述」。"""
+    from value_agent.agents.base import format_inputs_for_llm
+
+    m0 = _m0_result({"competence_level": "high"}, outputs_extra={"summary": "投资者画像：个人可理解性评级"})
+    m1 = _mod("M1_business_model", {"business_type": "consumer_monopoly"})
+    text = format_inputs_for_llm({"M0_investor_profile": m0, "M1_business_model": m1})
+    assert "M0_investor_profile" in text and "个人可理解性评级" in text
+    assert "M1_business_model" in text  # 无 summary 的模块退化为 id
+    assert format_inputs_for_llm({}) == "（无上游输入）"

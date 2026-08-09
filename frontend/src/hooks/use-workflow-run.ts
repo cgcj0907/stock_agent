@@ -27,6 +27,10 @@ export interface SessionView {
   workflow_id: string;
   assumptions?: Record<string, unknown>;
   memo_versions: string[];
+  /** P1/P2（docs/13 §13）：连接覆盖警告 + 质量门禁（关键模块降级 → 不完整） */
+  warnings?: Record<string, unknown>[];
+  incomplete?: boolean;
+  incomplete_reasons?: string[];
 }
 
 export type RunStatus = "idle" | "running" | "completed" | "failed";

@@ -20,6 +20,19 @@ def build_memo(session: Session) -> str:
         f"- 模型版本：`{session.model_version}`",
         f"- 状态：`{session.status.value}`",
         "",
+    ]
+
+    # P2/P1（docs/13 §13）：质量门禁 + 连接覆盖警告 → memo 顶部 banner
+    if session.incomplete or session.warnings:
+        lines.append("")
+        lines.append("> ⚠️ **本报告不完整，结论需谨慎使用**")
+        for reason in session.incomplete_reasons:
+            lines.append(f"> - {reason}")
+        for w in session.warnings:
+            lines.append(f"> - ⚠️ {w.get('message')}")
+        lines.append("")
+
+    lines += [
         "## 执行摘要",
     ]
 

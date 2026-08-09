@@ -621,37 +621,17 @@ def test_persist_materializes_rules_to_store(tmp_path):
 
 # ---------- 9.12：每日任务 run_daily_job（数据更新 + 监控 + 推送，FC 定时同款） ----------
 
-class _StubStorage:
-    """market 存储替身：latest 永远无缓存、upsert 计数。"""
-
-    name = "stub"
-
-    def __init__(self) -> None:
-        self.written = {"daily_price": 0, "valuation_history": 0}
-
-    def latest(self, table, code):
-        return None
-
-    def upsert(self, table, code, records):
-        n = len(records)
-        self.written[table] = self.written.get(table, 0) + n
-        return n
-
-
 class _StubSource:
-    """数据源替身：固定一条行情 + 一条估值。"""
+    """数据源替身：固定一条行情。"""
 
     name = "stub"
 
     def daily_prices(self, code, start=None, end=None):
         return {"records": [{"trade_date": "20260805", "close": 15.0}]}
 
-    def valuation_history(self, code):
-        return {"records": [{"trade_date": "20260805", "pe": 20.0}]}
 
-
-def test_run_daily_job_updates_and_monitors():
-    """daily 任务：行情/估值入库 → 表规则评估触发 → 汇总返回（无 webhook 时推送为空）。"""
+def test_run_daily_job_reads_rules_and_pushes():
+    """daily 只读模式：读表规则 → 实时拉价判断触发 → 不写行情/估值。"""
     from value_agent.daily import run_daily_job
     from value_agent.monitor.rules_store import InMemoryRuleStore
     from value_agent.sessions.store import InMemoryStore
@@ -667,22 +647,18 @@ def test_run_daily_job_updates_and_monitors():
     ])
 
     summary = run_daily_job(
-        storage=_StubStorage(), source=_StubSource(), store=store,
-        rules_store=rules_store, codes=["600519"],
+        source=_StubSource(), store=store, rules_store=rules_store,
     )
-    assert summary["updated"]["daily_price"] == 1
-    assert summary["updated"]["valuation_history"] == 1
+    assert summary["updated"] == {}             # 只读：不写行情/估值
     assert summary["session_count"] == 1
     assert summary["monitor_events"] == 1
     assert summary["events"][0]["rule_type"] == "price_buy"
     assert summary["events"][0]["message"].startswith("现价 15.0")
-    assert summary["pushed_channels"] == []  # 未配置 webhook
-    # I-2 记忆闭环：命中写回会话
-    assert store.list()[0].monitor_hits
+    assert summary["pushed_channels"] == []     # 未配置 webhook
 
 
 def test_run_daily_job_degrades_on_data_source_failure():
-    """数据源失败（如海外 IP 被断）→ 记录 errors、不抛错，监控因无最新价跳过。"""
+    """数据源失败 → 不抛错，无最新价 → 规则跳过（只读模式无数据写入）。"""
     from value_agent.daily import run_daily_job
     from value_agent.monitor.rules_store import InMemoryRuleStore
     from value_agent.sessions.store import InMemoryStore
@@ -693,18 +669,14 @@ def test_run_daily_job_degrades_on_data_source_failure():
         def daily_prices(self, code, start=None, end=None):
             raise ConnectionError("eastmoney blocked")
 
-        def valuation_history(self, code):
-            raise ConnectionError("eastmoney blocked")
-
     store = InMemoryStore()
     store.save(_session_with_rules([
         {"rule_type": "price_buy", "message": "跌破买入区间", "severity": "info",
          "source_module": "M8_safety_margin", "action": "action", "params": {"price": 42.5}},
     ]))
     summary = run_daily_job(
-        storage=_StubStorage(), source=_FailSource(), store=store,
-        rules_store=InMemoryRuleStore(), codes=["600519"],
+        source=_FailSource(), store=store, rules_store=InMemoryRuleStore(),
     )
-    assert summary["updated"]["error"]          # 数据更新失败被记录
-    assert summary["errors"]                    # 不抛错
+    assert summary["errors"] == []              # 价格获取失败被内部吞掉，不中断
     assert summary["monitor_events"] == 0       # 无最新价 → 规则跳过
+    assert summary["updated"] == {}             # 只读：不写库

@@ -77,9 +77,12 @@ def daily_update(
     stats = {"daily_price": 0, "valuation_history": 0, "skipped": 0}
     for code in codes:
         latest = storage.latest("daily_price", code)
-        prices = [r for r in source.daily_prices(code)["records"] if latest is None or r["trade_date"] > latest]
+        # 真增量：有缓存时只拉最新交易日之后（start=latest），避免每次全量拉 10 年历史
+        start = latest
+        prices = [r for r in source.daily_prices(code, start=start)["records"]
+                  if latest is None or r["trade_date"] > latest]
         valuations = [
-            r for r in source.valuation_history(code)["records"]
+            r for r in source.valuation_history(code, start=start)["records"]
             if latest is None or r["trade_date"] > latest
         ]
         if not prices and not valuations:

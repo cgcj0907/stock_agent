@@ -29,6 +29,8 @@ class M8SafetyMarginAgent(Agent):
         # 确定性分级（6.1）消费 M5 moat_width + M2 财务风险 + M3 周期/景气（均为上游，无环）
         inputs=["M2_financial_quality", "M3_growth", "M4_valuation", "M5_moat", "M7_market"],
         requires_llm=False,
+        # P1：缺 M4 估值 → 直接降级 unavailable（安全边际缺失，报告不完整）
+        required_inputs=["M4_valuation"],
     )
 
     def run(self, ctx: AgentContext) -> ModuleResult:

@@ -54,7 +54,7 @@ class MockDataSource(DataSource):
             "source": self.name,
         }
 
-    def valuation_history(self, code: str) -> dict:
+    def valuation_history(self, code: str, start: str | None = None) -> dict:
         return {
             "records": [
                 {"trade_date": "20260731", "pe": 22.0, "pe_ttm": 21.0, "pb": 3.1, "ps": 8.0, "dv_ttm": 0.021, "total_mv": 1_200_000_000_000},

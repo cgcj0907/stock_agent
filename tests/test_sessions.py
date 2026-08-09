@@ -79,6 +79,53 @@ def test_rerun_returns_pipeline_order(manager, session):
     assert session.module_results[ModuleName.M1.value].status == ModuleStatus.DONE  # 未受影响
 
 
+def test_rerun_custom_agent_in_custom_flow(manager):
+    """自定义工作流含 M0→M1→M4→M8：rerun M0 应按 workflow_steps 的 deps 级联重算下游。
+
+    修复点（P0，docs/13）：依赖图从会话工作流推导，自定义 agent（M0）也能增量重算，
+    不再 AttributeError（旧实现只认内置 MODULE_DEPENDENCIES）。
+    """
+    session = Session(
+        id="cs1", company_code="600519", status=SessionStatus.CREATED,
+        workflow_steps=[
+            {"id": "M0", "agent": "M0_investor_profile"},
+            {"id": "M1", "agent": "M1_business_model", "deps": ["M0"]},
+            {"id": "M4", "agent": "M4_valuation", "deps": ["M1"]},
+            {"id": "M8", "agent": "M8_safety_margin", "deps": ["M0", "M4"]},
+        ],
+    )
+    for aid in ("M0_investor_profile", "M1_business_model", "M4_valuation", "M8_safety_margin"):
+        session.module_results[aid] = ModuleResult(
+            module=aid, status=ModuleStatus.DONE, outputs={"x": 1}
+        )
+    ordered = manager.rerun(session, ["M0_investor_profile"])
+    assert "M0_investor_profile" in ordered
+    assert "M1_business_model" in ordered   # M0 下游
+    assert "M4_valuation" in ordered        # M1 下游级联
+    assert "M8_safety_margin" in ordered    # M0 直接下游
+    assert session.module_results["M8_safety_margin"].status == ModuleStatus.PENDING
+    assert session.module_results["M1_business_model"].status == ModuleStatus.PENDING
+    assert session.current_module == "M0_investor_profile"
+
+
+def test_rerun_custom_agent_without_result_placeholder(manager):
+    """rerun 一个会话里尚无结果的模块 → 补 PENDING 占位，不崩溃。"""
+    session = Session(id="cs2", company_code="600519", status=SessionStatus.CREATED)
+    ordered = manager.rerun(session, ["M0_investor_profile"])
+    assert ordered == ["M0_investor_profile"]
+    assert session.module_results["M0_investor_profile"].status == ModuleStatus.PENDING
+
+
+def test_rerun_default_flow_still_uses_builtin_deps(manager, session):
+    """默认流（无 workflow_steps）重算仍走内置 MODULE_DEPENDENCIES，行为不变。"""
+    from value_agent.sessions.manager import _affected_by_session
+
+    affected = _affected_by_session(["M3_growth"], session)
+    assert affected == {m.value for m in (ModuleName.M3, ModuleName.M4, ModuleName.M8,
+                                          ModuleName.M9, ModuleName.M10, ModuleName.M11)}
+    assert ModuleName.M2.value not in affected
+
+
 def test_failed_module_sets_session_failed(manager, session):
     class BoomAgent(Agent):
         spec = AgentSpec(id="M1_business_model", name="boom")

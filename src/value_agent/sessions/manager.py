@@ -134,6 +134,106 @@ def _ordered(modules: Iterable[ModuleName]) -> list[ModuleName]:
     return sorted(modules, key=lambda m: order[m])
 
 
+def _ordered_ids(ids: Iterable[str]) -> list[str]:
+    """按内置流水线顺序排序；未知（自定义 agent）id 追加在末尾（稳定序）。
+
+    供 rerun 对自定义工作流使用：M0/M12 等不在 PIPELINE_ORDER 里，排在内置模块之后。
+    """
+    order = {m.value: i for i, m in enumerate(PIPELINE_ORDER)}
+    known = sorted((i for i in ids if i in order), key=lambda i: order[i])
+    unknown = sorted(i for i in ids if i not in order)
+    return known + unknown
+
+
+def _topo_order(steps: list[dict]) -> list[str]:
+    """按 workflow_steps 的 deps 计算全局拓扑序（agent id 级，Kahn）。
+
+    供 rerun 对自定义工作流返回真实的执行顺序（如 M0→M1→M4→M8），
+    而不是按内置 PIPELINE_ORDER 硬排（那会把自定义 M0 排到最后、顺序错误）。
+    """
+    step_by_id = {
+        str(st["id"]): str(st["agent"])
+        for st in steps if isinstance(st, dict) and st.get("id") and st.get("agent")
+    }
+    indeg = {a: 0 for a in step_by_id.values()}
+    out: dict[str, list[str]] = {a: [] for a in step_by_id.values()}
+    for st in steps:
+        if not isinstance(st, dict):
+            continue
+        target = str(st.get("agent") or "")
+        if not target:
+            continue
+        for dep in st.get("deps") or []:
+            dep_agent = step_by_id.get(str(dep))
+            if dep_agent and dep_agent != target:
+                out[dep_agent].append(target)
+                indeg[target] = indeg.get(target, 0) + 1
+    ready = [a for a, d in indeg.items() if d == 0]
+    order: list[str] = []
+    while ready:
+        ready.sort()
+        cur = ready.pop(0)
+        order.append(cur)
+        for nxt in out[cur]:
+            indeg[nxt] -= 1
+            if indeg[nxt] == 0:
+                ready.append(nxt)
+    # 环已被 validate 拦截；残余按字典序兜底
+    for a in sorted(indeg):
+        if a not in order:
+            order.append(a)
+    return order
+
+
+def _ordered_by_session(ids: Iterable[str], session: Session) -> list[str]:
+    """受影响集合的执行顺序：自定义流按工作流拓扑序；默认流按内置流水线序。"""
+    idset = set(ids)
+    if session.workflow_steps:
+        topo = [a for a in _topo_order(session.workflow_steps) if a in idset]
+        return topo + sorted(idset - set(topo))
+    return _ordered_ids(idset)
+
+
+def _affected_by_session(module_ids: Iterable[str], session: Session) -> set[str]:
+    """按会话工作流推导受影响集合（下游级联失效），支持任意 agent id。
+
+    - 自定义工作流（session.workflow_steps）：依赖图来自步骤 deps（agent id 级），
+      因此 M0/M12 等自定义智能体的重算级联也能正确推导；
+    - 默认流（无 workflow_steps）：回退内置 MODULE_DEPENDENCIES（M1–M11）。
+    """
+    steps = session.workflow_steps
+    reverse: dict[str, set[str]] = {}
+    if not steps:
+        for m, deps in MODULE_DEPENDENCIES.items():
+            for d in deps:
+                reverse.setdefault(d.value, set()).add(m.value)
+    else:
+        step_by_id = {
+            str(st["id"]): str(st["agent"])
+            for st in steps if isinstance(st, dict) and st.get("id") and st.get("agent")
+        }
+        for st in steps:
+            if not isinstance(st, dict):
+                continue
+            target = str(st.get("agent") or "")
+            if not target:
+                continue
+            for dep in st.get("deps") or []:
+                dep_agent = step_by_id.get(str(dep))
+                if dep_agent:
+                    reverse.setdefault(dep_agent, set()).add(target)
+    affected: set[str] = set()
+    queue = [str(m) for m in module_ids]
+    while queue:
+        m = queue.pop()
+        if m in affected:
+            continue
+        affected.add(m)
+        for dep in reverse.get(m, set()):
+            queue.append(dep)  # noqa: PERF402 (BFS 队列追加，非列表拷贝)
+    return affected
+
+
 class SessionManager:
     def __init__(
         self,
@@ -247,23 +347,31 @@ class SessionManager:
     def rerun(
         self,
         session: Session,
-        modules: Iterable[ModuleName],
+        modules: Iterable[ModuleName | str],
         assumptions: dict | None = None,
-    ) -> list[ModuleName]:
-        """局部重算：只重置受影响模块，沿依赖链确定重跑集合。"""
+    ) -> list[str]:
+        """局部重算：只重置受影响模块，沿依赖链确定重跑集合（返回 agent id 列表）。
+
+        - 接受内置模块（ModuleName）与自定义智能体（任意字符串 agent id）；
+        - 依赖图按会话工作流推导：自定义流用 workflow_steps 的 deps，
+          默认流回退内置 MODULE_DEPENDENCIES——自定义拓扑也能正确级联。
+        """
         if assumptions:
             session.assumptions.update(assumptions)
-        affected = _affected_modules(modules)
-        for module in affected:
-            key = module.value
+        ids = [m.value if isinstance(m, ModuleName) else str(m) for m in modules]
+        affected = _affected_by_session(ids, session)
+        for key in affected:
+            if key not in session.module_results:
+                # 会话里尚无该模块结果：补 PENDING 占位，避免 KeyError（自定义 agent 首跑前重算）
+                session.module_results[key] = ModuleResult(module=key)
             session.module_results[key].status = ModuleStatus.PENDING
             session.module_results[key].outputs = {}
             session.module_results[key].evidence = []
             session.module_results[key].llm_explanation = None
             session.module_results[key].score = None
-        ordered = _ordered(affected)
+        ordered = _ordered_by_session(affected, session)
         transition(session, SessionStatus.IN_PROGRESS)
-        session.current_module = ordered[0].value if ordered else None
+        session.current_module = ordered[0] if ordered else None
         self._store.save(session)
         return ordered
 

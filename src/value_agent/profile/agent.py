@@ -7,7 +7,7 @@
 """
 from __future__ import annotations
 
-from value_agent.agents.base import Agent, AgentContext, AgentSpec
+from value_agent.agents.base import Agent, AgentContext, AgentManifest, AgentSpec
 from value_agent.core.contracts import ReasonCode, build_meta
 from value_agent.sessions.models import ModuleResult, ModuleStatus
 
@@ -43,6 +43,27 @@ def _persona_summary(profile: InvestorProfile) -> str:
     return " · ".join(parts) if parts else "（未填写画像）"
 
 
+# 输出自描述（docs/13 §12 试点）：静态、一份；引导 M1/M8/M9/M10 与 LLM 消费 M0 输出
+_M0_MANIFEST = AgentManifest(
+    agent="M0_investor_profile",
+    summary="投资者画像：按学历/投资风格/能力圈给出个人可理解性评级，并提供安全边际/风险/仓位个性化注入参数",
+    output_fields={
+        "competence.dimensions": "各能力维度胜任分 0-100 与等级 in_circle|edge|out_circle",
+        "handoff.competence_level": "个人综合可理解性 high|medium|low（None=中性）",
+        "handoff.required_discount_adjustment": "M8 要求折扣增量（0-0.2，比例）",
+        "handoff.risk_amplification": "{tone: cautious|neutral|aggressive, flags: [个人风险提示]}",
+        "handoff.position_cap": "M10 个人仓位上限（None=不限制）",
+        "handoff.profile_used": "实际消费的画像字段清单（审计）",
+    },
+    how_to_consume=(
+        "M1 读 competence.dimensions 按生意类型算个人可理解性；"
+        "M8 读 handoff.required_discount_adjustment 叠加到要求折扣；"
+        "M9 读 handoff.risk_amplification 展示个人风险提示；"
+        "M10 读 handoff.position_cap 收窄仓位。所有字段缺失/None 时按中性处理。"
+    ),
+)
+
+
 class M0InvestorProfileAgent(Agent):
     spec = AgentSpec(
         id="M0_investor_profile",
@@ -54,6 +75,7 @@ class M0InvestorProfileAgent(Agent):
         inputs=[],
         requires_llm=False,
         version="0.1.0",
+        manifest=_M0_MANIFEST,
     )
 
     def run(self, ctx: AgentContext) -> ModuleResult:
@@ -66,6 +88,7 @@ class M0InvestorProfileAgent(Agent):
                 status=ModuleStatus.DONE,
                 score=0.0,
                 outputs={
+                    "summary": _M0_MANIFEST.summary,
                     "persona_summary": "（未填写投资者画像，中性处理）",
                     "competence": {"dimensions": {}, "matched_circle": [], "overall_level": None},
                     "business_type": None,
@@ -121,6 +144,7 @@ class M0InvestorProfileAgent(Agent):
             evidence.append("个人风险提示：" + "；".join(params["risk_amplification"]["flags"]))
 
         outputs = {
+            "summary": _M0_MANIFEST.summary,
             "persona_summary": _persona_summary(profile),
             "competence": {
                 "dimensions": competence["dimensions"],

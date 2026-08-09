@@ -14,8 +14,11 @@ python -m value_agent analyze 600519
 ## 文档（从 [docs/README.md](docs/README.md) 进入）
 
 ```text
+AGENTS.md                      # Agent 协作开发规范（所有 AI 助手必读）
 docs/
 ├── README.md                  # 文档导航（阅读顺序）
+├── chat-record.md             # 对话档案：每次新对话 + 每轮 1–2 句总结
+├── milestones.md              # 里程碑记录：非常关键性项目进展
 ├── 01-design.md               # 总体设计：理论体系 → 11 模块
 ├── 02-agent-architecture.md   # 智能体与工作流：注册表 + 默认流 + 自由编排
 ├── 03-session-management.md   # Agent 会话管理设计
@@ -24,7 +27,7 @@ docs/
 ├── templates/module-spec.md   # 模块开发规格模板
 ├── 06-tech-stack.md          # 技术选型与部署
 ├── 07-deployment-guide.md    # 部署指南：Render + Supabase + Vercel
-└── progress.md                # 开发进度追踪（每个里程碑更新）
+└── progress.md                # 任务清单 + 历史日志（每个里程碑更新）
 ```
 
 ## 目录

@@ -165,6 +165,10 @@ class Session:
     # 批次 E 增强：M10 决策快照审计（O-3）+ 跨会话监控命中历史（I-2）
     decision_snapshots: list[dict] = field(default_factory=list)
     monitor_hits: list[dict] = field(default_factory=list)
+    # P1/P2（docs/13 §13）：连接覆盖警告 + 质量门禁（关键模块降级/缺失 → 标记不完整）
+    warnings: list[dict] = field(default_factory=list)
+    incomplete: bool = False
+    incomplete_reasons: list[str] = field(default_factory=list)
     messages: list[Message] = field(default_factory=list)
     created_at: datetime = field(default_factory=_now)
     updated_at: datetime = field(default_factory=_now)
@@ -196,6 +200,9 @@ class Session:
             "memo_versions": self.memo_versions,
             "decision_snapshots": self.decision_snapshots,
             "monitor_hits": self.monitor_hits,
+            "warnings": self.warnings,
+            "incomplete": self.incomplete,
+            "incomplete_reasons": self.incomplete_reasons,
             "messages": [m.to_dict() for m in self.messages],
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
@@ -221,6 +228,9 @@ class Session:
             memo_versions=list(d.get("memo_versions", [])),
             decision_snapshots=list(d.get("decision_snapshots", [])),
             monitor_hits=list(d.get("monitor_hits", [])),
+            warnings=list(d.get("warnings", [])),
+            incomplete=bool(d.get("incomplete", False)),
+            incomplete_reasons=list(d.get("incomplete_reasons", [])),
             created_at=_parse_dt(d.get("created_at")) or _now(),
             updated_at=_parse_dt(d.get("updated_at")) or _now(),
             archived_at=_parse_dt(d.get("archived_at")),

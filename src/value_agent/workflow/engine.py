@@ -37,6 +37,61 @@ def _eval_condition(expr: str, scope: dict) -> bool:
         return False
 
 
+# P2：关键模块——降级/缺失会使备忘录结论失真（docs/13 §13）
+CRITICAL_MODULES = ("M4_valuation", "M8_safety_margin", "M9_risk")
+
+
+def coverage_warnings(workflow: Workflow, registry: AgentRegistry) -> list[dict]:
+    """P1 连接覆盖警告：步骤 deps 未覆盖 agent.required_inputs → 提示（不拦截）。
+
+    仅对声明了 required_inputs 的 agent（当前 M8/M10）检查，避免对「可优雅降级」
+    的普通 spec.inputs 制造噪音；语义自由度保留。
+    """
+    agent_by_step = {s.id: s.agent_id for s in workflow.steps}
+    warnings: list[dict] = []
+    for step in workflow.steps:
+        try:
+            spec = registry.get(step.agent_id).spec
+        except KeyError:
+            continue  # validate 已拦，这里容错
+        if not spec.required_inputs:
+            continue
+        dep_agents = {agent_by_step[d] for d in step.deps if d in agent_by_step}
+        missing = [a for a in spec.required_inputs if a not in dep_agents]
+        if missing:
+            warnings.append({
+                "type": "missing_required_input",
+                "step": step.id,
+                "agent": step.agent_id,
+                "missing": missing,
+                "message": (
+                    f"{step.agent_id} 缺少必需上游 {'、'.join(missing)}，"
+                    "该模块结果将降级（如安全边际 unavailable）或硬约束（门禁/否决）不生效"
+                ),
+            })
+    return warnings
+
+
+def _apply_quality_gate(session: Session, workflow: Workflow) -> None:
+    """P2 质量门禁：关键模块（M4/M8/M9）失败/跳过/降级 → 会话标记不完整。
+
+    只检查**在工作流内**的关键模块（自由编排：用户没选的模块不判）；
+    状态仍保持 COMPLETED（不阻断结论），由 memo/前端 banner 提示。
+    """
+    step_agents = {step.agent_id for step in workflow.steps}
+    reasons: list[str] = []
+    for aid in CRITICAL_MODULES:
+        if aid not in step_agents:
+            continue
+        r = session.module_results.get(aid)
+        if r is None or r.status in (ModuleStatus.FAILED, ModuleStatus.SKIPPED):
+            reasons.append(f"{aid} 未产出结果（{r.status.value if r else '缺失'}）")
+        elif r.meta.get("degraded"):
+            reasons.append(f"{aid} 数据降级运行，结论可能失真")
+    session.incomplete = bool(reasons)
+    session.incomplete_reasons = reasons
+
+
 class WorkflowEngine:
     def __init__(
         self,
@@ -84,6 +139,8 @@ class WorkflowEngine:
                     logger.exception("步骤回调失败（不影响执行）")
 
         workflow.validate(available_agents=set(self._registry.ids()))
+        # P1：连接覆盖警告（提示不拦截）；每次运行重算，避免旧警告残留
+        session.warnings = coverage_warnings(workflow, self._registry)
         transition(session, SessionStatus.IN_PROGRESS)
 
         step_map = {s.id: s for s in workflow.steps}
@@ -286,4 +343,7 @@ class WorkflowEngine:
                 transition(session, SessionStatus.IN_PROGRESS)
         else:
             transition(session, SessionStatus.COMPLETED)
+        # P2：关键模块降级/缺失 → 标记不完整（memo banner 提示）
+        if session.status == SessionStatus.COMPLETED:
+            _apply_quality_gate(session, workflow)
         self._manager.persist(session)

@@ -1,7 +1,18 @@
 # 开发进度追踪
 
+> **三层记录体系**（总规则见根 [AGENTS.md](../AGENTS.md)）：
+> - [chat-record.md](chat-record.md) —— 每次新对话 & 每轮对话的 1–2 句话总结；
+> - [milestones.md](milestones.md) —— **非常关键性**项目进展（体系成型/重大方向/关键修复/上线部署）；
+> - 本文件 —— 任务级清单（勾选 + 写日期）+ 完整历史日志。
+>
 > 每完成一个任务勾选并写日期；里程碑完成时连同代码一起提交。
 > 规则见 [04-development-guide.md](04-development-guide.md)。
+
+## 当前状态（2026-08-09）
+
+- 全模块真实实现 + V2 升级（P1–P5）已落地；前端 F0–F6 完成，生产部署链路（FC + Supabase + Vercel）打通；
+- 本周聚焦真实会话稽核修复：M4 下沿/便宜度、M3 数据派生增速、M9 否决误杀、数据层超时加固等，全量测试 **522 通过**；
+- 待办集中在：S0 数据推送/部署收尾、LLM 定性层接 key 验证、S5 会话重算→备忘录 v2 端到端验证、FC 超时调 600s。
 
 ## 总览
 
@@ -14,6 +25,102 @@
 | S4 M3/M7/M9 | ✅ 完成 2026-08-04 |
 | S5 M10 决策报告 | ✅ 评分卡+备忘录完成（M10/M11 占位） |
 | S6 M11 + 回测 | ✅ 完成 2026-08-04 |
+
+## 当前待办
+
+- [ ] S0 数据层：数据推送/部署收尾（真实 BaoStock + Supabase + 组合分红已就绪，见总览）
+- [ ] S3：配置 `LLM_API_KEY` 后验证 LLM 定性层输出
+- [ ] S5：会话重算 → 备忘录 v2 端到端验证（依赖重算已支持）
+- [ ] 部署：FC 超时 300s → 600s（控制台配置，见 [10-fc-deployment.md](10-fc-deployment.md)）
+
+## 任务清单（按里程碑）
+
+## S0 数据层（🔶 进行中）
+- [x] 免费数据源适配器（mock + baostock + akshare 统一接口，字段已归一化）2026-08-04
+- [x] 表结构（schema.sql：company/financials/daily_price/valuation_history/dividends/watchlist）
+- [x] 存储层（SqliteMarketStorage 本地 + PostgresMarketStorage(Supabase)）
+- [x] ETL 管线（ingest_company 全量 + daily_update 增量，已验证跳过/插入）
+- [x] 自选股池 config/watchlist.yaml（10 只样本）
+- [x] 勾稽校验 + quality_flag（validate.py：财务/行情/估值/分红 + ETL 入库前剔除）2026-08-04
+- [x] point-in-time 数据快照（snapshots.py + records_before，回测防前视）2026-08-04
+- [x] 真实免费数据源拉取验证（BaoStock 连通 ✅，10 只自选股 47,996 条入库，茅台完整分析跑通；修复季度/年度口径）2026-08-04
+- [x] Supabase 建表 + DATABASE_URL 连接验证（Session Pooler 新加坡 5432，用户本机通过）2026-08-04
+- 完成日期：
+
+## S1 智能体 + 工作流 + 会话骨架 ✅ 2026-08-03
+- [x] Agent 抽象 + 注册表（agents/base.py、registry.py）
+- [x] 内置 M1–M11 智能体骨架（agents/builtin.py）
+- [x] 工作流模型 + 默认工作流（workflow/）
+- [x] 工作流引擎（拓扑/条件跳过/run_always/失败处理 + on_step 进度回调）
+- [x] YAML 自定义工作流（config/workflows/）
+- [x] sessions 数据模型 + 状态机（含迁移测试）
+- [x] session store 持久化（InMemory + Sqlite，可换 Supabase）
+- [x] session manager（create/rerun 依赖链/resume/archive）
+- [x] CLI/API 骨架（main.py：/health + 会话 API + SSE；cli.py：analyze/agents/workflows/data/monitor/serve）
+
+## S2 硬核三模块（纯规则）
+- [x] M2 财务质量（ROE 杜邦 + 现金流 + 杠杆 + 风险信号）2026-08-04（financials/quality.py + agent）
+- [x] M4 估值引擎（方法路由 + DCF/唐朝/格雷厄姆/DDM/相对中位PE + 敏感性）2026-08-04（valuation/ + agent）
+- [x] M8 安全边际（折扣率 + 要求折扣分级 + 买卖区间）2026-08-04（safety_margin/ + agent）
+- 完成日期：2026-08-04
+
+## S3 认知与质量（规则层 + LLM 可选）
+- [x] M1 商业模式认知（生意类型分类 → M4 路由 + 能力圈评级）2026-08-04
+- [x] M5 护城河（标准面代理：ROE/毛利率/杠杆 → 宽度评级）2026-08-04
+- [x] M5 护城河 v2（两层制：规则层降级为「财务代理评级」+ 同行基准相对评分 + 来源识别 +
+      侵蚀信号；LLM 定性回填 handoff durability/erosion_risks；宽度冲突处理；M9 真正消费
+      erosion_risks）2026-08-07
+- [x] M5 护城河 v3（行业细分基准：INDUSTRY_SEGMENT_BENCHMARKS ~25 细分，解析顺序
+      细分>生意类型>generic；金融拆银行/保险/券商净利率口径，修掉「保险净利率被银行中位误伤」
+      （中国平安 43窄→70宽）；周期行业 ROE/利润率/杠杆近 8 年跨周期均值；M1 依赖显式化；
+      宽度合成门槛可配置 + competition_evidence 内容校验 + 参考池情绪词扩充）2026-08-07
+- [x] M5 护城河 v3.1（真实同行中位数：moat/peer_benchmarks.py，AkShare 行业成分股财务中位，
+      peer_medians 覆盖静态细分基准，real_peer_medians 开关 + 失败回退静态表；引擎/agent/测试接入）2026-08-07
+- [x] M5 护城河 v3.2（provider 慢网加固：单次超时/总预算/并行拉取防挂死；5.9 档位横截面验证
+      scripts/validate_moat_tiers.py（真实数据 评分 vs 长期 ROE 秩相关 0.709）；光伏周期误判修复
+      （拆 solar 细分，隆基 无→窄））2026-08-08
+- [x] M5 护城河 v3.3（5.13：M5 回填 handoff.moat_trend，M9 侵蚀风险 severity 三档：
+      low+eroding→critical / 单条件→high / 否则 medium，闭环 LLM trend 消费）2026-08-08
+- [x] M6 治理与资本配置（分红持续性代理评分）2026-08-04
+- [x] M6 治理与资本配置 v2（治理事件非分红证据 + 结构化风险码 + LLM 风险回填 + 分数口径统一）2026-08-07
+- [x] M2 财务质量 v2（12.1 分行业口径：按 M1 生意类型/金融细类路由，覆盖
+      消费垄断/成长/周期/金融/资产/高分红六类 + bank/broker/insurance，现金流比仅年报+阈值放宽、
+      金融高杠杆按行业常态 → 修复保险股 OCF/NP<0.8 误触发一票否决）2026-08-07
+- [ ] 配置 LLM_API_KEY 后验证 LLM 定性层输出
+- 完成日期：
+
+## S4 成长与市场 ✅ 2026-08-04
+- [x] M3 成长与再投资（EPS CAGR + 景气评级 + 增速假设 → M4 采用）
+- [x] M7 价格与情绪（估值历史分位 + 股债性价比 + 样本不足降级）
+- [x] M9 风险与否决（聚合 M2/M3/M5/M6/M7/M8 + 一票否决 + LLM 红队可选）
+- 完成日期：2026-08-04
+
+## S5 决策与报告
+- [x] M10 评分卡引擎（五维加权 + 档位 + 一票否决）2026-08-04（decision/engine.py + agent）
+- [x] 投资备忘录生成（markdown：M10 结论 + M2/M4/M8 要点）2026-08-04
+- [ ] 会话重算 → 备忘录 v2（依赖重算已支持，接 API 端到端验证待做）
+- 完成日期：
+
+## S6 监控与回测 ✅ 2026-08-04
+- [x] M11 跟踪监控（规则生成 + 每日价格触发 + 飞书/企微推送）2026-08-04
+- [x] point-in-time 回测（PIT 评分选股 + 月度调仓 + 指标；真实数据超额 +2.6%/年）2026-08-04
+- 完成日期：2026-08-04
+
+## 前端（F 系列）
+- [x] F0 脚手架：Next.js 16 + TS + Tailwind v4 + shadcn/ui（Nova/Radix）+ 翡翠绿设计系统（亮/暗）+ App Shell（侧边栏/顶栏/仪表盘占位）2026-08-04
+- [x] F1 认证（Supabase Auth：登录/注册/忘记密码/更新密码/auth callback + proxy 路由保护 + NavUser 真实用户）2026-08-05
+- [x] F2 LLM 服务商配置（/settings/llm：DeepSeek/OpenAI/Qwen/Ollama/自定义 + CRUD + 默认 + 测试连通；Key AES-256-GCM 加密存 Supabase）2026-08-05
+- [x] F3 智能体广场（/agents：M1–M11 卡片 + 搜索/分类 + 详情页 + 收藏（agent_favorites）+ 发起分析入口 + 后端离线本地目录兜底）2026-08-05
+- [x] F4.5 自定义工作流编排器（/workflows/builder：Agent 面板 + React Flow 拖拽连线 + 保存 custom_workflows；后端 Session 支持内联 workflow_steps；真实账号端到端验证：建流→保存→运行→结果 90/83/10 + 备忘录）2026-08-05
+- [x] F4 工作流分析（/workflows：React Flow DAG 可视化 + 输入公司发起分析 + SSE 实时进度 + 结果卡片 + 备忘录渲染 + conversations 落库；后端 curl E2E 验证通过）2026-08-05
+- [x] F5 对话记录（/conversations 列表（搜索/状态筛选/删除）+ 详情（DAG/结果/备忘录/重新分析）+ 仪表盘最近会话；真实账号端到端验证通过）2026-08-05
+- [x] F6 打磨与部署（品牌 icon.svg + openGraph/SEO + 404 页 + 路由 loading 骨架 + 按钮光标/选中色；生产构建 npm run start 验证通过；Vercel 部署文档与环境变量清单就绪）2026-08-05
+
+---
+
+## 历史变更日志（详细）
+
+> 要点版见 [milestones.md](milestones.md)；此处为完整明细，按时间倒序。
 
 > ✅ 2026-08-09 **中国船舶（600150）会话稽核：M4 下沿穿透 + M10 LLM 方向误读**
 > ① 会话结论「回避」内部自洽可辩护（M2=38 含亏损年、M4 现价>中值、M5 窄护城河、M8 安全边际为负）；
@@ -381,83 +488,3 @@
 
 > ✅ 2026-08-05 **Memo 卡片美化落地**：新增 `MemoCard` 结构化组件（Hero 指标/五维评分条/内在价值区间带/买卖区间卡/模块表/监控严重度徽章/假设键值网格），替换 markdown 渲染；配套后端韧性：AkShare 网络重试 + M1/M4/M8 数据失败降级为 DONE（工作流不再因数据源瞬时故障全灭）。
 
-## S0 数据层（🔶 进行中）
-- [x] 免费数据源适配器（mock + baostock + akshare 统一接口，字段已归一化）2026-08-04
-- [x] 表结构（schema.sql：company/financials/daily_price/valuation_history/dividends/watchlist）
-- [x] 存储层（SqliteMarketStorage 本地 + PostgresMarketStorage(Supabase)）
-- [x] ETL 管线（ingest_company 全量 + daily_update 增量，已验证跳过/插入）
-- [x] 自选股池 config/watchlist.yaml（10 只样本）
-- [x] 勾稽校验 + quality_flag（validate.py：财务/行情/估值/分红 + ETL 入库前剔除）2026-08-04
-- [x] point-in-time 数据快照（snapshots.py + records_before，回测防前视）2026-08-04
-- [x] 真实免费数据源拉取验证（BaoStock 连通 ✅，10 只自选股 47,996 条入库，茅台完整分析跑通；修复季度/年度口径）2026-08-04
-- [x] Supabase 建表 + DATABASE_URL 连接验证（Session Pooler 新加坡 5432，用户本机通过）2026-08-04
-- 完成日期：
-
-## S1 智能体 + 工作流 + 会话骨架 ✅ 2026-08-03
-- [x] Agent 抽象 + 注册表（agents/base.py、registry.py）
-- [x] 内置 M1–M11 智能体骨架（agents/builtin.py）
-- [x] 工作流模型 + 默认工作流（workflow/）
-- [x] 工作流引擎（拓扑/条件跳过/run_always/失败处理 + on_step 进度回调）
-- [x] YAML 自定义工作流（config/workflows/）
-- [x] sessions 数据模型 + 状态机（含迁移测试）
-- [x] session store 持久化（InMemory + Sqlite，可换 Supabase）
-- [x] session manager（create/rerun 依赖链/resume/archive）
-- [x] CLI/API 骨架（main.py：/health + 会话 API + SSE；cli.py：analyze/agents/workflows/data/monitor/serve）
-
-## S2 硬核三模块（纯规则）
-- [x] M2 财务质量（ROE 杜邦 + 现金流 + 杠杆 + 风险信号）2026-08-04（financials/quality.py + agent）
-- [x] M4 估值引擎（方法路由 + DCF/唐朝/格雷厄姆/DDM/相对中位PE + 敏感性）2026-08-04（valuation/ + agent）
-- [x] M8 安全边际（折扣率 + 要求折扣分级 + 买卖区间）2026-08-04（safety_margin/ + agent）
-- 完成日期：2026-08-04
-
-## S3 认知与质量（规则层 + LLM 可选）
-- [x] M1 商业模式认知（生意类型分类 → M4 路由 + 能力圈评级）2026-08-04
-- [x] M5 护城河（标准面代理：ROE/毛利率/杠杆 → 宽度评级）2026-08-04
-- [x] M5 护城河 v2（两层制：规则层降级为「财务代理评级」+ 同行基准相对评分 + 来源识别 +
-      侵蚀信号；LLM 定性回填 handoff durability/erosion_risks；宽度冲突处理；M9 真正消费
-      erosion_risks）2026-08-07
-- [x] M5 护城河 v3（行业细分基准：INDUSTRY_SEGMENT_BENCHMARKS ~25 细分，解析顺序
-      细分>生意类型>generic；金融拆银行/保险/券商净利率口径，修掉「保险净利率被银行中位误伤」
-      （中国平安 43窄→70宽）；周期行业 ROE/利润率/杠杆近 8 年跨周期均值；M1 依赖显式化；
-      宽度合成门槛可配置 + competition_evidence 内容校验 + 参考池情绪词扩充）2026-08-07
-- [x] M5 护城河 v3.1（真实同行中位数：moat/peer_benchmarks.py，AkShare 行业成分股财务中位，
-      peer_medians 覆盖静态细分基准，real_peer_medians 开关 + 失败回退静态表；引擎/agent/测试接入）2026-08-07
-- [x] M5 护城河 v3.2（provider 慢网加固：单次超时/总预算/并行拉取防挂死；5.9 档位横截面验证
-      scripts/validate_moat_tiers.py（真实数据 评分 vs 长期 ROE 秩相关 0.709）；光伏周期误判修复
-      （拆 solar 细分，隆基 无→窄））2026-08-08
-- [x] M5 护城河 v3.3（5.13：M5 回填 handoff.moat_trend，M9 侵蚀风险 severity 三档：
-      low+eroding→critical / 单条件→high / 否则 medium，闭环 LLM trend 消费）2026-08-08
-- [x] M6 治理与资本配置（分红持续性代理评分）2026-08-04
-- [x] M6 治理与资本配置 v2（治理事件非分红证据 + 结构化风险码 + LLM 风险回填 + 分数口径统一）2026-08-07
-- [x] M2 财务质量 v2（12.1 分行业口径：按 M1 生意类型/金融细类路由，覆盖
-      消费垄断/成长/周期/金融/资产/高分红六类 + bank/broker/insurance，现金流比仅年报+阈值放宽、
-      金融高杠杆按行业常态 → 修复保险股 OCF/NP<0.8 误触发一票否决）2026-08-07
-- [ ] 配置 LLM_API_KEY 后验证 LLM 定性层输出
-- 完成日期：
-
-## S4 成长与市场 ✅ 2026-08-04
-- [x] M3 成长与再投资（EPS CAGR + 景气评级 + 增速假设 → M4 采用）
-- [x] M7 价格与情绪（估值历史分位 + 股债性价比 + 样本不足降级）
-- [x] M9 风险与否决（聚合 M2/M3/M5/M6/M7/M8 + 一票否决 + LLM 红队可选）
-- 完成日期：2026-08-04
-
-## S5 决策与报告
-- [x] M10 评分卡引擎（五维加权 + 档位 + 一票否决）2026-08-04（decision/engine.py + agent）
-- [x] 投资备忘录生成（markdown：M10 结论 + M2/M4/M8 要点）2026-08-04
-- [ ] 会话重算 → 备忘录 v2（依赖重算已支持，接 API 端到端验证待做）
-- 完成日期：
-
-## S6 监控与回测 ✅ 2026-08-04
-- [x] M11 跟踪监控（规则生成 + 每日价格触发 + 飞书/企微推送）2026-08-04
-- [x] point-in-time 回测（PIT 评分选股 + 月度调仓 + 指标；真实数据超额 +2.6%/年）2026-08-04
-- 完成日期：2026-08-04
-
-## 前端（F 系列）
-- [x] F0 脚手架：Next.js 16 + TS + Tailwind v4 + shadcn/ui（Nova/Radix）+ 翡翠绿设计系统（亮/暗）+ App Shell（侧边栏/顶栏/仪表盘占位）2026-08-04
-- [x] F1 认证（Supabase Auth：登录/注册/忘记密码/更新密码/auth callback + proxy 路由保护 + NavUser 真实用户）2026-08-05
-- [x] F2 LLM 服务商配置（/settings/llm：DeepSeek/OpenAI/Qwen/Ollama/自定义 + CRUD + 默认 + 测试连通；Key AES-256-GCM 加密存 Supabase）2026-08-05
-- [x] F3 智能体广场（/agents：M1–M11 卡片 + 搜索/分类 + 详情页 + 收藏（agent_favorites）+ 发起分析入口 + 后端离线本地目录兜底）2026-08-05
-- [x] F4.5 自定义工作流编排器（/workflows/builder：Agent 面板 + React Flow 拖拽连线 + 保存 custom_workflows；后端 Session 支持内联 workflow_steps；真实账号端到端验证：建流→保存→运行→结果 90/83/10 + 备忘录）2026-08-05
-- [x] F4 工作流分析（/workflows：React Flow DAG 可视化 + 输入公司发起分析 + SSE 实时进度 + 结果卡片 + 备忘录渲染 + conversations 落库；后端 curl E2E 验证通过）2026-08-05
-- [x] F5 对话记录（/conversations 列表（搜索/状态筛选/删除）+ 详情（DAG/结果/备忘录/重新分析）+ 仪表盘最近会话；真实账号端到端验证通过）2026-08-05
-- [x] F6 打磨与部署（品牌 icon.svg + openGraph/SEO + 404 页 + 路由 loading 骨架 + 按钮光标/选中色；生产构建 npm run start 验证通过；Vercel 部署文档与环境变量清单就绪）2026-08-05
