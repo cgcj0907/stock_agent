@@ -7,6 +7,8 @@ from value_agent.core.llm import LLM_JSON_RULE, parse_llm_json
 from value_agent.core.scoring import confidence_from_completeness, llm_score
 from value_agent.data.references import CompanyReferences, format_reference_list, select_references
 from value_agent.planner import parse_profile, resolve_profile
+from value_agent.profile.engine import format_profile_for_llm, overall_level
+from value_agent.profile.models import parse_investor_profile
 from value_agent.sessions.models import ModuleResult, ModuleStatus
 
 from .engine import analyze_business_model
@@ -32,6 +34,33 @@ _LLM_SYSTEM = (
     "你必须先判断该公司更接近哪一类生意类型，再给出一句话商业模式描述。"
     + LLM_JSON_RULE
 )
+
+
+
+
+_LEVEL_RANK = {"low": 0, "medium": 1, "high": 2}
+_PERSONAL_LABELS = {
+    "high": "能力圈内（个人画像匹配）",
+    "medium": "边缘（个人理解有限，需借助专业资料）",
+    "low": "圈外（超出个人能力圈）",
+}
+
+
+def _personal_understandability(
+    company_label: str, m0_result: object, business_type: str
+) -> tuple[str, str | None]:
+    """个人可理解性 = min(公司侧复杂度, 个人胜任分等级)（docs/13 §5.1）。
+
+    返回 (展示标签, 个人等级 high|medium|low|None)；M0 缺失/数据不足 → (原标签, None)。
+    """
+    m0 = getattr(m0_result, "outputs", None) or {}
+    competence = m0.get("competence") or {}
+    personal_level = overall_level(competence, business_type)
+    if personal_level is None:
+        return company_label, None
+    company_level = _understandability_level(company_label)
+    merged = company_level if _LEVEL_RANK[company_level] <= _LEVEL_RANK[personal_level] else personal_level
+    return _PERSONAL_LABELS[merged], personal_level
 
 
 class M1BusinessModelAgent(Agent):
@@ -87,6 +116,12 @@ class M1BusinessModelAgent(Agent):
         evidence = data_issues + list(rule_result.evidence)
         llm_qualitative = None
 
+        # M0 投资者画像（可选）：在流中则注入 LLM 视角 + 个人可理解性；不在流中 → 现状
+        m0 = ctx.inputs.get("M0_investor_profile")
+        investor_block = ""
+        if m0 is not None:
+            investor_block = format_profile_for_llm(parse_investor_profile(ctx.session.investor_profile))
+
         if ctx.llm is not None:  # LLM 定性层（可选）
             try:
                 refs = CompanyReferences().fetch(code, slot=0)  # 先抓真实链接供 LLM 筛选
@@ -98,6 +133,11 @@ class M1BusinessModelAgent(Agent):
                     "命中而误判（如行业名含'机械'但实际是耐用消费品）；若与规则候选不同，"
                     "必须在 reasons 中给出明确依据（至少两条）。\n"
                 )
+                if investor_block:
+                    user_prompt += (
+                        "投资者画像（仅用于判断 understandability，business_type 判断须独立于个人画像）："
+                        f"{investor_block}\n"
+                    )
                 ref_block = format_reference_list(refs)
                 if ref_block:
                     user_prompt += ref_block + "\n"
@@ -195,6 +235,25 @@ class M1BusinessModelAgent(Agent):
         # 移除空 references
         if not outputs.get("references"):
             outputs.pop("references", None)
+
+        if m0 is not None:
+            # M0 注入：个人可理解性 = min(公司侧复杂度, 个人胜任分等级)；M0 缺失/中性 → 现状
+            company_label = outputs.get("understandability") or result.understandability
+            personal_label, personal_level = _personal_understandability(
+                company_label, m0, result.business_type
+            )
+            if personal_level is not None:
+                outputs["understandability_company"] = company_label
+                outputs["understandability"] = personal_label
+                handoff["understandability_level"] = _understandability_level(outputs["understandability"])
+                handoff["personal_understandability_level"] = personal_level
+                handoff["competence"] = (m0.outputs or {}).get("competence")
+                handoff["investor_profile_used"] = ((m0.outputs or {}).get("handoff") or {}).get("profile_used") or []
+                if personal_level != _understandability_level(company_label):
+                    evidence.append(
+                        f"个人画像注入：可理解性 {company_label} → {personal_label}"
+                        f"（个人等级 {personal_level}）"
+                    )
 
         # v2 P5 接线：画像/数据 → meta.completeness → 校准上限
         # （completeness 低 → 规则分可信度低 → LLM 校准上限放宽，但抬分证据要求不变）

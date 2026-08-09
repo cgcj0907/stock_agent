@@ -149,6 +149,7 @@ class Message:
 class Session:
     company_code: str
     company_name: str = ""
+    user_id: str | None = None  # 归属用户（Supabase auth.users id）；None = 系统/全局
     id: str = field(default_factory=lambda: _new_id("sess"))
     status: SessionStatus = SessionStatus.CREATED
     current_module: str | None = None  # 正在执行的 agent id
@@ -158,6 +159,7 @@ class Session:
     workflow_id: str = "default"  # 使用的工作流定义 id（见 workflow/）
     workflow_steps: list[dict] | None = None  # 内联自定义工作流步骤（[{id, agent, deps}]），优先于 workflow_id
     llm_config: dict | None = None  # 按会话注入的 LLM 配置（{provider, base_url, model, api_key}），优先于全局
+    investor_profile: dict | None = None  # M0 投资者画像快照（创建会话时附加，已剥离 PII；见 docs/13）
     model_version: str = "0.1.0"
     memo_versions: list[str] = field(default_factory=list)
     # 批次 E 增强：M10 决策快照审计（O-3）+ 跨会话监控命中历史（I-2）
@@ -180,6 +182,7 @@ class Session:
             "id": self.id,
             "company_code": self.company_code,
             "company_name": self.company_name,
+            "user_id": self.user_id,
             "status": self.status.value,
             "current_module": self.current_module,
             "module_results": {k: v.to_dict() for k, v in self.module_results.items()},
@@ -188,6 +191,7 @@ class Session:
             "workflow_id": self.workflow_id,
             "workflow_steps": self.workflow_steps,
             "llm_config": llm_config,
+            "investor_profile": self.investor_profile,
             "model_version": self.model_version,
             "memo_versions": self.memo_versions,
             "decision_snapshots": self.decision_snapshots,
@@ -203,6 +207,7 @@ class Session:
         session = cls(
             company_code=d["company_code"],
             company_name=d.get("company_name", ""),
+            user_id=d.get("user_id"),
             id=d.get("id", _new_id("sess")),
             status=SessionStatus(d.get("status", "created")),
             current_module=d.get("current_module"),
@@ -211,6 +216,7 @@ class Session:
             workflow_id=d.get("workflow_id", "default"),
             workflow_steps=d.get("workflow_steps"),
             llm_config=d.get("llm_config"),
+            investor_profile=d.get("investor_profile"),
             model_version=d.get("model_version", "0.1.0"),
             memo_versions=list(d.get("memo_versions", [])),
             decision_snapshots=list(d.get("decision_snapshots", [])),

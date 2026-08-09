@@ -806,7 +806,7 @@ def test_extreme_method_disagreement_keeps_low_positive():
     assert r.method_agreement is None or r.method_agreement == 0.0
     assert r.intrinsic["low"] is not None and r.intrinsic["low"] > 0
     assert r.intrinsic["low"] < r.intrinsic["mid"] < r.intrinsic["high"]
-    assert any("下沿退化为最保守方法值" in e for e in r.evidence)
+    assert any("最保守方法" in e for e in r.evidence)
 
 
 # ---------- 2026-08-09：M4 分语义 = 估值便宜度（原为方法覆盖度，展示误导） ----------
@@ -837,3 +837,21 @@ def test_m4_score_is_cheapness_not_coverage():
     assert res.score in (15.0, 45.0, 50.0, 70.0, 95.0)
     # 覆盖度仍保留在 handoff（下游/展示用），不再混进估值分
     assert res.outputs["handoff"]["coverage"] in ("high", "medium", "low")
+
+
+def test_intrinsic_low_never_below_most_conservative_method():
+    """生产稽核回归（中国船舶 600150）：方法偏态时 ±std 下沿会穿透到最保守方法值以下
+    （中国船舶 low=9.78 但最保守方法 16.52），把 M8 买入价压到失真；
+    修复后下沿至少取最保守方法值。"""
+    r = run_valuation(
+        eps=1.2, bvps=22, dividend=None,
+        pe_history=[40, 42, 38, 41, 37, 40, 43, 39, 44, 38],
+        pb_history=[2.5, 2.7, 2.3, 2.6, 2.2, 2.5, 2.8, 2.4, 2.9, 2.3],
+        business_type="cyclical",
+    )
+    applicable = [m.value for m in r.methods.values() if m.value is not None and m.value > 0]
+    assert applicable
+    mult = r.total_multiplier or 1.0
+    assert r.intrinsic["low"] is not None
+    assert r.intrinsic["low"] >= min(applicable) * mult - 0.01  # 下沿不低于最保守方法
+    assert any("下沿抬升" in e for e in r.evidence)

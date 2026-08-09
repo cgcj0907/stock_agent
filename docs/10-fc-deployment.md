@@ -140,6 +140,10 @@ curl https://value-agent-vjdugjsdaa.cn-chengdu.fcapp.run/health   # → {"status
   - `POST /api/daily`：HTTP 直接调用（curl / FC「HTTP 触发」模式），可选鉴权头 `x-daily-token`
   - `POST /`：**FC 定时触发器（异步事件）入口**——FC 把定时事件以 HTTP POST 发到函数根路径 `/`，
     事件体即控制台「触发消息」，如 `{"action": "daily", "token": "<DAILY_TOKEN>"}`
+- **按用户通知**：`user_webhooks(user_id, channel, webhook_url)` 表 + `GET/PUT /api/webhooks` +
+  `POST /api/webhooks/test`（JWT 鉴权，RLS 隔离）。分析会话从登录 JWT 绑定 `user_id`，M11 规则
+  物化时带上归属；每日监控按规则归属推给对应（未配渠道的用户跳过，全局规则走环境变量 webhook）。
+  前端「设置 → 通知设置」页面配置飞书/企微 webhook。
 
 ### 10.2 FC 控制台配置（异步事件模式，控制台默认样式）
 

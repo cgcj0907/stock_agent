@@ -27,3 +27,12 @@ create table if not exists public.monitor_rules (
 );
 create index if not exists monitor_rules_session_idx on public.monitor_rules (session_id);
 create index if not exists monitor_rules_company_idx on public.monitor_rules (company_code, active);
+
+-- 用户通知渠道（每个登录用户配自己的飞书/企微 webhook；后端 SupabaseUserWebhookStore 自动建表）
+create table if not exists public.user_webhooks (
+  user_id uuid not null references auth.users (id) on delete cascade,
+  channel text not null check (channel in ('feishu', 'wechat')),
+  webhook_url text not null,
+  updated_at timestamptz not null default now(),
+  primary key (user_id, channel)
+);

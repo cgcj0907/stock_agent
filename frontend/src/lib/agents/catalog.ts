@@ -8,6 +8,7 @@ import {
   RadioTower,
   ShieldCheck,
   Target,
+  UserRound,
   TrendingDown,
   TrendingUp,
   TriangleAlert,
@@ -27,6 +28,7 @@ export const AGENT_ICONS: Record<string, LucideIcon> = {
   "triangle-alert": TriangleAlert,
   target: Target,
   "radio-tower": RadioTower,
+  "user-round": UserRound,
 };
 
 export interface AgentInfo {
@@ -53,6 +55,17 @@ export interface BackendAgentSpec {
 }
 
 const RAW: Array<Omit<AgentInfo, "inputs" | "requires_llm" | "version">> = [
+  {
+    id: "M0_investor_profile",
+    code: "M0",
+    name: "投资者画像",
+    tagline: "学历/投资风格/能力圈 → 个性化可理解性 + 安全边际/风险注入",
+    description:
+      "读取个人资料中的学历教育背景、投资风格、能力圈与风险承受，输出个人可理解性评级，并个性化调整安全边际要求折扣与风险提示。可选智能体：加入自定义工作流即生效，默认流不包含。",
+    icon: "user-round",
+    gradient: "from-teal-500 to-emerald-600",
+    category: "画像",
+  },
   {
     id: "M1_business_model",
     code: "M1",

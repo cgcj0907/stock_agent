@@ -18,6 +18,38 @@ export async function POST(req: Request) {
 
   const body = await req.json();
 
+  // M0 投资者画像（可选，docs/13）：仅当工作流包含 M0 步骤时，服务端附加画像快照（按需发送）。
+  // 剔除身份字段（display_name/email/avatar/时间戳），后端落库/进 LLM 前还会再剥离一次。
+  const wantsProfile =
+    Array.isArray(body.workflow_steps) &&
+    body.workflow_steps.some(
+      (s: { agent?: string } | null | undefined) => s?.agent === "M0_investor_profile"
+    );
+  let investor_profile: Record<string, unknown> | undefined;
+  if (wantsProfile) {
+    try {
+      const supabase = await createClient();
+      const { data } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", user.id)
+        .maybeSingle();
+      if (data) {
+        const { display_name, email, avatar_path, avatar_url, created_at, updated_at, ...rest } =
+          data as Record<string, unknown>;
+        void display_name;
+        void email;
+        void avatar_path;
+        void avatar_url;
+        void created_at;
+        void updated_at;
+        investor_profile = rest;
+      }
+    } catch {
+      // 画像读取失败 → 不带（后端 M0 中性兜底，不影响分析）
+    }
+  }
+
   // 取用户默认 LLM 配置（无默认则取最新一条）；未配置则不带 llm_config
   let llm_config: Record<string, string> | undefined;
   try {
@@ -72,7 +104,11 @@ export async function POST(req: Request) {
         "Content-Type": "application/json",
         ...(await backendAuthHeaders()),
       },
-      body: JSON.stringify({ ...body, llm_config }),
+      body: JSON.stringify({
+        ...body,
+        llm_config,
+        ...(investor_profile ? { investor_profile } : {}),
+      }),
       cache: "no-store",
       signal: AbortSignal.timeout(45000),
     });

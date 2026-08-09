@@ -202,12 +202,14 @@ def run_decision(
     module_results: dict[str, ModuleResult],
     *,
     total_override: float | None = None,
+    position_cap: float | None = None,
 ) -> DecisionResult:
     """主入口：模块评分 → 五维加权 → 结论档位 + 否决检查 + M8 安全边际门禁。
 
     total_override：外部（LLM 评分层）校准后的最终总分。提供时跳过规则总分，
     但一票否决 / M8 安全边际门禁等硬约束仍基于最终总分统一生效——
     防止 agent 层「按新总分重算结论」时把引擎层已施加的门禁冲掉。
+    position_cap：M0 投资者画像个人仓位上限（docs/13 §5.4；None=不限制）。
     """
     dims: dict[str, float] = {}
     dims_meta = _apply_weights()
@@ -265,6 +267,13 @@ def run_decision(
     sized_position = _sized_position(position, m8, m9, vetoed=blocked)
     if sized_position != position:
         position = sized_position
+    # M0 投资者画像：个人仓位上限（低风险/短期资金收窄；默认关闭）
+    persona_capped = False
+    if position_cap is not None and not blocked:
+        cap = round(float(position_cap), 4)
+        if position > cap:
+            position = cap
+            persona_capped = True
 
     decision_reasons = [
         f"五维加权总分 {total}" + (f"（规则分 {rule_total}，LLM 评分校准）" if calibrated else ""),
@@ -280,6 +289,8 @@ def run_decision(
         )
     if vetoed:
         decision_reasons.append(f"触发一票否决：{'、'.join(vetoed)}")
+    if persona_capped:
+        decision_reasons.append(f"个人仓位上限：{position:.0%}（M0 投资者画像：低风险/短期资金）")
     # 8.2：仓位依据说明
     if not blocked:
         factors = [
@@ -303,6 +314,8 @@ def run_decision(
         evidence.append(f"M8 安全边际：{mos_state}（现价高于内在价值，M10 不给出买入决策）")
     if vetoed:
         evidence.append(f"⚠️ 触发否决项：{vetoed}")
+    if persona_capped:
+        evidence.append(f"个人仓位上限生效：{position:.0%}（M0 投资者画像）")
     return DecisionResult(
         dimensions=dims, total=total, band=band,
         position=position, conclusion=conclusion,

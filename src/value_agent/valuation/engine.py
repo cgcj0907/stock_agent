@@ -588,14 +588,15 @@ def run_valuation(
         agreement = max(0.0, 1.0 - (wstd / mid)) if mid > 0 else 0.0
         raw_min, raw_max = min(vals), max(vals)
         band_low = mid - wstd
-        if band_low <= 0:
-            # 方法分歧过大（加权离散度 ≥ 中值）时 ±std 带下穿 0：下沿退化为最保守方法值，
-            # 杜绝 low=0（此前 000831/600519 都输出 low=0，导致 M8 直接 OUT_OF_RANGE 放弃）
-            band_low = raw_min
+        if band_low < raw_min:
+            # 方法偏态/分歧大时 ±std 带会穿透到最保守方法值以下：
+            # 下沿至少取最保守方法值（此前 000831/600519 曾 low=0；
+            # 中国船舶 low=9.78 但最保守方法 16.52——无方法支撑的过低下沿会把 M8 买入价压到失真）
             evidence.append(
-                "⚠️ 方法分歧过大（加权离散度 ≥ 中值）：下沿退化为最保守方法值 "
-                f"{raw_min:.2f}，避免 0 值污染安全边际"
+                f"⚠️ 方法偏态/分歧：±std 下沿 {band_low:.2f} 低于最保守方法 {raw_min:.2f}，"
+                f"下沿抬升至 {raw_min:.2f}"
             )
+            band_low = raw_min
         intrinsic = {
             "low": round(band_low * final_mult, 2),
             "mid": round(mid * final_mult, 2),

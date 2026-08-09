@@ -27,6 +27,7 @@ from value_agent.data.pipelines.ingest import daily_update, ingest_company
 from value_agent.data.storage.factory import create_storage
 from value_agent.monitor.rules_store import create_rule_store
 from value_agent.monitor.runner import notify_webhooks, run_daily_monitor
+from value_agent.monitor.user_webhooks import create_user_webhook_store
 from value_agent.report.memo import build_memo
 from value_agent.sessions import InMemoryStore, SessionManager, SqliteStore, create_session_store
 from value_agent.workflow import WorkflowEngine, default_workflow
@@ -250,6 +251,7 @@ def cmd_monitor(args: argparse.Namespace) -> int:
     # 不再硬编码本地 SqliteStore，避免 GitHub Actions 全新 runner 读不到生产会话
     store = create_session_store()
     rules_store = create_rule_store()
+    webhook_store = create_user_webhook_store()
     sessions = store.list()
     source = _default_source()
     print(f"[monitor] 数据源: {source.name} | 已完成会话 {sum(1 for s in sessions if s.status.value == 'completed')} 个")
@@ -265,8 +267,9 @@ def cmd_monitor(args: argparse.Namespace) -> int:
         if session.monitor_hits:
             store.save(session)
     if events:
-        notify_webhooks(events)
+        notify_webhooks(events, webhook_store=webhook_store)
     rules_store.close()
+    webhook_store.close()
     print(f"[monitor] 检查完成，触发事件 {len(events)} 条")
     return 0
 

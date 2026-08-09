@@ -55,7 +55,14 @@ class M10DecisionAgent(Agent):
 
     def run(self, ctx: AgentContext) -> ModuleResult:
         inputs = {aid: ctx.inputs[aid] for aid in self.spec.inputs if aid in ctx.inputs}
-        result = run_decision(inputs)
+        # M0 投资者画像：个人仓位上限（可选，默认 None 不限制）
+        m0 = ctx.inputs.get("M0_investor_profile")
+        position_cap = None
+        if m0 is not None:
+            cap = ((m0.outputs or {}).get("handoff") or {}).get("position_cap")
+            if cap is not None:
+                position_cap = float(cap)
+        result = run_decision(inputs, position_cap=position_cap)
         total = result.total
         calib_trace: dict = {}
         if not result.vetoed:  # 一票否决时保持回避，不让 LLM 覆盖
@@ -70,19 +77,21 @@ class M10DecisionAgent(Agent):
                 evidence=result.evidence, default=result.total,
                 trace=calib_trace,
             )
-        # 用最终总分（含 LLM 校准）走同一决策函数：否决/M8 门禁统一生效
-        final = run_decision(inputs, total_override=total)
+        # 用最终总分（含 LLM 校准）走同一决策函数：否决/M8 门禁/个人仓位上限统一生效
+        final = run_decision(inputs, total_override=total, position_cap=position_cap)
 
         # 8.3：LLM 定性理由（可选增强；失败/无 LLM 时保持纯规则理由）
         reasons = list(final.decision_reasons)
         if ctx.llm is not None and not final.vetoed:
             try:
                 prompt = (
-                    f"五维评分：{final.dimensions}\n加权总分：{final.total}"
+                    f"五维评分（0-100，**分数越高越好**；governance_risk 实为治理质量分，"
+                    f"85 分代表治理优秀而非高风险）：{final.dimensions}\n"
+                    f"加权总分：{final.total}"
                     f"（决策码 {final.decision_code}，建议仓位 {final.position:.0%}）。\n"
                     "请只输出 JSON：{\"reasons\": [\"赞成/反对理由1\", \"理由2\"]}。"
                     "理由必须是基于上述评分的定性解释（如估值保护是否充分、治理/风险是否被充分定价），"
-                    "不得编造素材之外的数字或事实。"
+                    "不得编造素材之外的数字或事实，也不得把高分维度解读为负面信号。"
                 )
                 text = ctx.stream_llm(_LLM_REASONS_SYSTEM, prompt)
                 parsed = parse_llm_json(text)

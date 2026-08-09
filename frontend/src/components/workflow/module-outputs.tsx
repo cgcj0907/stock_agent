@@ -20,6 +20,7 @@ import {
     Target,
   TrendingUp,
   TriangleAlert,
+  UserRound,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -159,6 +160,7 @@ const BUSINESS_TYPE_LABEL: Record<string, string> = {
 };
 
 const MODULE_SHORT: Record<string, string> = {
+  M0_investor_profile: "M0 投资者画像",
   M1_business_model: "M1 商业模式",
   M2_financial_quality: "M2 财务质量",
   M3_growth: "M3 成长景气",
@@ -496,6 +498,133 @@ function riskRowValue(items: unknown[]): Array<Record<string, unknown>> {
 }
 
 // ---------- M1 商业模式 ----------
+
+const COMPETENCE_TONE: Record<string, string> = {
+  high: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300",
+  medium: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-300",
+  low: "border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/60 dark:text-red-300",
+  in_circle: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300",
+  edge: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-300",
+  out_circle: "border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/60 dark:text-red-300",
+};
+
+const COMPETENCE_LABEL: Record<string, string> = {
+  high: "可理解",
+  medium: "边缘",
+  low: "难理解",
+  in_circle: "圈内",
+  edge: "边缘",
+  out_circle: "圈外",
+};
+
+const DIM_LABEL: Record<string, string> = {
+  consumer: "消费",
+  finance: "金融",
+  technology: "科技",
+  healthcare: "医药医疗",
+  manufacturing: "制造业",
+  energy: "能源材料",
+  internet: "互联网平台",
+  utilities: "公用事业",
+  real_estate: "地产链",
+  overseas: "海外市场",
+};
+
+/** M0 投资者画像：个人可理解性 + 能力圈匹配 + 安全边际/风险注入摘要。 */
+function M0Outputs({ outputs }: { outputs: Record<string, unknown> }) {
+  const competence = isObj(outputs.competence) ? outputs.competence : {};
+  const dims = isObj(competence.dimensions) ? competence.dimensions : {};
+  const handoff = isObj(outputs.handoff) ? outputs.handoff : {};
+  const level = str(handoff.competence_level) || str(competence.overall_level);
+  const adj = typeof handoff.required_discount_adjustment === "number" ? handoff.required_discount_adjustment : 0;
+  const amp = isObj(handoff.risk_amplification) ? handoff.risk_amplification : {};
+  const flags = Array.isArray(amp.flags) ? amp.flags.filter((f): f is string => typeof f === "string") : [];
+  const used = Array.isArray(handoff.profile_used)
+    ? handoff.profile_used.filter((x): x is string => typeof x === "string")
+    : [];
+  const dimEntries = Object.entries(dims);
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <ToneBadge
+          text={str(outputs.persona_summary) || "投资者画像"}
+          tone={toneOf(COMPETENCE_TONE, level)}
+          icon={UserRound}
+        />
+        {level && (
+          <ToneBadge
+            text={`个人可理解性：${COMPETENCE_LABEL[level] ?? level}`}
+            tone={toneOf(COMPETENCE_TONE, level)}
+          />
+        )}
+      </div>
+
+      {dimEntries.length > 0 && (
+        <Section icon={UserRound} title="能力圈匹配（个人胜任分）">
+          <ul className="flex flex-col gap-1.5">
+            {dimEntries.map(([dim, v]) => {
+              const info = isObj(v) ? v : {};
+              const lv = str(info.level);
+              return (
+                <li
+                  key={dim}
+                  className="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-muted/20 px-2.5 py-1.5 text-[13px]"
+                >
+                  <span className="min-w-0 flex-1 truncate text-foreground/80">{DIM_LABEL[dim] ?? dim}</span>
+                  <span className="shrink-0 text-muted-foreground">{fmt(info.score)} 分</span>
+                  <ToneBadge text={COMPETENCE_LABEL[lv] ?? lv} tone={toneOf(COMPETENCE_TONE, lv)} />
+                </li>
+              );
+            })}
+          </ul>
+        </Section>
+      )}
+
+      {adj > 0 && (
+        <Section icon={ShieldCheck} title="安全边际注入">
+          <p className="text-[13px] leading-5 text-foreground/80">
+            要求折扣上调{" "}
+            <span className="font-bold text-amber-600 dark:text-amber-400">
+              {(adj * 100).toFixed(1)}%
+            </span>
+            {Array.isArray(handoff.discount_reasons) &&
+              (handoff.discount_reasons as string[]).length > 0 && (
+                <>（{(handoff.discount_reasons as string[]).join("、")}）</>
+              )}
+          </p>
+        </Section>
+      )}
+
+      {flags.length > 0 && (
+        <Section icon={AlertTriangle} title="个人风险提示" tone="rose">
+          <ul className="flex flex-col gap-1.5">
+            {flags.map((f, i) => (
+              <li
+                key={i}
+                className="flex items-start gap-2 rounded-lg border border-amber-200/60 bg-amber-50/50 px-2.5 py-1.5 text-[13px] text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200"
+              >
+                <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+                <span>{f}</span>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+
+      {used.length > 0 && (
+        <Section icon={Info} title="消费字段（审计）">
+          <div className="flex flex-wrap gap-1">
+            {used.map((u) => (
+              <Badge key={u} variant="outline" className="text-[10px] font-normal text-muted-foreground">
+                {u}
+              </Badge>
+            ))}
+          </div>
+        </Section>
+      )}
+    </div>
+  );
+}
 
 function M1Outputs({ outputs }: { outputs: Record<string, unknown> }) {
   const qual = isObj(outputs.llm_qualitative) ? outputs.llm_qualitative : null;
@@ -1044,6 +1173,7 @@ function M11Outputs({ outputs }: { outputs: Record<string, unknown> }) {
 // ---------- 注册表 ----------
 
 export const MODULE_OUTPUT_COMPONENTS: Record<string, React.ComponentType<{ outputs: Record<string, unknown> }>> = {
+  M0_investor_profile: M0Outputs,
   M1_business_model: M1Outputs,
   M2_financial_quality: M2Outputs,
   M3_growth: M3Outputs,

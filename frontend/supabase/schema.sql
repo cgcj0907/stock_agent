@@ -290,3 +290,22 @@ create policy "monitor_rules_update" on public.monitor_rules
   for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "monitor_rules_delete" on public.monitor_rules
   for delete using (auth.uid() = user_id);
+
+-- 11) 用户通知渠道：每个登录用户配自己的飞书/企业微信 webhook（监控命中按规则归属推送）
+create table if not exists public.user_webhooks (
+  user_id uuid not null references auth.users (id) on delete cascade,
+  channel text not null check (channel in ('feishu', 'wechat')),
+  webhook_url text not null,
+  updated_at timestamptz not null default now(),
+  primary key (user_id, channel)
+);
+
+alter table public.user_webhooks enable row level security;
+create policy "user_webhooks_select_own" on public.user_webhooks
+  for select using (auth.uid() = user_id);
+create policy "user_webhooks_insert_own" on public.user_webhooks
+  for insert with check (auth.uid() = user_id);
+create policy "user_webhooks_update_own" on public.user_webhooks
+  for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy "user_webhooks_delete_own" on public.user_webhooks
+  for delete using (auth.uid() = user_id);

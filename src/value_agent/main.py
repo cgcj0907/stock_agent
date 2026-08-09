@@ -27,6 +27,9 @@ from value_agent.core.llm import get_llm, llm_from_config
 from value_agent.daily import run_daily_job
 from value_agent.data.manager import DataManager
 from value_agent.monitor.rules_store import create_rule_store
+from value_agent.monitor.runner import send_webhook_to_channels
+from value_agent.monitor.user_webhooks import create_user_webhook_store
+from value_agent.profile.models import strip_pii
 from value_agent.report.memo import build_memo
 from value_agent.sessions import (
     ModuleName,
@@ -50,6 +53,7 @@ logger = logging.getLogger(__name__)
 _load_dotenv()  # 确保 DATABASE_URL / SESSION_STORE 等环境变量已从 .env 加载
 _store = create_session_store()
 _rules_store = create_rule_store()
+_webhook_store = create_user_webhook_store()
 _manager = SessionManager(_store, rules_store=_rules_store)
 _registry = register_builtin_agents(AgentRegistry())
 _engine = WorkflowEngine(_registry, _manager, data=DataManager(), llm=get_llm())
@@ -83,7 +87,7 @@ async def _require_frontend_auth(request: Request, call_next):
                 content={"detail": "未登录：需要 Authorization: Bearer <supabase token>"},
             )
         try:
-            verify_supabase_jwt(token.strip())
+            request.state.user = verify_supabase_jwt(token.strip())
         except Exception as exc:  # noqa: BLE001
             logger.warning("鉴权失败：%s", exc)
             return JSONResponse(status_code=401, content={"detail": f"登录态无效：{exc}"})
@@ -100,6 +104,9 @@ class CreateSessionRequest(BaseModel):
     )
     llm_config: dict | None = Field(
         default=None, description="按会话注入的 LLM 配置（{provider, base_url, model, api_key}）"
+    )
+    investor_profile: dict | None = Field(
+        default=None, description="投资者画像快照（M0 消费；仅当工作流含 M0 时由前端附加，已剔除 PII）"
     )
 
 
@@ -224,14 +231,18 @@ def _load_workflow(session: Session) -> Workflow:
 
 
 @app.post("/api/sessions")
-def create_session(req: CreateSessionRequest) -> dict:
+def create_session(req: CreateSessionRequest, request: Request) -> dict:
+    # 从已验签的 JWT 绑定归属用户（前端登录用户）；鉴权关闭/CLI 时为空 → 全局
+    user_id = getattr(request.state, "user", None) or {}
     try:
         session = _manager.create_session(
             req.company_code,
             company_name=req.company_name,
+            user_id=user_id.get("sub"),
             workflow_id=req.workflow_id,
             workflow_steps=req.workflow_steps,
             llm_config=req.llm_config,
+            investor_profile=strip_pii(req.investor_profile),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
@@ -663,3 +674,65 @@ def fc_timer_event(
     if token and provided != token:
         raise HTTPException(status_code=401, detail="token 不匹配")
     return DailyRunResult(**run_daily_job())
+
+
+class WebhookUpsertRequest(BaseModel):
+    """保存用户通知渠道：channel ∈ {feishu, wechat}；webhook_url 为空 = 删除该渠道。"""
+
+    channel: str
+    webhook_url: str = ""
+
+
+class WebhookTestRequest(BaseModel):
+    """测试推送：可指定 channel+url 直接测试；都不填则测试已保存的渠道。"""
+
+    channel: str | None = None
+    webhook_url: str | None = None
+
+
+def _current_user_id(request: Request) -> str:
+    user = getattr(request.state, "user", None) or {}
+    uid = user.get("sub")
+    if not uid:
+        raise HTTPException(status_code=401, detail="未登录")
+    return uid
+
+
+@app.get("/api/webhooks")
+def get_webhooks(request: Request) -> dict:
+    """当前登录用户配置的通知渠道（飞书/企微 webhook）。"""
+    uid = _current_user_id(request)
+    return {"webhooks": _webhook_store.get_webhooks(uid)}
+
+
+@app.put("/api/webhooks")
+def put_webhook(req: WebhookUpsertRequest, request: Request) -> dict:
+    """保存/删除当前用户某个渠道的 webhook（RLS 按 user_id 隔离）。"""
+    uid = _current_user_id(request)
+    if req.channel not in ("feishu", "wechat"):
+        raise HTTPException(status_code=400, detail="channel 只能是 feishu/wechat")
+    url = req.webhook_url.strip()
+    if url and not url.startswith("https://"):
+        raise HTTPException(status_code=400, detail="webhook 地址必须以 https:// 开头")
+    if url:
+        _webhook_store.set_webhook(uid, req.channel, url)
+    else:
+        _webhook_store.delete_webhook(uid, req.channel)
+    return {"webhooks": _webhook_store.get_webhooks(uid)}
+
+
+@app.post("/api/webhooks/test")
+def test_webhook(req: WebhookTestRequest, request: Request) -> dict:
+    """给当前用户发送一条测试通知（用已保存渠道或临时指定的渠道）。"""
+    uid = _current_user_id(request)
+    text = "Value Agent 测试通知 ✅（通知渠道配置成功）"
+    if req.channel and req.webhook_url:
+        channels = {req.channel: req.webhook_url.strip()}
+    else:
+        channels = _webhook_store.get_webhooks(uid)
+    if not channels:
+        raise HTTPException(status_code=400, detail="还没有配置任何通知渠道")
+    pushed = send_webhook_to_channels(channels, text)
+    if not pushed:
+        raise HTTPException(status_code=502, detail="推送失败（请检查 webhook 地址）")
+    return {"pushed": pushed}

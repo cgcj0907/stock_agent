@@ -1,0 +1,53 @@
+# 投资者画像评分与注入参数（M0，docs/13-investor-profile-agent.md §4）
+# 代码内置兜底默认值；此处为唯一事实来源，改动后建议同步兜底。
+
+education_base:
+  high_school: 40
+  associate: 50
+  bachelor: 60
+  master: 75
+  doctor: 85
+  other: 50
+  default: 55
+
+education_major_bonus:
+  economics: {finance: 15, default: 10}
+  science_engineering: {technology: 10, manufacturing: 10}
+  law: {finance: 10}
+  medicine: {healthcare: 15}
+  humanities: {consumer: 5}
+  arts: {consumer: 5}
+
+circle_bonus: 20
+
+style_bonus:
+  value: {consumer: 5, finance: 5}
+  growth: {technology: 5, internet: 5}
+  dividend: {utilities: 10, energy: 5}
+  balanced: {}
+  contrarian: {manufacturing: 5, energy: 5, real_estate: 5}
+  event_driven: {finance: 5}
+
+career_bonus:
+  senior: 5
+  retired: 5
+  mid_career: 3
+
+level_thresholds:
+  in_circle: 70
+  edge: 50
+
+# 注入参数：要求折扣增量（叠加进 M8，夹逼 [0.2, 0.6]）
+discount_adjustment:
+  competence_low: 0.08        # 能力圈外
+  competence_medium: 0.03     # 能力圈边缘
+  risk_tolerance_low: 0.05    # 低风险承受
+  capital_short: 0.05         # 资金 1-3 年可能要用
+  decision_margin_of_safety: 0.03  # 偏好安全边际
+
+# M10 个人仓位上限（默认关闭：保持回测口径不变；开启后按以下档位夹逼）
+position_cap:
+  enabled: false
+  risk_tolerance_low: 0.10
+  holding_short: 0.05
+  capital_short: 0.05

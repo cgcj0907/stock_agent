@@ -19,12 +19,14 @@ test("sidebar keeps only general settings entry", async () => {
 test("general settings page embeds llm settings client", async () => {
   const source = await readSource("../../app/(dashboard)/settings/page.tsx");
 
-  assert.match(source, /LlmSettingsClient/);
-  assert.match(source, /initialSettings=\{settings\}/);
+  assert.doesNotMatch(source, /LlmSettingsClient/);
+  assert.match(source, /href="\/settings\/llm"/);
+  assert.match(source, /href="\/settings\/profile"/);
 });
 
 test("legacy llm settings route redirects to general settings", async () => {
   const source = await readSource("../../app/(dashboard)/settings/llm/page.tsx");
 
-  assert.match(source, /redirect\("\/settings"\)/);
+  assert.doesNotMatch(source, /redirect\("\/settings"\)/);
+  assert.match(source, /LlmSettingsClient/);
 });

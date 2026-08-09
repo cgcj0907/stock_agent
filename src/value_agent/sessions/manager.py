@@ -176,11 +176,13 @@ class SessionManager:
         company_code: str,
         company_name: str = "",
         *,
+        user_id: str | None = None,
         assumptions: dict | None = None,
         data_snapshot_id: str | None = None,
         workflow_id: str = "default",
         workflow_steps: list[dict] | None = None,
         llm_config: dict | None = None,
+        investor_profile: dict | None = None,
         model_version: str = "0.1.0",
         monitor_hits: list[dict] | None = None,
     ) -> Session:
@@ -188,11 +190,13 @@ class SessionManager:
         session = Session(
             company_code=company_code,
             company_name=company_name,
+            user_id=user_id,
             assumptions=assumptions or {},
             data_snapshot_id=data_snapshot_id,
             workflow_id=workflow_id,
             workflow_steps=workflow_steps,
             llm_config=llm_config,
+            investor_profile=investor_profile,
             model_version=model_version,
             monitor_hits=list(monitor_hits or []),
         )
@@ -305,6 +309,7 @@ class SessionManager:
             row.setdefault("session_id", session.id)
             row.setdefault("company_code", session.company_code)
             row.setdefault("company_name", session.company_name or session.company_code)
+            row.setdefault("user_id", session.user_id)  # 规则归属用户 → 按用户推送
             rows.append(row)
         try:
             self._rules_store.replace_for_session(session.id, rows)

@@ -18,6 +18,7 @@ from value_agent.data.pipelines.ingest import daily_update
 from value_agent.data.storage.factory import create_storage
 from value_agent.monitor.rules_store import create_rule_store
 from value_agent.monitor.runner import notify_webhooks, run_daily_monitor
+from value_agent.monitor.user_webhooks import create_user_webhook_store
 from value_agent.sessions import create_session_store
 
 logger = logging.getLogger(__name__)
@@ -31,11 +32,12 @@ def run_daily_job(
     source=None,
     store=None,
     rules_store=None,
+    webhook_store=None,
     codes: list[str] | None = None,
 ) -> dict:
     """执行一次每日任务，返回汇总 dict。
 
-    默认按环境配置创建真实组件（storage/source/session store/rules store）；
+    默认按环境配置创建真实组件（storage/source/session store/rules store/webhook store）；
     测试可注入替身。任务结束会 close 创建出来的存储。
     """
     created_storage = storage is None
@@ -43,6 +45,7 @@ def run_daily_job(
     source = source or _default_source()
     store = store or create_session_store()
     rules_store = rules_store or create_rule_store()
+    webhook_store = webhook_store or create_user_webhook_store()
     errors: list[str] = []
     try:
         # 1) 数据更新：行情/估值增量入库（AkShare → Supabase/SQLite）
@@ -72,8 +75,8 @@ def run_daily_job(
             errors.append(f"监控评估失败：{exc}")
             sessions, events = [], []
 
-        # 3) Webhook 推送（飞书/企微，配置了哪个推哪个）
-        pushed = notify_webhooks(events) if events else []
+        # 3) Webhook 推送：按事件归属用户推送（user_id=None 走全局环境变量）
+        pushed = notify_webhooks(events, webhook_store=webhook_store) if events else []
         return {
             "updated": updated,
             "session_count": len(sessions),
@@ -95,6 +98,7 @@ def run_daily_job(
         if created_storage:
             _close(storage)
         _close(rules_store)
+        _close(webhook_store)
 
 
 def _close(obj) -> None:

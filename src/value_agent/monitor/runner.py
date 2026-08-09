@@ -38,6 +38,7 @@ class MonitorEvent:
     rule_type: str
     message: str
     severity: str
+    user_id: str | None = None  # 规则归属用户（None=全局/系统）；按用户推送时使用
     occurred_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
@@ -71,16 +72,19 @@ def _evaluate_rule(rule: dict, price: float) -> MonitorEvent | None:
     severity = rule.get("severity", "info")
     name, message = "", rule.get("message") or rule.get("description") or rule.get("trigger") or ""
     code, rule_name = rule.get("_code", ""), rule.get("_name", "")
+    user_id = rule.get("user_id")
     if rule_type in _PRICE_RULES:
         threshold = _rule_price(rule)
         if threshold is None:
             return None
         if rule_type == "price_buy" and price <= threshold:
             return MonitorEvent(code, name or rule_name, "price_buy",
-                                f"现价 {price} ≤ 买入区间 {threshold}，可分批建仓", "info")
+                                f"现价 {price} ≤ 买入区间 {threshold}，可分批建仓", "info",
+                                user_id=user_id)
         if rule_type == "price_sell" and price >= threshold:
             return MonitorEvent(code, name or rule_name, "price_sell",
-                                f"现价 {price} ≥ 卖出区间 {threshold}，考虑兑现", "warn")
+                                f"现价 {price} ≥ 卖出区间 {threshold}，考虑兑现", "warn",
+                                user_id=user_id)
         return None
     # 非价格规则：按 _ALERT_RULES 配置的严重度门槛触发（standing 条件，每日复查提醒）
     needed = _ALERT_RULES.get(rule_type)
@@ -88,7 +92,7 @@ def _evaluate_rule(rule: dict, price: float) -> MonitorEvent | None:
         return None
     if severity not in needed:
         return None
-    return MonitorEvent(code, name or rule_name, rule_type, message, severity)
+    return MonitorEvent(code, name or rule_name, rule_type, message, severity, user_id=user_id)
 
 
 def _rules_for_session(session: Session, rules_store) -> list[dict] | None:
@@ -136,6 +140,7 @@ def run_daily_monitor(
                 rule = dict(rule)
                 rule.setdefault("_code", session.company_code)
                 rule.setdefault("_name", name)
+                rule.setdefault("user_id", session.user_id)  # 规则归属 → 按用户推送
                 ev = _evaluate_rule(rule, price)
                 if ev is not None:
                     events.append(ev)
@@ -159,11 +164,13 @@ def run_daily_monitor(
                 events.append(MonitorEvent(
                     session.company_code, name, "price_buy",
                     f"现价 {price} ≤ 买入区间 {buy}，可分批建仓", "info",
+                    user_id=session.user_id,
                 ))
             elif sell is not None and price >= sell:
                 events.append(MonitorEvent(
                     session.company_code, name, "price_sell",
                     f"现价 {price} ≥ 卖出区间 {sell}，考虑兑现", "warn",
+                    user_id=session.user_id,
                 ))
     # I-2 记忆：把本次命中写入各会话 monitor_hits（跨会话输入供下次分析注入）
     for ev in events:
@@ -194,16 +201,32 @@ def _post_webhook(url: str, payload: dict, timeout: float = 10.0) -> tuple[bool,
         return False, str(exc)
 
 
-def send_webhook_text(text: str) -> list[str]:
-    """向已配置的飞书/企业微信 Webhook 推送一条文本消息，返回成功渠道名列表。
+def _events_text(events: list[MonitorEvent]) -> str:
+    return "\n".join(f"[{e.severity}] {e.company_name}({e.company_code}) {e.message}" for e in events)
 
-    渠道由环境变量 FEISHU_WEBHOOK / WECHAT_WEBHOOK 决定（均可选，配哪个推哪个）。
-    """
+
+def _payloads_for_env(text: str) -> list[tuple[str, str, dict]]:
+    """全局渠道（环境变量 FEISHU_WEBHOOK / WECHAT_WEBHOOK）。"""
     payloads: list[tuple[str, str, dict]] = []
     if os.getenv("FEISHU_WEBHOOK"):
         payloads.append(("飞书", os.environ["FEISHU_WEBHOOK"], {"msg_type": "text", "content": {"text": text}}))
     if os.getenv("WECHAT_WEBHOOK"):
         payloads.append(("企业微信", os.environ["WECHAT_WEBHOOK"], {"msgtype": "text", "text": {"content": text}}))
+    return payloads
+
+
+def _payloads_for_channels(channels: dict[str, str], text: str) -> list[tuple[str, str, dict]]:
+    """某用户配置的渠道（user_webhooks 表）。"""
+    payloads: list[tuple[str, str, dict]] = []
+    for channel, url in channels.items():
+        if channel == "feishu":
+            payloads.append(("飞书", url, {"msg_type": "text", "content": {"text": text}}))
+        elif channel == "wechat":
+            payloads.append(("企业微信", url, {"msgtype": "text", "text": {"content": text}}))
+    return payloads
+
+
+def _post_payloads(payloads: list[tuple[str, str, dict]]) -> list[str]:
     sent: list[str] = []
     for name, url, payload in payloads:
         ok, detail = _post_webhook(url, payload)
@@ -215,12 +238,46 @@ def send_webhook_text(text: str) -> list[str]:
     return sent
 
 
-def notify_webhooks(events: list[MonitorEvent]) -> list[str]:
-    """推送到飞书/企业微信 Webhook（环境变量 FEISHU_WEBHOOK / WECHAT_WEBHOOK）。
+def send_webhook_text(text: str) -> list[str]:
+    """向全局配置的飞书/企业微信 Webhook 推送一条文本消息，返回成功渠道名列表。"""
+    return _post_payloads(_payloads_for_env(text))
 
-    返回成功推送的渠道名列表；无事件时不推送。
+
+def send_webhook_to_channels(channels: dict[str, str], text: str) -> list[str]:
+    """向指定渠道 {channel: webhook_url} 推送一条文本消息（用户通知配置用）。"""
+    return _post_payloads(_payloads_for_channels(channels, text))
+
+
+def notify_webhooks(events: list[MonitorEvent], webhook_store=None) -> list[str]:
+    """推送到飞书/企业微信 Webhook，返回成功渠道名列表；无事件时不推送。
+
+    - webhook_store 为空（默认）→ 全局：环境变量 FEISHU_WEBHOOK / WECHAT_WEBHOOK
+    - 传入 UserWebhookStore → 按事件归属 user_id 分组推送：
+        归属用户的事件 → 推该用户 user_webhooks 里配置的渠道（没配则跳过）；
+        全局事件（user_id=None）→ 仍走环境变量。
     """
     if not events:
         return []
-    text = "\n".join(f"[{e.severity}] {e.company_name}({e.company_code}) {e.message}" for e in events)
-    return send_webhook_text(text)
+    if webhook_store is None:
+        return send_webhook_text(_events_text(events))
+
+    by_user: dict[str | None, list[MonitorEvent]] = {}
+    for e in events:
+        by_user.setdefault(e.user_id, []).append(e)
+
+    sent: list[str] = []
+    for user_id, evs in by_user.items():
+        text = _events_text(evs)
+        if user_id is None:
+            sent += send_webhook_text(text)
+            continue
+        try:
+            channels = webhook_store.get_webhooks(user_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("读取用户 %s webhook 失败：%s", user_id, exc)
+            channels = {}
+        if not channels:
+            logger.info("用户 %s 未配置通知渠道，跳过推送", user_id)
+            continue
+        sent += _post_payloads(_payloads_for_channels(channels, text))
+    return sent

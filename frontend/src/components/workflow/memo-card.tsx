@@ -468,6 +468,7 @@ export function MemoCard({
 }
 
 const MODULE_SHORT: Record<string, string> = {
+  M0_investor_profile: "M0 投资者画像",
   M1_business_model: "M1 商业模式认知",
   M2_financial_quality: "M2 财务质量",
   M3_growth: "M3 成长与再投资",

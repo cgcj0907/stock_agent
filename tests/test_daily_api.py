@@ -1,6 +1,8 @@
 """FC 定时触发器事件入口（POST /）测试。"""
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 
 # 必须在导入 value_agent.main 前设置：内存会话库 + 无 DB，避免污染/联网
@@ -48,3 +50,68 @@ def test_fc_timer_event_runs_daily(monkeypatch):
     calls.clear()
     assert client.post("/", json={"action": "daily"}).status_code == 200
     assert calls == ["hit"]
+
+
+# ---------- 用户通知渠道 API（/api/webhooks，JWT 鉴权） ----------
+
+def _b64url(b: bytes) -> str:
+    import base64
+
+    return base64.urlsafe_b64encode(b).rstrip(b"=").decode()
+
+
+def _es256_token(sk, payload: dict, kid: str = "test-kid"):
+    import ecdsa
+
+    header = {"alg": "ES256", "typ": "JWT", "kid": kid}
+    h = _b64url(json.dumps(header, separators=(",", ":")).encode())
+    p = _b64url(json.dumps(payload, separators=(",", ":")).encode())
+    sig = sk.sign(f"{h}.{p}".encode(), hashfunc=hashlib.sha256, sigencode=ecdsa.util.sigencode_string)
+    return f"{h}.{p}.{_b64url(sig)}"
+
+
+def test_webhook_api_crud_and_test(monkeypatch):
+    import time
+
+    import ecdsa
+    from fastapi.testclient import TestClient
+
+    import value_agent.main as m
+    from value_agent.core import auth
+    from value_agent.monitor.user_webhooks import InMemoryUserWebhookStore
+
+    monkeypatch.setenv("SESSION_STORE", "memory")
+    monkeypatch.setenv("DATABASE_URL", "")
+    monkeypatch.setenv("SUPABASE_URL", "https://testref.supabase.co")
+    sk = ecdsa.SigningKey.generate(curve=ecdsa.NIST256p)
+    vk = sk.get_verifying_key()
+    monkeypatch.setattr(auth, "_fetch_jwks", lambda: {"keys": [{
+        "kty": "EC", "crv": "P-256", "kid": "test-kid",
+        "x": _b64url(vk.pubkey.point.x().to_bytes(32, "big")),
+        "y": _b64url(vk.pubkey.point.y().to_bytes(32, "big")),
+        "alg": "ES256", "use": "sig",
+    }]})
+    token = _es256_token(sk, {
+        "sub": "user-abc", "aud": "authenticated",
+        "exp": int(time.time()) + 3600, "iss": "https://testref.supabase.co/auth/v1",
+    })
+    monkeypatch.setattr(m, "_webhook_store", InMemoryUserWebhookStore())
+    monkeypatch.setattr(m, "send_webhook_to_channels", lambda channels, text: list(channels.keys()))
+
+    client = TestClient(m.app)
+    auth_h = {"Authorization": f"Bearer {token}"}
+
+    # 未登录 → 401
+    assert client.get("/api/webhooks").status_code == 401
+    # 保存飞书
+    r = client.put("/api/webhooks", json={"channel": "feishu", "webhook_url": "https://open.feishu.cn/hook/x"}, headers=auth_h)
+    assert r.status_code == 200 and r.json()["webhooks"] == {"feishu": "https://open.feishu.cn/hook/x"}
+    # 非法渠道 / 非 https
+    assert client.put("/api/webhooks", json={"channel": "slack", "webhook_url": "https://x"}, headers=auth_h).status_code == 400
+    assert client.put("/api/webhooks", json={"channel": "wechat", "webhook_url": "http://x"}, headers=auth_h).status_code == 400
+    # 测试已保存渠道
+    r = client.post("/api/webhooks/test", json={}, headers=auth_h)
+    assert r.status_code == 200 and r.json()["pushed"] == ["feishu"]
+    # 空 url 删除
+    r = client.put("/api/webhooks", json={"channel": "feishu", "webhook_url": ""}, headers=auth_h)
+    assert r.status_code == 200 and r.json()["webhooks"] == {}

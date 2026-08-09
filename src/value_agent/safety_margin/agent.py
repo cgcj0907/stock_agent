@@ -90,14 +90,24 @@ class M8SafetyMarginAgent(Agent):
             m3_cyclical = bool((m3.outputs.get("handoff") or {}).get("cyclicality_flag", False))
         risk_level = _risk_level(m2_score, m3_cyclical)
 
+        # M0 投资者画像注入（docs/13 §5.2）：能力圈外/低风险承受/短期资金 → 要求折扣更严
+        m0 = ctx.inputs.get("M0_investor_profile")
+        persona_adjustment = 0.0
+        if m0 is not None:
+            persona_adjustment = (
+                (m0.outputs.get("handoff") or {}).get("required_discount_adjustment", 0.0) or 0.0
+            )
+
         result = run_safety_margin(
             price=price, intrinsic=intrinsic,
             business_type=business_type, required_discount=required_discount,
-            margin_adjustment=margin_adjustment,
+            margin_adjustment=margin_adjustment, persona_adjustment=persona_adjustment,
             moat_width=moat_width, risk_level=risk_level,
             valuation_percentile=valuation_percentile,
         )
         evidence = list(result.evidence)
+        if persona_adjustment:
+            evidence.append(f"个人画像注入：要求折扣 +{persona_adjustment:.2f}（M0 投资者画像）")
         if m7 and m7.outputs.get("position") in ("高估", "泡沫"):
             evidence.append(f"M7 估值位置：{m7.outputs['position']}（卖出参考触发）")
         calib: dict = {}

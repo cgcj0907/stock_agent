@@ -19,8 +19,9 @@
 | 10 | [10-fc-deployment.md](10-fc-deployment.md) | **阿里云 FC 部署**：镜像/Dockerfile/控制台配置/数据层机制/已知坑 | 部署与排查时读 |
 | 11 | [11-valuation-backlog.md](11-valuation-backlog.md) | **估值与成长体系改进待办**：未实施项清单（数据门槛/优先级/方案） | 排期估值/成长优化时读 |
 | 12 | [12-v2-upgrade.md](12-v2-upgrade.md) | **V2 升级方案（已落地）**：画像 Planner（LLM 规划层）+ 评分校准 v2（delta 制/证据校验/动态上限/档位保护）+ 函数注册表 + 校准 A/B 与模块 PIT 回测 | 维护校准/规划/回测机制时读 |
-| 13 | [templates/module-spec.md](templates/module-spec.md) | **模块规格模板**：新增/完善模块时填写 | 开发某个模块时 |
-| 14 | [progress.md](progress.md) | **开发进度追踪**：勾选已完成任务，记录日期 | 每个里程碑结束时更新 |
+| 13 | [13-investor-profile-agent.md](13-investor-profile-agent.md) | **投资者画像智能体（M0，可选）**：学历/投资风格/能力圈 → 个人可理解性 + 安全边际/风险注入 | 新增/维护投资者画像与个性化注入时读 |
+| 14 | [templates/module-spec.md](templates/module-spec.md) | **模块规格模板**：新增/完善模块时填写 | 开发某个模块时 |
+| 15 | [progress.md](progress.md) | **开发进度追踪**：勾选已完成任务，记录日期 | 每个里程碑结束时更新 |
 
 ## 开发节奏（一句话版）
 

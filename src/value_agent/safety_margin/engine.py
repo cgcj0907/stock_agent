@@ -70,8 +70,13 @@ def _certainty_adjusted_discount(
     moat_width: str | None,
     risk_level: str,
     margin_adjustment: float,
+    persona_adjustment: float = 0.0,
 ) -> tuple[float, list[str]]:
-    """确定性分级要求折扣（6.1）：基准 × moat 修正 × 风险修正 + 情绪调整，夹逼 [0.2, 0.6]。"""
+    """确定性分级要求折扣（6.1）：基准 × moat 修正 × 风险修正 + 情绪调整 + 个人画像调整，夹逼 [0.2, 0.6]。
+
+    persona_adjustment：M0 投资者画像注入（docs/13 §5.2）——能力圈外/低风险承受/短期资金要求更高折扣；
+    与 margin_adjustment 同级叠加，夹逼区间不变。
+    """
     notes: list[str] = []
     req = base
     if moat_width in MOAT_FACTOR:
@@ -83,6 +88,9 @@ def _certainty_adjusted_discount(
         req *= f
         notes.append(f"风险 {risk_level} → ×{f:.2f}")
     req += margin_adjustment
+    if persona_adjustment:
+        req += persona_adjustment
+        notes.append(f"个人画像 → +{persona_adjustment:.2f}")
     low, high = REQUIRED_CLAMP
     req = round(min(high, max(low, req)), 4)
     return req, notes
@@ -94,6 +102,7 @@ def run_safety_margin(
     business_type: str = "consumer_monopoly",
     required_discount: float | None = None,
     margin_adjustment: float = 0.0,
+    persona_adjustment: float = 0.0,
     moat_width: str | None = None,
     risk_level: str = "medium",
     valuation_percentile: float | None = None,
@@ -102,18 +111,20 @@ def run_safety_margin(
     """主入口：现价 vs 内在价值区间 → 安全边际与买卖区间。
 
     margin_adjustment：M7 市场情绪叠加量（过热 +0.05 / 样本不足 +0.10 / 正常 0 / 低估 −0.05）。
+    persona_adjustment：M0 投资者画像叠加量（docs/13 §5.2；0 = 中性不调整）。
     moat_width / risk_level：M5/M2/M3 上游确定性分级（6.1），不消费 M9（避免成环）。
     valuation_percentile：M7 估值分位，> 0.9 时标记卖出参考（6.3）。
     """
     explicit = required_discount is not None
     base_req = required_discount if explicit else REQUIRED_DISCOUNT.get(business_type, DEFAULT_REQUIRED)
     if explicit:
-        # 用户手动覆盖（assumptions.required_discount）：尊重原值，不走确定性公式与夹逼
-        req, certainty_notes = round(base_req + margin_adjustment, 4), []
+        # 用户手动覆盖（assumptions.required_discount）：尊重原值，不走确定性公式与夹逼，
+        # 但显式叠加（情绪/个人画像）仍并入
+        req, certainty_notes = round(base_req + margin_adjustment + persona_adjustment, 4), []
     else:
         req, certainty_notes = _certainty_adjusted_discount(
             base_req, moat_width=moat_width, risk_level=risk_level,
-            margin_adjustment=margin_adjustment,
+            margin_adjustment=margin_adjustment, persona_adjustment=persona_adjustment,
         )
     low, high, mid = intrinsic.get("low"), intrinsic.get("high"), intrinsic.get("mid")
 

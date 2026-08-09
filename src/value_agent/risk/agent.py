@@ -73,6 +73,16 @@ class M9RiskAgent(Agent):
         }
         evidence = list(result.evidence)
 
+        # M0 投资者画像注入（docs/13 §5.3）：个人风险提示 flags（不触碰 veto 硬约束）
+        m0 = ctx.inputs.get("M0_investor_profile")
+        if m0 is not None:
+            amp = ((m0.outputs or {}).get("handoff") or {}).get("risk_amplification") or {}
+            personal_flags = [str(f) for f in (amp.get("flags") or []) if str(f).strip()][:6]
+            outputs["personal_flags"] = personal_flags
+            outputs["handoff"]["personal_risk_tone"] = amp.get("tone") or "neutral"
+            if personal_flags:
+                evidence.append("个人风险提示：" + "；".join(personal_flags))
+
         if ctx.llm is not None:
             try:
                 refs = CompanyReferences().fetch(ctx.session.company_code, slot=3)  # 先抓真实链接供 LLM 筛选
