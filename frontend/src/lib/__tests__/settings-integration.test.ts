@@ -9,8 +9,11 @@ async function readSource(relativePath: string) {
 test("sidebar keeps only general settings entry", async () => {
   const source = await readSource("../../components/app-sidebar.tsx");
 
-  assert.match(source, /title:\s*"通用设置".*href:\s*"\/settings"/s);
-  assert.doesNotMatch(source, /title:\s*"LLM 配置".*href:\s*"\/settings\/llm"/s);
+  assert.match(source, /title:\s*"通用设置"[\s\S]*href:\s*"\/settings"/);
+  assert.doesNotMatch(
+    source,
+    /title:\s*"LLM 配置"[\s\S]*href:\s*"\/settings\/llm"/,
+  );
 });
 
 test("general settings page embeds llm settings client", async () => {
