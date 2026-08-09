@@ -290,6 +290,49 @@ DATABASE_URL=postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supaba
 > cron 服务不要写 `plan`（cron 不支持 plan 字段）。但注意 **cron 最低 $1/月**，建议继续用 GitHub Actions。
 
 
+---
+
+## 2.7 启用 Google 登录（Supabase Auth + Google Cloud）
+
+> 前端登录/注册页已内置「使用 Google 登录」按钮（`signInWithOAuth` + PKCE 流程，
+> 回调统一走 `/auth/callback` 兑换会话）。**代码无需新增环境变量**，只需在
+> Supabase Dashboard 与 Google Cloud Console 各配置一次即可。
+
+### 2.7.1 Google Cloud Console（创建 OAuth 客户端）
+
+1. 打开 [Google Cloud Console](https://console.cloud.google.com/) → 选择/新建项目。
+2. **APIs & Services → OAuth consent screen**：
+   - User Type 选 **External**；填写应用名称、支持邮箱；
+   - Scopes 保持默认（email / profile / openid 即可）。
+3. **APIs & Services → Credentials → Create Credentials → OAuth client ID**：
+   - Application type 选 **Web application**；
+   - **Authorized redirect URIs** 填（**必须**）：
+     ```
+     https://<project-ref>.supabase.co/auth/v1/callback
+     ```
+     `<project-ref>` 即 Supabase 项目地址 `https://<project-ref>.supabase.co` 里的 ref。
+   - 创建后复制 **Client ID** 与 **Client Secret**（Secret 只显示一次，妥善保存）。
+
+### 2.7.2 Supabase Dashboard（启用 Google Provider）
+
+1. **Authentication → Providers** → 找到 **Google** → 打开开关。
+2. 填入上一步的 **Client ID** 与 **Client Secret**，Save。
+3. **Authentication → URL Configuration**：
+   - **Site URL**：生产填 `https://<your-app>.vercel.app`；本地开发填 `http://127.0.0.1:3000`；
+   - **Redirect URLs** 添加：`https://<your-app>.vercel.app/auth/callback`
+     （本地再加 `http://127.0.0.1:3000/auth/callback`）。
+
+### 2.7.3 验证与行为说明
+
+- 点击「使用 Google 登录」→ 跳到 Google 授权 → 回跳 `/auth/callback?code=...`
+  （PKCE）→ 兑换会话后进入 `next` 指定页面；
+- 首次登录自动创建账号；Google 用户资料（昵称 `full_name`、头像 `avatar_url`）
+  由 Supabase 写入 `user_metadata`，个人资料页与侧边栏头像可直接展示；
+- 用户取消授权时 Google 会带 `error=access_denied` 回跳，登录页显示「未获得 Google 授权」提示；
+- 邮箱+密码登录不受影响（仍走 `signInWithPassword`）。
+
+
+
 ## 3. Vercel 前端
 
 ### 3.1 环境变量

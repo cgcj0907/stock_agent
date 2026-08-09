@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { AlertCircle } from "lucide-react";
+
 import { LoginForm } from "@/components/auth/login-form";
 import {
   Card,
@@ -14,7 +16,14 @@ export default async function LoginPage({
 }: {
   searchParams: Promise<{ redirectTo?: string; error?: string }>;
 }) {
-  const { redirectTo } = await searchParams;
+  const { redirectTo, error } = await searchParams;
+
+  const errorMessage =
+    error === "access_denied"
+      ? "未获得 Google 授权，已取消登录"
+      : error
+        ? "登录失败，请重试"
+        : null;
 
   return (
     <Card className="rounded-2xl shadow-sm">
@@ -23,6 +32,12 @@ export default async function LoginPage({
         <CardDescription>登录后继续你的价值投资分析</CardDescription>
       </CardHeader>
       <CardContent>
+        {errorMessage && (
+          <div className="mb-4 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            <AlertCircle className="mt-0.5 size-4 shrink-0" />
+            <span>{errorMessage}</span>
+          </div>
+        )}
         <LoginForm redirectTo={redirectTo} />
       </CardContent>
       <CardFooter className="justify-center border-t pt-4 text-sm text-muted-foreground">

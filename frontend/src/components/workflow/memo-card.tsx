@@ -1,6 +1,4 @@
 "use client";
-
-import * as React from "react";
 import {
   BarChart3,
   Calculator,
@@ -249,13 +247,10 @@ export function MemoCard({
                     mid={iv.mid}
                     high={iv.high}
                     currentPrice={m4?.current_price}
+                    std={iv.std}
+                    methodAgreement={iv.method_agreement}
                   />
                 ) : null}
-                <div className="mt-1 flex justify-between text-[11px] text-muted-foreground tabular-nums">
-                  <span>低 {iv.low ?? "—"}</span>
-                  <span>中 {iv.mid ?? "—"}</span>
-                  <span>高 {iv.high ?? "—"}</span>
-                </div>
                 {(m4?.valuation_confidence != null || m4?.quality_multiplier != null) && (
                   <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
                     {m4?.valuation_confidence != null && (

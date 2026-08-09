@@ -31,82 +31,47 @@ export function ValueBandChart({
   mid,
   high,
   currentPrice,
+  std,
+  methodAgreement,
 }: {
   low: number;
   mid: number;
   high: number;
   currentPrice?: number | null;
+  std?: number | null;
+  methodAgreement?: number | null;
 }) {
-  const option: EChartOption = {
-    grid: { left: 4, right: 64, top: 10, bottom: 2, containLabel: true },
-    tooltip: { trigger: "item", confine: true },
-    xAxis: {
-      type: "value",
-      splitLine: { show: false },
-      axisLabel: { show: false },
-    },
-    yAxis: {
-      type: "category",
-      data: [""],
-      axisLine: { show: false },
-      axisTick: { show: false },
-      axisLabel: { show: false },
-    },
-    series: [
-      {
-        type: "bar",
-        stack: "band",
-        data: [{ value: low, itemStyle: { color: "transparent" } }],
-        barWidth: 12,
-        silent: true,
-      },
-      {
-        type: "bar",
-        stack: "band",
-        data: [
-          {
-            value: Math.max(0, mid - low),
-            itemStyle: { color: "#6ee7b7" },
-          },
-        ],
-        barWidth: 12,
-        silent: true,
-      },
-      {
-        type: "bar",
-        stack: "band",
-        data: [
-          {
-            value: Math.max(0, high - mid),
-            itemStyle: { color: "#fde68a", borderRadius: [0, 6, 6, 0] },
-          },
-        ],
-        barWidth: 12,
-        silent: true,
-      },
-      {
-        type: "bar",
-        stack: "band",
-        data: [{ value: 0, itemStyle: { color: "transparent" } }],
-        barWidth: 12,
-        markLine:
-          currentPrice != null
-            ? {
-                symbol: "none",
-                lineStyle: { color: "#0ea5e9", width: 1.5, type: "dashed" },
-                label: {
-                  formatter: `现价 ${currentPrice}`,
-                  color: "#0369a1",
-                  fontSize: 10,
-                  position: "insideEndTop",
-                },
-                data: [{ xAxis: currentPrice }],
-              }
-            : undefined,
-      },
-    ],
-  };
-  return <EChart option={option} className="h-14 w-full" />;
+  const bandPct =
+    currentPrice != null
+      ? Math.max(0, Math.min(100, ((currentPrice - low) / (high - low)) * 100))
+      : null;
+
+  const fmt = (value: number | null | undefined) =>
+    value == null ? "—" : String(Math.round(value * 100) / 100);
+
+  return (
+    <div className="rounded-xl border p-3.5">
+      <div className="relative mx-1 mt-4 h-2 rounded-full bg-gradient-to-r from-emerald-200 via-emerald-300 to-amber-300">
+        {bandPct != null && (
+          <span
+            className="absolute -top-[5px] h-[18px] w-[3px] rounded bg-sky-500 shadow-[0_0_0_3px_#e0f2fe]"
+            style={{ left: `calc(${bandPct}% - 1px)` }}
+            title={`现价 ${fmt(currentPrice)}`}
+          />
+        )}
+      </div>
+      <div className="mt-2 flex justify-between text-xs text-muted-foreground tabular-nums">
+        <span>低 {fmt(low)}</span>
+        <span className="font-bold text-foreground">中 {fmt(mid)}</span>
+        <span>高 {fmt(high)}</span>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+        {std != null && <span>离散度 ±{fmt(std)}</span>}
+        {methodAgreement != null && <span>方法一致性 {fmt(methodAgreement)}</span>}
+        {currentPrice != null && <span>现价 {fmt(currentPrice)}</span>}
+      </div>
+    </div>
+  );
 }
 
 /** 估值方法对比：横向柱状 + 中值参考线 */

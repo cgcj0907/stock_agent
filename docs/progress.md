@@ -115,12 +115,18 @@
 - [x] F4 工作流分析（/workflows：React Flow DAG 可视化 + 输入公司发起分析 + SSE 实时进度 + 结果卡片 + 备忘录渲染 + conversations 落库；后端 curl E2E 验证通过）2026-08-05
 - [x] F5 对话记录（/conversations 列表（搜索/状态筛选/删除）+ 详情（DAG/结果/备忘录/重新分析）+ 仪表盘最近会话；真实账号端到端验证通过）2026-08-05
 - [x] F6 打磨与部署（品牌 icon.svg + openGraph/SEO + 404 页 + 路由 loading 骨架 + 按钮光标/选中色；生产构建 npm run start 验证通过；Vercel 部署文档与环境变量清单就绪）2026-08-05
+- [x] F1.1 Google 登录（Supabase OAuth：浏览器端启用 PKCE，登录/注册页新增 Google 按钮，/auth/callback 统一兑换会话 + 错误透传 + safeNext 回跳白名单回归测试；部署指南 §2.7 配置步骤）2026-08-09
 
 ---
 
 ## 历史变更日志（详细）
 
 > 要点版见 [milestones.md](milestones.md)；此处为完整明细，按时间倒序。
+
+> ✅ 2026-08-09 **Supabase Google 登录（前端）**：
+> ① 浏览器端 Supabase 客户端启用 `auth.flowType = "pkce"`，OAuth 与邮箱确认回调统一以 `?code=` 回跳 `/auth/callback` 兑换会话，token 不再进 URL hash；
+> ② 新增 `GoogleLoginButton`（登录/注册页共用，首次登录自动建号），回调路由透传 OAuth `error`（取消授权提示「未获得 Google 授权」）并抽 `safeNext` 回跳白名单；
+> ③ 部署指南补 §2.7（Google Cloud OAuth Client + Supabase Provider/URL 配置）；`tsc`/`eslint` 通过，`node --test` 39 全绿（含 safeNext 回归）。
 
 > ✅ 2026-08-09 **中国船舶（600150）会话稽核：M4 下沿穿透 + M10 LLM 方向误读**
 > ① 会话结论「回避」内部自洽可辩护（M2=38 含亏损年、M4 现价>中值、M5 窄护城河、M8 安全边际为负）；
@@ -129,6 +135,11 @@
 > ③ **M10 LLM 复核方向误读**：把「治理风险 85 分」读成"治理存在重大隐患"（85=优秀）。
 >    修复：复核 prompt 明示"分数越高越好、不得把高分解读为负面信号"；
 > ④ 全量 **522 通过**（+1 回归）；ruff 通过。
+
+> ✅ 2026-08-09 **前端估值区间样式统一（备忘录去除 canvas）**：
+> ① `memo-charts.tsx::ValueBandChart` 由 ECharts `canvas` 柱图改为与 `m4-outputs.tsx::IntrinsicBand` 一致的静态估值区间条；
+> ② `memo-card.tsx` 传入离散度/方法一致性并移除重复的低/中/高文字行，备忘录与结果卡片的估值展示统一；
+> ③ 新增 `frontend/src/lib/__tests__/memo-charts.test.ts` 锁定这条渲染约束，`node --test`、`eslint`、`tsc` 通过。
 
 > ✅ 2026-08-09 **M5 护城河 ROE 比较时间口径对齐（周期股）**
 > ① 现象：周期股公司侧用近 8 年跨周期均值 ROE（去周期位置），但同行侧 PeerBenchmarkProvider
@@ -487,4 +498,3 @@
 > ✅ 2026-08-05 **对话追问（chat）实现**：后端 `POST /api/sessions/{id}/chat`（按请求>会话>全局 LLM 回复）+ 前端对话输入框/LLM 选择器 + BFF 同步消息到 Supabase；修复 `SessionManager.add_message` 不更新内存 session 的 bug；memo 标题去掉数字编号。77 测试全绿。
 
 > ✅ 2026-08-05 **Memo 卡片美化落地**：新增 `MemoCard` 结构化组件（Hero 指标/五维评分条/内在价值区间带/买卖区间卡/模块表/监控严重度徽章/假设键值网格），替换 markdown 渲染；配套后端韧性：AkShare 网络重试 + M1/M4/M8 数据失败降级为 DONE（工作流不再因数据源瞬时故障全灭）。
-

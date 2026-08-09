@@ -6,9 +6,11 @@ import { Loader2, MailCheck } from "lucide-react";
 import { toast } from "sonner";
 
 import { createClient } from "@/lib/supabase/client";
+import { GoogleLoginButton } from "@/components/auth/google-login-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
 
 export function RegisterForm() {
   const router = useRouter();
@@ -70,48 +72,58 @@ export function RegisterForm() {
   }
 
   return (
-    <form onSubmit={onSubmit} className="flex flex-col gap-4">
-      <div className="flex flex-col gap-2">
-        <Label htmlFor="name">昵称</Label>
-        <Input
-          id="name"
-          type="text"
-          placeholder="如何称呼你"
-          autoComplete="nickname"
-          required
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
+    <div className="flex flex-col gap-4">
+      <GoogleLoginButton redirectTo="/" label="使用 Google 注册" />
+
+      <div className="flex items-center gap-3">
+        <Separator className="flex-1" />
+        <span className="text-xs text-muted-foreground">或使用邮箱注册</span>
+        <Separator className="flex-1" />
       </div>
-      <div className="flex flex-col gap-2">
-        <Label htmlFor="email">邮箱</Label>
-        <Input
-          id="email"
-          type="email"
-          placeholder="you@example.com"
-          autoComplete="email"
-          required
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-        />
-      </div>
-      <div className="flex flex-col gap-2">
-        <Label htmlFor="password">密码</Label>
-        <Input
-          id="password"
-          type="password"
-          placeholder="至少 6 位"
-          autoComplete="new-password"
-          required
-          minLength={6}
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-        />
-      </div>
-      <Button type="submit" disabled={loading} className="rounded-xl">
-        {loading && <Loader2 className="size-4 animate-spin" />}
-        注册
-      </Button>
-    </form>
+
+      <form onSubmit={onSubmit} className="flex flex-col gap-4">
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="name">昵称</Label>
+          <Input
+            id="name"
+            type="text"
+            placeholder="如何称呼你"
+            autoComplete="nickname"
+            required
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </div>
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="email">邮箱</Label>
+          <Input
+            id="email"
+            type="email"
+            placeholder="you@example.com"
+            autoComplete="email"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+        </div>
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="password">密码</Label>
+          <Input
+            id="password"
+            type="password"
+            placeholder="至少 6 位"
+            autoComplete="new-password"
+            required
+            minLength={6}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+        </div>
+        <Button type="submit" disabled={loading} className="rounded-xl">
+          {loading && <Loader2 className="size-4 animate-spin" />}
+          注册
+        </Button>
+      </form>
+    </div>
   );
 }
