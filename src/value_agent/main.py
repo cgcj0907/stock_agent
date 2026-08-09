@@ -636,3 +636,30 @@ def run_daily(x_daily_token: str | None = Header(default=None)) -> DailyRunResul
     if token and x_daily_token != token:
         raise HTTPException(status_code=401, detail="x-daily-token 不匹配")
     return DailyRunResult(**run_daily_job())
+
+
+class FCTimerEvent(BaseModel):
+    """FC 定时触发器（异步事件模式）的 Event Payload。"""
+
+    action: str = ""
+    token: str | None = None
+
+
+@app.post("/")
+def fc_timer_event(
+    event: FCTimerEvent | None = None,
+    x_daily_token: str | None = Header(default=None),
+) -> DailyRunResult:
+    """FC 定时触发器（异步事件）入口：FC 会把定时事件以 HTTP POST 发到函数根路径 /。
+
+    控制台「触发消息」填：{"action": "daily", "token": "<DAILY_TOKEN>"}
+    设了 DAILY_TOKEN 时校验 token（body.token 或 x-daily-token 头均可），防止公开根路径被滥用。
+    """
+    action = event.action if event is not None else ""
+    if action not in ("daily", "run_daily"):
+        raise HTTPException(status_code=404, detail=f"未知事件：{action or '(空)'}")
+    token = os.getenv("DAILY_TOKEN", "")
+    provided = (event.token if event is not None else None) or x_daily_token
+    if token and provided != token:
+        raise HTTPException(status_code=401, detail="token 不匹配")
+    return DailyRunResult(**run_daily_job())

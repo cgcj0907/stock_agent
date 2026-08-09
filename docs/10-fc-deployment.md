@@ -136,21 +136,29 @@ curl https://value-agent-vjdugjsdaa.cn-chengdu.fcapp.run/health   # → {"status
 - `src/value_agent/daily.py::run_daily_job()`：数据更新（行情/估值增量入库）→ 监控评估
   （规则以 `monitor_rules` 表为准，回退 JSONB/M8）→ 命中推送飞书/企微。任一步失败只记
   `errors` 不中断（数据源抖动时用缓存行情继续监控）。
-- `src/value_agent/main.py`：`POST /api/daily` 端点，可选鉴权：环境变量 `DAILY_TOKEN` 设置后
-  请求需带 `x-daily-token` 头（建议设一个，防止定时触发器 URL 被陌生人调用）。
+- `src/value_agent/main.py`：两个入口，任选其一：
+  - `POST /api/daily`：HTTP 直接调用（curl / FC「HTTP 触发」模式），可选鉴权头 `x-daily-token`
+  - `POST /`：**FC 定时触发器（异步事件）入口**——FC 把定时事件以 HTTP POST 发到函数根路径 `/`，
+    事件体即控制台「触发消息」，如 `{"action": "daily", "token": "<DAILY_TOKEN>"}`
 
-### 10.2 FC 控制台配置
+### 10.2 FC 控制台配置（异步事件模式，控制台默认样式）
 
-1. 镜像需已包含 `/api/daily`（重新 build/push 一次，见第四节）。
+1. 镜像需已包含上述入口（重新 build/push 一次，见第四节）。
 2. 函数 `value-agent` → **触发器** → 创建触发器：
    - 类型：**定时触发器**
-   - Cron 表达式（按北京时间，示例每天 02:00）：`0 0 2 * * *`
-     （FC 定时触发器 cron 按 UTC+8 解释；如需每天 02:00 就是 `0 0 2 * * *`）
-   - 触发方式：**调用函数（HTTP 触发）**，请求方法 `POST`，路径 `/api/daily`
-   - 若设置了 `DAILY_TOKEN`，在请求头加 `x-daily-token: <你的 token>`
+   - 触发方式：按表单选 **指定时间**（或 自定义 cron，控制台时区已是 `Asia/Shanghai`）
+   - 指定时间：`14:00:00`（或你要的时刻；留空日期/星期 = 每天触发）
+   - **触发消息**（Event Payload）填：
+     ```json
+     {"action": "daily", "token": "<你的 DAILY_TOKEN>"}
+     ```
+     （未设 `DAILY_TOKEN` 就不带 token 字段）
 3. 环境变量确认已有：`DATABASE_URL`、`SESSION_STORE=supabase`、`DATA_WRITE_BACK=sync`；
-   新增可选 `DAILY_TOKEN`。
+   新增可选 `DAILY_TOKEN`（与触发消息里的 token 一致）。
 4. 超时 600s 已够用（完整 daily：自选股 ≤100 只增量更新 + 监控，通常 1–3 分钟）。
+
+> 若你的 FC 控制台在创建定时触发器时提供「HTTP 触发」选项，也可以改用：
+> 请求方法 `POST` + 路径 `/api/daily` + 请求头 `x-daily-token: <token>`，效果相同。
 
 ### 10.3 验证
 
