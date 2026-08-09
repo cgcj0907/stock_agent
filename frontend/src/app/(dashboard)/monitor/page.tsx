@@ -21,6 +21,9 @@ interface RuleRow {
   action: string;
   active: boolean;
   created_at: string;
+  user_id: string | null;
+  /** 是否允许删除（RLS：仅 user_id = 当前用户的可删；全局系统规则只读） */
+  canDelete: boolean;
 }
 
 export interface MonitorHit {
@@ -89,7 +92,7 @@ export default async function MonitorPage() {
     for (const r of [...(own.data ?? []), ...(sessionRules.data ?? [])]) {
       if (seen.has(r.id)) continue;
       seen.add(r.id);
-      rules.push(r);
+      rules.push({ ...r, canDelete: r.user_id === user.id });
     }
   } catch {
     // ignore

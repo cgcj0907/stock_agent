@@ -1,13 +1,16 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import {
   Activity,
   BellRing,
   RadioTower,
   ShieldAlert,
   ShieldCheck,
+  Trash2,
 } from "lucide-react";
+import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,6 +22,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { timeAgo } from "@/lib/time";
+import { createClient } from "@/lib/supabase/client";
 import type { MonitorHit } from "./page";
 
 const SEVERITY: Record<string, { label: string; cls: string }> = {
@@ -57,7 +61,7 @@ function maskUrl(url: string): string {
 
 export function MonitorClient({
   webhooks,
-  rules,
+  rules: initialRules,
   hits,
   backendUnavailable,
 }: {
@@ -74,14 +78,53 @@ export function MonitorClient({
     action: string;
     active: boolean;
     created_at: string;
+    canDelete: boolean;
   }[];
   hits: MonitorHit[];
   backendUnavailable: boolean;
 }) {
+  const [rules, setRules] = useState(initialRules);
+
   const channels = [
     { key: "feishu", label: "飞书", icon: BellRing },
     { key: "wechat", label: "企业微信", icon: RadioTower },
   ];
+
+  /** 删除单条规则（RLS 保证只能删本人规则） */
+  async function deleteRule(id: string) {
+    try {
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("monitor_rules")
+        .delete()
+        .eq("id", id);
+      if (error) throw error;
+      setRules((prev) => prev.filter((r) => r.id !== id));
+      toast.success("已删除该监控规则");
+    } catch (e) {
+      toast.error((e as Error).message || "删除失败（系统规则不可删除）");
+    }
+  }
+
+  /** 清空某公司的本人规则（全局系统规则保留） */
+  async function clearCompanyRules(code: string) {
+    const targets = rules.filter((r) => r.company_code === code && r.canDelete);
+    if (targets.length === 0) return;
+    try {
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("monitor_rules")
+        .delete()
+        .in("id", targets.map((r) => r.id));
+      if (error) throw error;
+      setRules((prev) =>
+        prev.filter((r) => !(r.company_code === code && r.canDelete)),
+      );
+      toast.success(`已清空「${targets[0]?.company_name || code}」的 ${targets.length} 条本人规则`);
+    } catch (e) {
+      toast.error((e as Error).message || "清空失败");
+    }
+  }
 
   const rulesByCompany = new Map<string, typeof rules>();
   for (const r of rules) {
@@ -212,15 +255,36 @@ export function MonitorClient({
             </CardContent>
           </Card>
         ) : (
-          Array.from(rulesByCompany.entries()).map(([code, list]) => (
+          Array.from(rulesByCompany.entries()).map(([code, list]) => {
+            const deletableCount = list.filter((r) => r.canDelete).length;
+            return (
             <Card key={code} className="rounded-2xl">
-              <CardHeader className="pb-2">
+              <CardHeader className="flex-row items-center justify-between pb-2">
                 <CardTitle className="flex items-center gap-2 text-sm">
                   {list[0]?.company_name || code}
                   <Badge variant="secondary" className="rounded-md font-mono text-[10px]">
                     {code}
                   </Badge>
                 </CardTitle>
+                {deletableCount > 0 && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 rounded-lg px-2 text-xs text-muted-foreground hover:text-destructive"
+                    onClick={() => {
+                      if (
+                        window.confirm(
+                          `清空「${list[0]?.company_name || code}」的 ${deletableCount} 条本人监控规则？系统规则会保留。`,
+                        )
+                      ) {
+                        void clearCompanyRules(code);
+                      }
+                    }}
+                  >
+                    <Trash2 className="size-3.5" />
+                    清空
+                  </Button>
+                )}
               </CardHeader>
               <CardContent className="flex flex-col divide-y divide-border/60">
                 {list.map((r) => {
@@ -235,16 +299,37 @@ export function MonitorClient({
                         {r.trigger && (
                           <span className="ml-1 text-muted-foreground">（{r.trigger}）</span>
                         )}
+                        {!r.canDelete && (
+                          <span className="ml-1 text-[10px] text-muted-foreground/60">
+                            · 系统规则
+                          </span>
+                        )}
                       </div>
                       <Badge variant="outline" className="shrink-0 rounded-md text-muted-foreground">
                         {ACTION_LABEL[r.action] ?? r.action}
                       </Badge>
+                      {r.canDelete && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (window.confirm("删除这条监控规则？")) {
+                              void deleteRule(r.id);
+                            }
+                          }}
+                          aria-label="删除规则"
+                          title="删除规则"
+                          className="shrink-0 rounded-md p-1 text-muted-foreground/60 transition-colors hover:bg-red-50 hover:text-destructive dark:hover:bg-red-950/40"
+                        >
+                          <Trash2 className="size-3.5" />
+                        </button>
+                      )}
                     </div>
                   );
                 })}
               </CardContent>
             </Card>
-          ))
+            );
+          })
         )}
       </section>
     </div>

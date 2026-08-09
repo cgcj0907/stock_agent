@@ -121,6 +121,12 @@
 
 ## 历史变更日志（详细）
 
+> ✅ 2026-08-09 **监控中心删除功能**：每条本人监控规则（canDelete=user_id 匹配）右侧新增删除按钮，confirm 后经
+>   Supabase `monitor_rules.delete().eq(id)`（RLS 仅本人可删）删除并本地更新；公司卡片头部「清空」按 company_code
+>   批量删除本人规则；全局系统规则标注「系统规则」只读；命中记录为后端会话审计数据保持只读；
+>   tsc/eslint 全绿、前端 58 测试通过、webpack 生产构建通过。
+
+
 > ✅ 2026-08-09 **右栏 hydration mismatch 修复**：`RightRailProvider` 原在 `useState` 初始值读取 `localStorage`
 >   （服务端无法读 window 恒为展开，客户端首帧可能折叠）→ SSR HTML 与客户端首帧不一致触发 Hydration failed；
 >   改用 `useSyncExternalStore`（服务端快照恒 true，水合后经 getSnapshot 同步偏好，写入仍持久化 localStorage + 跨标签页同步），

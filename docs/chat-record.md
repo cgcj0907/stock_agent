@@ -156,3 +156,8 @@
 - 修复右栏 hydration mismatch：`RightRailProvider` 原来在 `useState` 初始值里读 `localStorage`（服务端恒展开、客户端可能折叠），
   导致 SSR HTML 与客户端首帧不一致报「Hydration failed」；改为 `useSyncExternalStore`（服务端快照恒 true，水合后再同步本地偏好），
   并新增回归测试锁定「服务端快照 + 不在初始渲染读 localStorage + try/catch 读取」；tsc/eslint 全绿、前端 58 测试通过、webpack 构建通过。
+
+### 轮次 4 · 2026-08-09
+- 监控中心增加删除功能：每条本人监控规则右侧新增删除按钮（confirm 后经 Supabase RLS 删除并本地更新），
+  公司卡片头部新增「清空」批量删除该公司全部本人规则；全局系统规则（user_id 为空）只读标注「系统规则」不可删；
+  命中记录为后端会话审计数据保持只读；tsc/eslint 全绿、前端 58 测试通过、webpack 构建通过。
