@@ -680,3 +680,46 @@ def test_run_daily_job_degrades_on_data_source_failure():
     assert summary["errors"] == []              # 价格获取失败被内部吞掉，不中断
     assert summary["monitor_events"] == 0       # 无最新价 → 规则跳过
     assert summary["updated"] == {}             # 只读：不写库
+
+
+def test_daily_runner_dedupes_monitor_hits():
+    """I-2 去重：同 (code, rule_type) 再次触发时覆盖而非追加。"""
+    session = _session_with_m8(buy=42.5, sell=179.69)
+    run_daily_monitor([session], _CheapSource())
+    run_daily_monitor([session], _CheapSource())
+    assert len(session.monitor_hits) == 1
+    assert session.monitor_hits[0]["rule_type"] == "price_buy"
+    assert "occurred_at" in session.monitor_hits[0]
+
+
+def test_run_daily_job_persists_monitor_hits(tmp_path):
+    """FC 定时任务（run_daily_job）命中后必须写回会话存储，前端监控中心可读。
+
+    回归：此前 run_daily_job 只推送不落库，导致 monitor_hits 恒为空。
+    """
+    from value_agent.daily import run_daily_job
+    from value_agent.monitor.rules_store import InMemoryRuleStore
+    from value_agent.sessions.store import SqliteStore
+
+    store = SqliteStore(str(tmp_path / "sessions.db"))
+    store.save(_session_with_rules([]))
+    rules_store = InMemoryRuleStore()
+    session_id = store.list()[0].id
+    rules_store.replace_for_session(session_id, [
+        {"rule_type": "price_buy", "company_code": "600519", "company_name": "测试",
+         "message": "跌破买入区间", "severity": "info", "action": "action",
+         "source_module": "M8_safety_margin", "params": {"price": 50.0}},
+    ])
+
+    summary = run_daily_job(source=_StubSource(), store=store, rules_store=rules_store)
+    assert summary["monitor_events"] == 1
+    assert summary["updated"] == {}  # 不写行情/估值
+    loaded = store.list()
+    assert len(loaded[0].monitor_hits) == 1
+    assert loaded[0].monitor_hits[0]["rule_type"] == "price_buy"
+
+    # 第二次运行：同规则命中去重，不重复追加
+    summary2 = run_daily_job(source=_StubSource(), store=store, rules_store=rules_store)
+    assert summary2["monitor_events"] == 1
+    loaded2 = store.list()
+    assert len(loaded2[0].monitor_hits) == 1

@@ -172,17 +172,28 @@ def run_daily_monitor(
                     f"现价 {price} ≥ 卖出区间 {sell}，考虑兑现", "warn",
                     user_id=session.user_id,
                 ))
-    # I-2 记忆：把本次命中写入各会话 monitor_hits（跨会话输入供下次分析注入）
+    # I-2 记忆：把本次命中写入各会话 monitor_hits（跨会话输入供下次分析注入）。
+    # 按 (code, rule_type) 去重：同一条规则再次触发时用最新一次覆盖，
+    # 避免每日任务重复追加导致 monitor_hits 膨胀、前端时间线刷屏。
     for ev in events:
         for session in sessions:
             if session.company_code == ev.company_code and session.status == SessionStatus.COMPLETED:
-                session.monitor_hits.append({
+                hit = {
                     "code": ev.company_code,
                     "rule_type": ev.rule_type,
                     "message": ev.message,
                     "severity": ev.severity,
                     "occurred_at": ev.occurred_at.isoformat(),
-                })
+                }
+                key = (ev.company_code, ev.rule_type)
+                replaced = False
+                for existing in session.monitor_hits:
+                    if (existing.get("code"), existing.get("rule_type")) == key:
+                        existing.update(hit)
+                        replaced = True
+                        break
+                if not replaced:
+                    session.monitor_hits.append(hit)
     return events
 
 

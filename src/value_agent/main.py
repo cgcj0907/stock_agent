@@ -634,7 +634,7 @@ class DailyRunResult(BaseModel):
 
 @app.post("/api/daily")
 def run_daily(x_daily_token: str | None = Header(default=None)) -> DailyRunResult:
-    """每日定时任务：数据更新 + 监控评估 + Webhook 推送。
+    """每日定时任务：监控评估 + 命中落库（monitor_hits）+ Webhook 推送。
 
     供阿里云 FC 定时触发器调用（大陆 IP 拉 AkShare）；也可手动 curl 触发。
     可选鉴权：设置环境变量 DAILY_TOKEN 后，请求需带 `x-daily-token` 头。

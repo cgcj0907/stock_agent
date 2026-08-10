@@ -161,3 +161,8 @@
 - 监控中心增加删除功能：每条本人监控规则右侧新增删除按钮（confirm 后经 Supabase RLS 删除并本地更新），
   公司卡片头部新增「清空」批量删除该公司全部本人规则；全局系统规则（user_id 为空）只读标注「系统规则」不可删；
   命中记录为后端会话审计数据保持只读；tsc/eslint 全绿、前端 58 测试通过、webpack 构建通过。
+
+### 轮次 5 · 2026-08-10
+- 排查「中国平安第一条买入规则能否触发」：生产 Supabase `monitor_rules` 表有该规则（price_buy ≤56.76 元，active），
+  实时价 53.32 ≤ 56.76 触发验证通过；但发现 FC 定时任务路径 `run_daily_job`（/api/daily）只推 webhook **从不把命中写回 monitor_hits**，
+  导致前端监控中心命中记录恒为空；修复 daily.py 增加写回 + runner 按 (code, rule_type) 去重，端到端验证落库 1 条，577 测试全绿 + ruff 通过。

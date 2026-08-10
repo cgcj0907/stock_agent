@@ -1,11 +1,12 @@
-"""每日任务（只读模式）：读监控规则 → 实时拉价判断 → Webhook 推送（FC 定时触发器同款逻辑）。
+"""每日任务：读监控规则 → 实时拉价判断 → 命中写回会话（monitor_hits）→ Webhook 推送（FC 定时触发器同款逻辑）。
 
 两条入口复用同一实现：
 - CLI：`value-agent daily`（本地/容器手动跑）
 - FastAPI：`POST /api/daily`（阿里云 FC 定时触发器调用，大陆 IP 拉 AkShare）
 
 数据流：读已完成会话 + monitor_rules 表 → 按规则里的代码**实时拉最新价**（AkShare，大陆 IP）
-→ 评估触发 → 命中按用户推送飞书/企业微信。**不做任何行情/估值数据写入**（Supabase 只读）。
+→ 评估触发 → 命中**写回会话 monitor_hits**（前端监控中心可读 + 跨会话记忆）→ 按用户推送飞书/企业微信。
+**不写行情/估值数据**（Supabase 只写 monitor_hits）。
 依赖可注入，便于测试。
 """
 from __future__ import annotations
@@ -31,8 +32,8 @@ def run_daily_job(
 ) -> dict:
     """执行一次每日任务（只读），返回汇总 dict。
 
-    只读已完成会话 + monitor_rules 表；价格来自实时源（按规则代码拉最新价），
-    不做任何行情/估值写入。默认按环境配置创建真实组件并 close；测试可注入替身。
+    读已完成会话 + monitor_rules 表；价格来自实时源（按规则代码拉最新价），
+    命中写回会话 monitor_hits（不写行情/估值）。默认按环境配置创建真实组件并 close；测试可注入替身。
     """
     source = source or _default_source()
     store = store or create_session_store()
@@ -54,7 +55,17 @@ def run_daily_job(
             errors.append(f"监控评估失败：{exc}")
             sessions, events = [], []
 
-        # 2) Webhook 推送：按事件归属用户推送（user_id=None 走全局环境变量）
+        # 2) I-2 记忆闭环：命中写回会话存储（与 CLI `monitor --daily` 一致），
+        #    前端监控中心「命中记录」与跨会话记忆才能读到；不写行情/估值。
+        try:
+            for session in sessions:
+                if session.monitor_hits:
+                    store.save(session)
+        except Exception as exc:
+            logger.exception("daily 命中写回失败")
+            errors.append(f"命中写回失败：{exc}")
+
+        # 3) Webhook 推送：按事件归属用户推送（user_id=None 走全局环境变量）
         pushed = notify_webhooks(events, webhook_store=webhook_store) if events else []
         return {
             "updated": {},  # 只读模式：不写行情/估值

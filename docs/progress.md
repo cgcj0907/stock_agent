@@ -121,6 +121,18 @@
 
 ## 历史变更日志（详细）
 
+> ✅ 2026-08-10 **FC 每日任务命中落库修复（中国平安买入规则触发排查驱动）**：
+> ① 排查：生产 `monitor_rules` 表存在平安 price_buy 规则（第一档 ≤56.76 元，active=true，会话 sess_b2d34bdc3bd7），
+>    实时价 53.32 ≤ 56.76 满足触发（AkShare 验证），但该会话 `monitor_hits` 为空——根因是 FC 定时任务入口
+>    `run_daily_job`（POST /api/daily）是只读模式：评估命中后只推 webhook，从不把命中写回会话存储（CLI `monitor --daily` 有写回）；
+> ② 修复：`daily.py` run_daily_job 增加 I-2 记忆闭环（有命中的会话 store.save 写回 monitor_hits，不写行情/估值）；
+>    `runner.py` 命中写回按 (code, rule_type) **去重**（重复触发用最新覆盖，避免 daily 重复追加膨胀、前端时间线刷屏）；
+>    同步更新 daily.py/main.py 文档注释；
+> ③ 测试：新增 `test_daily_runner_dedupes_monitor_hits` + `test_run_daily_job_persists_monitor_hits`（含第二次去重回归），
+>    全量 **577 通过** + ruff；
+> ④ 端到端：用生产组件跑一次 FC 同款评估（AkShare 现价 53.32），平安第一档买入触发并写回 monitor_hits 1 条（未推 webhook）。
+
+
 > ✅ 2026-08-09 **监控中心删除功能**：每条本人监控规则（canDelete=user_id 匹配）右侧新增删除按钮，confirm 后经
 >   Supabase `monitor_rules.delete().eq(id)`（RLS 仅本人可删）删除并本地更新；公司卡片头部「清空」按 company_code
 >   批量删除本人规则；全局系统规则标注「系统规则」只读；命中记录为后端会话审计数据保持只读；
