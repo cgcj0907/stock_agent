@@ -127,5 +127,6 @@ export function ValueView({ value, label }: { value: unknown; label?: string }) 
 }
 
 function Dash() {
-  return <span className="text-muted-foreground/60 italic">无</span>;
+  // 空值统一为「—」（与 module-outputs / memo-card 的 fmt 口径一致）
+  return <span className="text-muted-foreground/60">—</span>;
 }

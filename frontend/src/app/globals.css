@@ -163,3 +163,47 @@
     background: oklch(0.905 0.093 164.15 / 0.55);
   }
 }
+
+/* ---------- 打印 / 导出 PDF ----------
+ * 分析报告导出页（/report/[id]）与备忘录打印页共用：
+ * - 强制浅色（深色模式下打印 PDF 也可读，避免深底白字）
+ * - 保留背景色（print-color-adjust），状态徽章/色块可打印
+ * - 隐藏 echarts 画布（打印时画布易空白/深色主题不可控，数值表格仍在）
+ */
+@media print {
+  @page {
+    margin: 14mm 12mm;
+  }
+
+  html.dark {
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.145 0 0);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.145 0 0);
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.145 0 0);
+    --secondary: oklch(0.97 0 0);
+    --secondary-foreground: oklch(0.205 0 0);
+    --muted: oklch(0.97 0 0);
+    --muted-foreground: oklch(0.556 0 0);
+    --accent: oklch(0.96 0.03 163);
+    --accent-foreground: oklch(0.378 0.077 168.94);
+    --border: oklch(0.922 0 0);
+    --input: oklch(0.922 0 0);
+    --ring: oklch(0.696 0.17 162.48);
+  }
+
+  html,
+  body {
+    background: white !important;
+  }
+
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .echarts-container {
+    display: none !important;
+  }
+}

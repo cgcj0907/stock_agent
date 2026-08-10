@@ -680,3 +680,32 @@
 > ✅ 2026-08-05 **对话追问（chat）实现**：后端 `POST /api/sessions/{id}/chat`（按请求>会话>全局 LLM 回复）+ 前端对话输入框/LLM 选择器 + BFF 同步消息到 Supabase；修复 `SessionManager.add_message` 不更新内存 session 的 bug；memo 标题去掉数字编号。77 测试全绿。
 
 > ✅ 2026-08-05 **Memo 卡片美化落地**：新增 `MemoCard` 结构化组件（Hero 指标/五维评分条/内在价值区间带/买卖区间卡/模块表/监控严重度徽章/假设键值网格），替换 markdown 渲染；配套后端韧性：AkShare 网络重试 + M1/M4/M8 数据失败降级为 DONE（工作流不再因数据源瞬时故障全灭）。
+
+> ✅ 2026-08-11 **分析结果卡片 UI 优化建议（分析轮，Chat #7）**：
+> 针对「分析结果卡片」做第二轮专项盘点，产出分级清单（本轮仅分析与文档，未改代码）——
+> ① P0 快赢：done 态状态徽章降噪为小圆点、running 改蓝色、空值统一「—」、字号节奏 token 化、
+>    卡片/瀑布流间距 12→16、评分条并入结论色块、语义色收敛到统一 tone 模块；
+> ② P1 重点：卡片头单行化（图标+名称+模块码+状态点）、宽屏 3 列控制中文行宽、
+>    长卡内部默认折叠（M4 参数/校准、M2 指标明细等）、结果区顶部摘要条（模块数/风险数/否决数）、
+>    MemoCard hero 大数按档位着色 + 结论色条；
+> ③ P2 后续：prefers-reduced-motion、focus-visible、折叠状态持久化、卡内复制/跳转高亮、暗色边框柔和化。
+
+> ✅ 2026-08-11 **分析结果导出 PDF（Chat #7 轮次 2）**：
+> ① 新增 `/report/[id]` SSR 报告导出页（仿 /memo/[id]）：RLS 本人鉴权 + 后端预取 session.module_results +
+>    单列打印友好排版渲染「投资备忘录（MemoCard）+ 全部模块结果卡（ResultCard）」，顶部操作栏打印时隐藏；
+> ② 入口：对话详情页「分析结果」区 + 运行页「分析结果」区新增「导出 PDF」按钮（useWorkflowRun 暴露 conversationId）；
+> ③ 打印 CSS（globals.css @media print）：强制浅色（深色模式打印可读）、print-color-adjust 保留徽章背景色、
+>    @page 页边距、隐藏 echarts 画布（`.echarts-container`，数值表格仍在）；顺带修复备忘录打印页深色打印问题；
+> ④ 新增 `lib/report.ts` orderedModuleResults 纯函数（工作流顺序/字典序回退）+ 3 个回归测试；
+> ⑤ 验证：tsc/eslint 全绿、前端 **61 测试通过**、`next build --webpack` 通过、/report 未登录重定向正常。
+
+> ✅ 2026-08-11 **分析结果卡片 P0+P1 优化全量落地（Chat #7 轮次 3）**：
+> ① P0：done 态状态徽章降噪为绿点（非 done 才显示完整徽章）、running 改蓝色与 done 区分、
+>    空值统一「—」（value-view Dash）、评分并入结论色块（无结论才保留独立评分行）、
+>    瀑布流 gap 16 + minColumnWidth 340 + 宽屏 3 列、结果卡 10px 字号全部归并 11px；
+> ② P1：结果卡头单行化（图标+名称+代码徽章，去掉两行堆叠）、语义色收敛 `lib/tone.ts`
+>    （POSITION/SEVERITY/MOS/WIDTH/CONCLUSION/VERDICT + toneOf/labelOf，module-outputs/memo-card/result-card 引用同一份）、
+>    长卡内部折叠（M4「参数与校准」、M9「深度风险分析」默认折叠，`components/workflow/collapsible.tsx`）、
+>    结果区摘要条（模块数/含风险数/否决数，`lib/report-summary.ts` 纯函数）、
+>    MemoCard 加权总分按档位语义着色、Metric 指标卡收敛为共享 `components/workflow/metric.tsx`；
+> ③ 测试：新增 report-summary 3 个回归测试；验证 tsc/eslint 全绿、前端 **64 测试通过**、`next build --webpack` 通过、dev 冒烟正常。

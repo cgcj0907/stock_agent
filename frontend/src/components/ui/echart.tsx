@@ -25,7 +25,11 @@ echarts.use([
 
 export type EChartOption = echarts.EChartsCoreOption;
 
-/** 轻量 echarts 容器：自动初始化 / 更新 / 随容器缩放 */
+/**
+ * 轻量 echarts 容器：自动初始化 / 更新 / 随容器缩放。
+ * 固定挂 `echarts-container` 类：打印 / 导出 PDF 时经 globals.css 隐藏画布
+ * （画布打印易空白或受深色主题影响，数值表格/摘要仍在报告里）。
+ */
 export function EChart({
   option,
   className,
@@ -54,5 +58,10 @@ export function EChart({
     chartRef.current?.setOption(option, { notMerge: true });
   }, [option]);
 
-  return <div ref={ref} className={className} />;
+  return (
+    <div
+      ref={ref}
+      className={className ? `echarts-container ${className}` : "echarts-container"}
+    />
+  );
 }

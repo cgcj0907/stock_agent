@@ -2,7 +2,9 @@
 
 import * as React from "react";
 import { AlertTriangle, BadgeCheck, Gauge, Scale } from "lucide-react";
+import { Collapsible } from "@/components/workflow/collapsible";
 import { MethodCompareChart } from "@/components/workflow/memo-charts";
+import { Metric } from "@/components/workflow/metric";
 import { fieldLabel } from "@/lib/labels";
 import { formatNumber, formatPrice } from "@/lib/format";
 
@@ -93,35 +95,6 @@ function paramValueLabel(k: string, v: unknown): string {
   return fmt(v);
 }
 
-function Metric({
-  label,
-  value,
-  tone = "default",
-  title,
-}: {
-  label: string;
-  value: React.ReactNode;
-  tone?: "default" | "warn" | "good";
-  title?: string;
-}) {
-  const toneCls =
-    tone === "warn"
-      ? "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-300"
-      : tone === "good"
-        ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300"
-        : "border-border/60 bg-muted/30 text-foreground";
-  return (
-    <div title={title} className={`rounded-lg border px-2.5 py-2 ${toneCls}`}>
-      <div className="text-[11px] font-semibold tracking-wide text-muted-foreground">
-        {label}
-      </div>
-      <div className="mt-0.5 min-w-0 break-words text-sm font-bold tabular-nums">
-        {value}
-      </div>
-    </div>
-  );
-}
-
 function SectionTitle({
   icon: Icon,
   children,
@@ -201,12 +174,12 @@ function MethodTable({ methods }: { methods: MethodView[] }) {
                 <span className="flex items-center gap-1.5">
                   {fieldLabel(m.method ?? "")}
                   {m.applicable && m.horizon_years != null && (
-                    <span className="rounded bg-amber-500/15 px-1 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-300">
+                    <span className="rounded bg-amber-500/15 px-1 py-0.5 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
                       {m.horizon_years}年后
                     </span>
                   )}
                   {m.applicable && m.horizon_years == null && (
-                    <span className="rounded bg-emerald-500/15 px-1 py-0.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">
+                    <span className="rounded bg-emerald-500/15 px-1 py-0.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
                       现值
                     </span>
                   )}
@@ -215,10 +188,10 @@ function MethodTable({ methods }: { methods: MethodView[] }) {
               <td className="px-2.5 py-1.5 text-right tabular-nums">
                 {m.applicable ? fmt(m.value) : "跳过"}
                 {m.applicable && m.horizon_years != null && (
-                  <span className="ml-1 text-[10px] text-muted-foreground">未来值</span>
+                  <span className="ml-1 text-[11px] text-muted-foreground">未来值</span>
                 )}
                 {m.applicable && m.horizon_years == null && (
-                  <span className="ml-1 text-[10px] text-muted-foreground">现值</span>
+                  <span className="ml-1 text-[11px] text-muted-foreground">现值</span>
                 )}
               </td>
               <td className="px-2.5 py-1.5 text-right tabular-nums text-muted-foreground">
@@ -393,23 +366,25 @@ export function M4Outputs({ outputs }: { outputs: Record<string, unknown> }) {
         </div>
       )}
 
-      {/* 参数 & 权重 */}
+      {/* 参数 & 校准（高级细节，默认折叠，首屏只留结论+关键数字） */}
       {(Object.keys(paramsWithoutConfidence).length > 0 ||
-        Object.keys(o.weights ?? {}).length > 0) && (
-        <div className="flex flex-col gap-2 border-t border-border/40 pt-2.5">
-          <SectionTitle icon={BadgeCheck}>参数与方法权重</SectionTitle>
-          <div className="grid gap-2 sm:grid-cols-2">
-            <Chips title="估值参数" data={paramsWithoutConfidence} />
-            <Chips title="方法权重" data={o.weights ?? {}} />
-          </div>
-        </div>
-      )}
-
-      {/* LLM 行业校准 */}
-      {hasCalibration && (
-        <div className="border-t border-border/40 pt-2.5">
-          <CalibrationBlock calib={llm?.calibration as CalibrationView} />
-        </div>
+        Object.keys(o.weights ?? {}).length > 0 ||
+        hasCalibration) && (
+        <Collapsible title="参数与校准">
+          {Object.keys(paramsWithoutConfidence).length > 0 ||
+          Object.keys(o.weights ?? {}).length > 0 ? (
+            <div className="flex flex-col gap-2">
+              <SectionTitle icon={BadgeCheck}>参数与方法权重</SectionTitle>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <Chips title="估值参数" data={paramsWithoutConfidence} />
+                <Chips title="方法权重" data={o.weights ?? {}} />
+              </div>
+            </div>
+          ) : null}
+          {hasCalibration && (
+            <CalibrationBlock calib={llm?.calibration as CalibrationView} />
+          )}
+        </Collapsible>
       )}
     </div>
   );

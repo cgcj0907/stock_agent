@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   Bot,
+  FileDown,
   FileText,
   Loader2,
   RefreshCcw,
@@ -24,6 +25,7 @@ import { MasonryGrid } from "@/components/ui/masonry-grid";
 import { RightRailShell } from "@/components/ui/right-rail";
 import { StickySectionNav } from "@/components/ui/section-nav";
 import { hasRiskContent } from "@/lib/module-risk";
+import { summarizeResults } from "@/lib/report-summary";
 import { CardEntrance } from "@/components/motion/card-entrance";
 import {
   Select,
@@ -407,6 +409,8 @@ export function ConversationDetailView({
             !!x.result
         )
     : [];
+  // 摘要条：模块/风险/否决计数（轻量，内联即可）
+  const resultSummary = summarizeResults(orderedResults.map((x) => x.result));
   const railResults = session?.module_results ?? {};
   const hasRail = Boolean(workflow && session);
   const hasRailResults = Object.keys(railResults).length > 0;
@@ -670,30 +674,48 @@ export function ConversationDetailView({
       {orderedResults.length > 0 && (
         <section id="conv-results" className="flex scroll-mt-20 flex-col gap-3">
           <div className="flex items-center justify-between gap-3">
-            <h2 className="text-base font-semibold">分析结果</h2>
-            <div className="flex items-center gap-1 rounded-full border bg-muted/40 p-0.5 text-xs">
-              <button
-                type="button"
-                onClick={() => setRiskOnly(false)}
-                className={`rounded-full px-3 py-1 font-medium transition-colors ${
-                  !riskOnly
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                全部
-              </button>
-              <button
-                type="button"
-                onClick={() => setRiskOnly(true)}
-                className={`rounded-full px-3 py-1 font-medium transition-colors ${
-                  riskOnly
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                只看风险
-              </button>
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <h2 className="text-base font-semibold">分析结果</h2>
+              {resultSummary.total > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  {resultSummary.total} 个模块 · {resultSummary.risk} 个含风险
+                  {resultSummary.veto > 0
+                    ? ` · ${resultSummary.veto} 个否决`
+                    : " · 无否决"}
+                </p>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <Button asChild variant="outline" size="sm" className="rounded-lg">
+                <Link href={`/report/${conversation.id}`}>
+                  <FileDown className="size-3.5" />
+                  导出 PDF
+                </Link>
+              </Button>
+              <div className="flex items-center gap-1 rounded-full border bg-muted/40 p-0.5 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setRiskOnly(false)}
+                  className={`rounded-full px-3 py-1 font-medium transition-colors ${
+                    !riskOnly
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  全部
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRiskOnly(true)}
+                  className={`rounded-full px-3 py-1 font-medium transition-colors ${
+                    riskOnly
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  只看风险
+                </button>
+              </div>
             </div>
           </div>
           {(() => {

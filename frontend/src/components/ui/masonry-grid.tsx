@@ -23,9 +23,9 @@ function useIsClient(): boolean {
 export function MasonryGrid({
   children,
   className,
-  gap = 12,
-  minColumnWidth = 320,
-  maxColumns = 2,
+  gap = 16,
+  minColumnWidth = 340,
+  maxColumns = 3,
 }: {
   children: React.ReactNode;
   className?: string;

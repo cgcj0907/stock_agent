@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { FileText, Loader2, Play } from "lucide-react";
+import Link from "next/link";
+import { FileDown, FileText, Loader2, Play } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -16,6 +17,7 @@ import { ResultCard } from "@/components/workflow/result-card";
 import { ResultCardSkeleton } from "@/components/ui/result-skeleton";
 import { CardEntrance } from "@/components/motion/card-entrance";
 import { hasRiskContent } from "@/lib/module-risk";
+import { summarizeResults } from "@/lib/report-summary";
 import { MemoCard } from "@/components/workflow/memo-card";
 import { RailMiniSummary, WorkflowRail } from "@/components/workflow/workflow-rail";
 import { findAgent } from "@/lib/agents/catalog";
@@ -50,6 +52,7 @@ export function WorkflowRunView({
     setCompanyName,
     running,
     connected,
+    conversationId,
     runStatus,
     error,
     statuses,
@@ -98,6 +101,8 @@ export function WorkflowRunView({
   const visibleResults = riskOnly
     ? orderedResults.filter((x) => hasRiskContent(x.result))
     : orderedResults;
+  // 摘要条：模块/风险/否决计数（轻量，内联即可）
+  const summary = summarizeResults(orderedResults.map((x) => x.result));
 
   const hasRun = running || Object.keys(statuses).length > 0;
   const hasResults = Object.keys(results).length > 0;
@@ -224,30 +229,48 @@ export function WorkflowRunView({
       {showResults && (
         <section className="flex flex-col gap-3">
           <div className="flex items-center justify-between gap-3">
-            <h2 className="text-base font-semibold">分析结果</h2>
-            <div className="flex items-center gap-1 rounded-full border bg-muted/40 p-0.5 text-xs">
-              <button
-                type="button"
-                onClick={() => setRiskOnly(false)}
-                className={`rounded-full px-3 py-1 font-medium transition-colors ${
-                  !riskOnly
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                全部
-              </button>
-              <button
-                type="button"
-                onClick={() => setRiskOnly(true)}
-                className={`rounded-full px-3 py-1 font-medium transition-colors ${
-                  riskOnly
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                只看风险
-              </button>
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <h2 className="text-base font-semibold">分析结果</h2>
+              {summary.total > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  {summary.total} 个模块 · {summary.risk} 个含风险
+                  {summary.veto > 0 ? ` · ${summary.veto} 个否决` : " · 无否决"}
+                </p>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              {sessionId && conversationId && (
+                <Button asChild variant="outline" size="sm" className="rounded-lg">
+                  <Link href={`/report/${conversationId}`}>
+                    <FileDown className="size-3.5" />
+                    导出 PDF
+                  </Link>
+                </Button>
+              )}
+              <div className="flex items-center gap-1 rounded-full border bg-muted/40 p-0.5 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setRiskOnly(false)}
+                  className={`rounded-full px-3 py-1 font-medium transition-colors ${
+                    !riskOnly
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  全部
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRiskOnly(true)}
+                  className={`rounded-full px-3 py-1 font-medium transition-colors ${
+                    riskOnly
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  只看风险
+                </button>
+              </div>
             </div>
           </div>
           {visibleResults.length === 0 ? (

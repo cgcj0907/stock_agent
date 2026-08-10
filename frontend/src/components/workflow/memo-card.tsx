@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { SourceLinks } from "@/components/workflow/source-links";
 import { formatNumber, formatPct } from "@/lib/format";
+import { SEVERITY_TONE } from "@/lib/tone";
 import {
   MethodCompareChart,
   RadarScoreChart,
@@ -35,19 +36,10 @@ const DIM_LABELS: Record<string, string> = {
   valuation_margin: "估值边际",
   governance_risk: "治理风险",
 };
-const SEVERITY: Record<string, { label: string; cls: string }> = {
-  info: {
-    label: "提示",
-    cls: "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-800 dark:bg-sky-950/60 dark:text-sky-300",
-  },
-  warn: {
-    label: "警告",
-    cls: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-300",
-  },
-  critical: {
-    label: "风险",
-    cls: "border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/60 dark:text-red-300",
-  },
+const SEVERITY_LABEL: Record<string, string> = {
+  info: "提示",
+  warn: "警告",
+  critical: "风险",
 };
 
 const STATUS_DOT: Record<string, string> = {
@@ -146,7 +138,7 @@ export function MemoCard({
       <div className="border-b px-6 py-6">
         <div className="flex flex-wrap items-center gap-2.5">
           <h3 className="text-xl font-bold tracking-tight">{companyName || companyCode}</h3>
-          <Badge variant="outline" className="rounded-md px-2 font-mono text-[10px]">
+          <Badge variant="outline" className="rounded-md px-2 font-mono text-[11px]">
             {companyCode}
           </Badge>
           <Badge
@@ -159,7 +151,15 @@ export function MemoCard({
         <div className="mt-5 flex flex-wrap items-end gap-8">
           {m10?.total != null && (
             <div>
-              <div className="text-3xl font-extrabold tabular-nums leading-none text-foreground">
+              <div
+                className={`text-3xl font-extrabold tabular-nums leading-none ${
+                  m10.total >= 60
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : m10.total >= 40
+                      ? "text-amber-600 dark:text-amber-400"
+                      : "text-red-600 dark:text-red-400"
+                }`}
+              >
                 {m10.total}
               </div>
               <div className="mt-1 text-xs text-muted-foreground">加权总分</div>
@@ -369,7 +369,7 @@ export function MemoCard({
                     {m.value ?? "—"}
                   </div>
                   {(m.note || m.reason) && (
-                    <div className="mt-0.5 text-[10px] text-muted-foreground">{m.note || m.reason}</div>
+                    <div className="mt-0.5 text-[11px] text-muted-foreground">{m.note || m.reason}</div>
                   )}
                 </div>
               );
@@ -387,14 +387,15 @@ export function MemoCard({
           <SectionTitle icon={RadioTower} title="监控规则（M11）" />
           <div className="flex flex-col gap-2">
             {rules.map((r, i) => {
-              const sev = SEVERITY[r.severity ?? "info"] ?? SEVERITY.info;
+              const sevCls = SEVERITY_TONE[r.severity ?? "info"] ?? SEVERITY_TONE.info;
+              const sevLabel = SEVERITY_LABEL[r.severity ?? "info"] ?? r.severity ?? "提示";
               return (
                 <div
                   key={i}
                   className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border bg-card px-3.5 py-2.5 text-xs"
                 >
-                  <Badge variant="outline" className={`rounded-full ${sev.cls}`}>
-                    {sev.label}
+                  <Badge variant="outline" className={`rounded-full ${sevCls}`}>
+                    {sevLabel}
                   </Badge>
                   <span className="font-medium">{r.description}</span>
                   <span className="ml-auto text-[11px] text-muted-foreground">

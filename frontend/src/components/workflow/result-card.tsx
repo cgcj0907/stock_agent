@@ -34,7 +34,8 @@ import {
 } from "@/components/workflow/markdown-value";
 import { ValueView } from "@/components/workflow/value-view";
 import { fieldLabel } from "@/lib/labels";
-import { verdictFor, type VerdictTone } from "@/lib/module-verdict";
+import { VERDICT_TONE } from "@/lib/tone";
+import { verdictFor } from "@/lib/module-verdict";
 import type { AgentInfo } from "@/lib/agents/catalog";
 import type { ModuleResultView } from "@/hooks/use-workflow-run";
 
@@ -51,7 +52,7 @@ const STATUS_BADGE: Record<
   running: {
     label: "运行中",
     className:
-      "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300",
+      "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-800 dark:bg-sky-950/60 dark:text-sky-300",
     icon: Loader2,
   },
   failed: {
@@ -108,14 +109,6 @@ function scoreTone(score: number): { bar: string; text: string } {
   return { bar: "bg-red-500", text: "text-red-600 dark:text-red-400" };
 }
 
-const VERDICT_TONE_CLS: Record<VerdictTone, string> = {
-  positive:
-    "border-emerald-200/70 bg-emerald-50/60 text-emerald-800 dark:border-emerald-800/50 dark:bg-emerald-950/30 dark:text-emerald-300",
-  neutral: "border-border/60 bg-muted/40 text-foreground",
-  negative:
-    "border-rose-200/70 bg-rose-50/60 text-rose-800 dark:border-rose-800/50 dark:bg-rose-950/30 dark:text-rose-300",
-  muted: "border-border/60 bg-muted/30 text-muted-foreground",
-};
 
 function ExpandToggle({
   expanded,
@@ -188,26 +181,19 @@ export function ResultCard({
   return (
     <Card
       size="sm"
-      className="flex flex-col rounded-2xl transition-shadow hover:shadow-sm"
+      className="flex flex-col rounded-2xl transition-shadow hover:shadow-md"
     >
       <CardHeader className="flex-row items-center justify-between space-y-0 pb-1">
-        <div className="flex items-center gap-2.5">
-          <AgentIcon icon={agent?.icon} className="size-5" />
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold">
-                {agent?.name ?? moduleShort(result.module)}
-              </span>
-              {agent && (
-                <Badge variant="secondary" className="rounded-md px-1.5 text-xs">
-                  {agent.code}
-                </Badge>
-              )}
-            </div>
-            <span className="font-mono text-xs text-muted-foreground">
-              {moduleShort(result.module)}
-            </span>
-          </div>
+        <div className="flex min-w-0 items-center gap-2">
+          <AgentIcon icon={agent?.icon} className="size-5 shrink-0" />
+          <span className="truncate text-sm font-semibold">
+            {agent?.name ?? moduleShort(result.module)}
+          </span>
+          {agent && (
+            <Badge variant="secondary" className="shrink-0 rounded-md px-1.5 text-xs">
+              {agent.code}
+            </Badge>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
           {result.meta?.degraded && (
@@ -218,22 +204,29 @@ export function ResultCard({
               降级
             </Badge>
           )}
-          <Badge
-            variant="outline"
-            className={`gap-1 rounded-md ${badge.className}`}
-          >
-            <StatusIcon
-              className={`size-3 ${result.status === "running" ? "animate-spin" : ""}`}
+          {result.status === "done" ? (
+            <span
+              title="已完成"
+              className="size-2 rounded-full bg-emerald-500"
             />
-            {badge.label}
-          </Badge>
+          ) : (
+            <Badge
+              variant="outline"
+              className={`gap-1 rounded-md ${badge.className}`}
+            >
+              <StatusIcon
+                className={`size-3 ${result.status === "running" ? "animate-spin" : ""}`}
+              />
+              {badge.label}
+            </Badge>
+          )}
         </div>
       </CardHeader>
 
-      <CardContent className="flex flex-1 flex-col gap-2.5">
+      <CardContent className="flex flex-1 flex-col gap-3">
         {verdict && (
           <div
-            className={`flex items-center gap-2 rounded-lg border px-3 py-2 ${VERDICT_TONE_CLS[verdict.tone]}`}
+            className={`flex items-center gap-2 rounded-lg border px-3 py-2 ${VERDICT_TONE[verdict.tone]}`}
           >
             <span className="shrink-0 text-xs font-semibold tracking-wide opacity-70">
               结论
@@ -241,10 +234,18 @@ export function ResultCard({
             <span className="min-w-0 flex-1 text-[13px] leading-5 font-semibold">
               {verdict.text}
             </span>
+            {score != null && (
+              <span
+                className={`shrink-0 rounded-md bg-background/70 px-1.5 py-0.5 text-xs font-bold tabular-nums ${tone?.text ?? ""}`}
+              >
+                {Math.round(score)}
+              </span>
+            )}
           </div>
         )}
 
-        {score != null && (
+        {/* 无 verdict 时保留独立评分行（避免结论与评分重复表达） */}
+        {score != null && !verdict && (
           <div className="flex items-center gap-2.5">
             <div className="h-1.5 w-24 overflow-hidden rounded-full bg-muted">
               <div
@@ -361,7 +362,7 @@ export function ResultCard({
                 {warnEvidenceCount > 0 && (
                   <Badge
                     variant="outline"
-                    className="gap-0.5 rounded-md border-amber-200 bg-amber-50 px-1 py-0 text-[10px] text-amber-700 dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-300"
+                    className="gap-0.5 rounded-md border-amber-200 bg-amber-50 px-1 py-0 text-[11px] text-amber-700 dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-300"
                   >
                     <AlertTriangle className="size-2.5" />
                     {warnEvidenceCount}

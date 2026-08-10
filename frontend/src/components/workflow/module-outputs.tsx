@@ -24,10 +24,22 @@ import {
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { Collapsible } from "@/components/workflow/collapsible";
+import { Metric } from "@/components/workflow/metric";
 import { M4Outputs } from "@/components/workflow/m4-outputs";
 import { getSectionTitleClass } from "@/components/workflow/section-tone";
 import { fieldLabel } from "@/lib/labels";
 import { groupSignals } from "@/lib/signal-polarity";
+import {
+  CONCLUSION_TONE,
+  MOS_LABEL,
+  MOS_TONE,
+  POSITION_TONE,
+  SEVERITY_TONE,
+  WIDTH_TEXT_TONE,
+  labelOf,
+  toneOf,
+} from "@/lib/tone";
 
 // ---------- 通用工具 ----------
 
@@ -63,55 +75,6 @@ function arr(v: unknown): unknown[] {
   return Array.isArray(v) ? v : [];
 }
 
-// ---------- 语义配色 ----------
-
-const POSITION_TONE: Record<string, string> = {
-  极低估: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300",
-  低估: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300",
-  合理: "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-800 dark:bg-sky-950/60 dark:text-sky-300",
-  合理偏下: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300",
-  合理偏上: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-300",
-  高估: "border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-800 dark:bg-orange-950/60 dark:text-orange-300",
-  泡沫: "border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/60 dark:text-red-300",
-  样本不足: "border-border bg-muted/50 text-muted-foreground",
-};
-
-const SEVERITY_TONE: Record<string, string> = {
-  info: "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-800 dark:bg-sky-950/60 dark:text-sky-300",
-  low: "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-800 dark:bg-sky-950/60 dark:text-sky-300",
-  medium: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-300",
-  warn: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-300",
-  high: "border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-800 dark:bg-orange-950/60 dark:text-orange-300",
-  critical: "border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/60 dark:text-red-300",
-};
-
-const MOS_TONE: Record<string, string> = {
-  attractive: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300",
-  fair: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-300",
-  expensive: "border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/60 dark:text-red-300",
-  unavailable: "border-border bg-muted/50 text-muted-foreground",
-};
-
-const MOS_LABEL: Record<string, string> = {
-  attractive: "安全边际充足",
-  fair: "边际一般",
-  expensive: "安全边际为负",
-  unavailable: "数据不足",
-};
-
-const WIDTH_TEXT_TONE: Record<string, string> = {
-  宽: "text-emerald-700 dark:text-emerald-300",
-  较宽: "text-emerald-700 dark:text-emerald-300",
-  中: "text-amber-700 dark:text-amber-300",
-  较窄: "text-orange-700 dark:text-orange-300",
-  窄: "text-red-700 dark:text-red-300",
-  无: "text-red-700 dark:text-red-300",
-};
-
-function toneOf(map: Record<string, string>, key: unknown): string {
-  const k = str(key);
-  return map[k] ?? "border-border bg-muted/50 text-muted-foreground";
-}
 
 function ToneBadge({ text, tone, icon: Icon }: { text: unknown; tone: string; icon?: React.ComponentType<{ className?: string }> }) {
   const IconCmp = Icon ?? null;
@@ -121,12 +84,6 @@ function ToneBadge({ text, tone, icon: Icon }: { text: unknown; tone: string; ic
       {fmt(text)}
     </Badge>
   );
-}
-
-/** 枚举值 → 中文展示（规则/LLM 输出为英文枚举，展示统一转中文）。 */
-function labelOf(map: Record<string, string>, v: unknown): string {
-  const k = str(v);
-  return map[k] ?? k;
 }
 
 const SEVERITY_LABEL: Record<string, string> = {
@@ -236,33 +193,6 @@ function Section({
         <span className="truncate">{title}</span>
       </div>
       {children}
-    </div>
-  );
-}
-
-function Metric({
-  label,
-  value,
-  tone = "default",
-  title,
-}: {
-  label: string;
-  value: React.ReactNode;
-  tone?: "default" | "warn" | "good" | "bad";
-  title?: string;
-}) {
-  const toneCls =
-    tone === "warn"
-      ? "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-300"
-      : tone === "good"
-        ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300"
-        : tone === "bad"
-          ? "border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/50 dark:text-red-300"
-          : "border-border/60 bg-muted/30 text-foreground";
-  return (
-    <div title={title} className={`rounded-lg border px-2.5 py-2 ${toneCls}`}>
-      <div className="text-[11px] font-semibold tracking-wide text-muted-foreground">{label}</div>
-      <div className="mt-0.5 break-words text-sm font-bold tabular-nums">{value}</div>
     </div>
   );
 }
@@ -615,7 +545,7 @@ function M0Outputs({ outputs }: { outputs: Record<string, unknown> }) {
         <Section icon={Info} title="消费字段（审计）">
           <div className="flex flex-wrap gap-1">
             {used.map((u) => (
-              <Badge key={u} variant="outline" className="text-[10px] font-normal text-muted-foreground">
+              <Badge key={u} variant="outline" className="text-[11px] font-normal text-muted-foreground">
                 {u}
               </Badge>
             ))}
@@ -953,8 +883,10 @@ function M9Outputs({ outputs }: { outputs: Record<string, unknown> }) {
         </Section>
       )}
 
-      {scenario && (
-        <Section icon={TrendingUp} title="压力情景">
+      {(scenario || redTeam) && (
+        <Collapsible title="深度风险分析">
+          {scenario && (
+            <Section icon={TrendingUp} title="压力情景">
           <div className="rounded-lg border border-border/60 bg-muted/20 p-2.5">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-[13px] font-semibold text-foreground/90">{fmt(scenario.scenario)}</span>
@@ -991,8 +923,8 @@ function M9Outputs({ outputs }: { outputs: Record<string, unknown> }) {
         </Section>
       )}
 
-      {redTeam && (
-        <Section icon={ShieldCheck} title="LLM 红队批判" tone="violet">
+          {redTeam && (
+            <Section icon={ShieldCheck} title="LLM 红队批判" tone="violet">
           <div className="flex flex-col gap-2.5">
             {assumptions.length > 0 && (
               <div>
@@ -1031,7 +963,9 @@ function M9Outputs({ outputs }: { outputs: Record<string, unknown> }) {
               </div>
             )}
           </div>
-        </Section>
+          </Section>
+          )}
+        </Collapsible>
       )}
     </div>
   );
@@ -1046,13 +980,6 @@ const DIM_LABELS: Array<{ key: string; label: string; bar: string }> = [
   { key: "valuation_margin", label: "估值边际", bar: "bg-amber-500" },
   { key: "governance_risk", label: "治理风险", bar: "bg-rose-500" },
 ];
-
-const CONCLUSION_TONE: Record<string, string> = {
-  强烈关注: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300",
-  关注: "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-800 dark:bg-sky-950/60 dark:text-sky-300",
-  中性: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-300",
-  回避: "border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/60 dark:text-red-300",
-};
 
 function M10Outputs({ outputs }: { outputs: Record<string, unknown> }) {
   const dims = isObj(outputs.dimensions) ? outputs.dimensions : {};

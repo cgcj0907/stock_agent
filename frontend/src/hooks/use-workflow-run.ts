@@ -61,6 +61,7 @@ export function useWorkflowRun(
   const [running, setRunning] = React.useState(false);
   const [connected, setConnected] = React.useState(false);
   const [sessionId, setSessionId] = React.useState<string | null>(null);
+  const [conversationId, setConversationId] = React.useState<string | null>(null);
   const [runStatus, setRunStatus] = React.useState<RunStatus>("idle");
   const [error, setError] = React.useState<string | null>(null);
   const [statuses, setStatuses] = React.useState<Record<string, StepStatus>>(
@@ -131,6 +132,7 @@ export function useWorkflowRun(
             .select("id")
             .single();
           conversationId = conv.data?.id ?? null;
+          setConversationId(conversationId);
           if (conversationId) {
             await supabase.from("messages").insert({
               conversation_id: conversationId,
@@ -280,6 +282,7 @@ export function useWorkflowRun(
     running,
     connected,
     sessionId,
+    conversationId,
     runStatus,
     error,
     statuses,

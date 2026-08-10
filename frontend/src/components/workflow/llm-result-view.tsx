@@ -46,7 +46,7 @@ function ReferenceLinks({ value }: { value: unknown }) {
               {l.title}
             </a>
             {l.meta ? (
-              <span className="mt-0.5 block break-all text-[10px] text-muted-foreground">
+              <span className="mt-0.5 block break-all text-[11px] text-muted-foreground">
                 {l.meta}
               </span>
             ) : null}
@@ -92,7 +92,7 @@ export function LlmResultView({ value }: { value: unknown }) {
         }
         return (
           <div key={k} className="flex flex-col gap-0.5">
-            <span className="text-[10px] font-semibold text-muted-foreground">
+            <span className="text-[11px] font-semibold text-muted-foreground">
               {fieldLabel(k)}
             </span>
             <div className="text-xs leading-5">
