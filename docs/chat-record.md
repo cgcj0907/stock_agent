@@ -181,3 +181,10 @@
 ### 轮次 8 · 2026-08-10
 - 用户重新部署 FC 镜像后验证：`POST /invoke` 不再 404，正常返回 monitor_events=2、推送企业微信、errors 空；
   命中写回确认（平安 price_buy + 东财 mos_watch，occurred_at 即本次调用时间）——定时触发器链路全通，前端监控中心可见命中。
+
+### 轮次 9 · 2026-08-10
+- 继续排查 FC 定时触发 404：FC 日志显示定时触发器（RequestId t-...）POST /invoke 404 且无 daily 执行日志，
+  而同一实例手动调用（顶层 action/token）正常 200——定位到阿里云官方文档：定时触发器把控制台「触发消息」作为
+  **event.payload（字符串）** 传给函数，body 形如 {"triggerTime":..., "payload":"{\"action\":...}"}，action 在嵌套 payload 里；
+  main.py `_parse_timer_event` 兼容 FC 事件结构（payload 再 JSON 解析），新增回归测试，全量 580 通过 + ruff；
+  需重新 build/push 镜像并修改镜像后生效。

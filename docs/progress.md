@@ -121,6 +121,18 @@
 
 ## 历史变更日志（详细）
 
+> ✅ 2026-08-10 **FC 定时触发器事件结构兼容（payload 包装）**：
+> ① 现象：FC 日志显示定时触发器（RequestId t-...）POST /invoke 返回 404 且无 daily 执行日志；而同一实例手动调用
+>    （body 顶层 {"action","token"}）返回 200 并正常执行——镜像/路由正常，问题在请求体解析；
+> ② 根因：阿里云官方文档（定时触发器）——控制台「触发消息」作为 **event.payload 的值（字符串）** 传给函数，
+>    FC 发到 /invoke 的 body 形如 {"triggerTime":..., "triggerName":..., "payload":"{\"action\":\"daily\",...}"}，
+>    action/token 在嵌套的 payload 字符串里；此前 /invoke 只解析顶层 action → 拿到空 action → 业务 404；
+> ③ 修复：main.py 新增 `_parse_timer_event(raw)`，兼容两种结构（顶层 action/token + FC 事件 payload 再 JSON 解析），
+>    /invoke 手动解析 body 后复用 _run_daily_event 校验/执行；
+> ④ 测试：test_daily_api.py 新增 payload 包装事件用例（200 执行 / 401 token 不匹配 / 非 JSON payload 404），
+>    全量 **580 通过** + ruff；需重新 build/push 镜像并修改镜像生效。
+
+
 > ✅ 2026-08-10 **FC 定时触发器 404 修复（新增 POST /invoke 事件入口）**：
 > ① 现象：FC 定时触发器（异步事件）显示已触发，但 monitor_hits 无新增、无推送——调线上 FC 发现
 >    `/api/daily` 与 `/` 均正常（命中写回 + 推送企业微信成功），而 **POST /invoke 返回 404**；

@@ -147,3 +147,44 @@ def test_fc_invoke_entry_runs_daily(monkeypatch):
     r = client.post("/invoke", content='{"action": "daily"}', headers={"Content-Type": "application/octet-stream"})
     assert r.status_code == 200
     assert calls == ["hit"]
+
+
+def test_fc_invoke_entry_parses_payload_wrapped_event(monkeypatch):
+    """FC 定时触发器事件：触发消息作为 event.payload（字符串）传入，action/token 在 payload 里。
+
+    回归：此前只解析顶层 action，FC 事件结构（{"payload": "{\\"action\\":...}"}）拿不到 action → 404。
+    """
+    monkeypatch.setenv("DAILY_TOKEN", "secret123")
+    calls: list[str] = []
+
+    def fake_daily(**kw):
+        calls.append("hit")
+        return _fake_daily(**kw)
+
+    monkeypatch.setattr(m, "run_daily_job", fake_daily)
+    client = TestClient(m.app)
+
+    # FC 定时触发器事件：payload 是触发消息的 JSON 字符串
+    body = json.dumps({
+        "triggerTime": "2026-08-10T15:00:00Z",
+        "triggerName": "daily-trigger",
+        "payload": '{"action": "daily", "token": "secret123"}',
+    })
+    r = client.post("/invoke", content=body, headers={"Content-Type": "application/octet-stream"})
+    assert r.status_code == 200
+    assert calls == ["hit"]
+
+    # token 不匹配（payload 里）→ 401
+    calls.clear()
+    body = json.dumps({
+        "triggerTime": "2026-08-10T15:00:00Z",
+        "triggerName": "daily-trigger",
+        "payload": '{"action": "daily", "token": "wrong"}',
+    })
+    assert client.post("/invoke", content=body, headers={"Content-Type": "application/octet-stream"}).status_code == 401
+
+    # payload 不是 JSON（如纯文本触发消息）→ action 空 → 404
+    calls.clear()
+    body = json.dumps({"triggerTime": "2026-08-10T15:00:00Z", "triggerName": "t", "payload": "hello"})
+    assert client.post("/invoke", content=body, headers={"Content-Type": "application/octet-stream"}).status_code == 404
+    assert calls == []

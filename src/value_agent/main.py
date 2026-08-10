@@ -670,19 +670,46 @@ def fc_timer_event(
 async def fc_invoke_entry(request: Request) -> DailyRunResult:
     """FC 定时触发器（异步事件）对 Web 函数/自定义容器的实际调用入口：POST /invoke。
 
-    阿里云 FC 定时触发器的事件调用走 /invoke（而非 /），body 为控制台「触发消息」原样 JSON；
-    手动解析 body（兼容非 application/json 的 content-type），再复用根路径的校验与执行逻辑。
+    阿里云 FC 定时触发器的事件调用走 /invoke（而非 /），body 是 FC 事件结构，控制台
+    「触发消息」作为 event.payload 传入（可能是 JSON 字符串）；手动解析 body（兼容
+    非 application/json 的 content-type），再复用根路径的校验与执行逻辑。
     """
     raw = (await request.body()).decode("utf-8", "ignore").strip()
-    event: FCTimerEvent | None = None
-    if raw:
-        try:
-            data = json.loads(raw)
-            if isinstance(data, dict):
-                event = FCTimerEvent(**data)
-        except (TypeError, ValueError):
-            event = None
+    action, token = _parse_timer_event(raw)
+    event = FCTimerEvent(action=action, token=token)
     return _run_daily_event(event, request.headers.get("x-daily-token"))
+
+
+def _parse_timer_event(raw: str) -> tuple[str, str | None]:
+    """解析定时触发器事件 body，返回 (action, token)。
+
+    兼容两种结构：
+    - 直接 {"action": "daily", "token": "..."}（手动 curl / 测试调用）
+    - FC 定时触发器事件：{"triggerTime": ..., "triggerName": ..., "payload": "<触发消息>"}，
+      触发消息（控制台填写的 JSON 文本）作为字符串放在 payload 字段里。
+    """
+    if not raw or not raw.strip():
+        return "", None
+    try:
+        data = json.loads(raw)
+    except (TypeError, ValueError):
+        return "", None
+    if not isinstance(data, dict):
+        return "", None
+    action = str(data.get("action") or "")
+    token = data.get("token")
+    payload = data.get("payload")
+    if not action and payload:
+        payload_obj = payload
+        if isinstance(payload, str):
+            try:
+                payload_obj = json.loads(payload)
+            except (TypeError, ValueError):
+                payload_obj = None
+        if isinstance(payload_obj, dict):
+            action = str(payload_obj.get("action") or "")
+            token = payload_obj.get("token", token)
+    return action, token
 
 
 def _run_daily_event(
