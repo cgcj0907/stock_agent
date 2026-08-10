@@ -154,8 +154,12 @@ def build_memo(session: Session) -> str:
             reason = m.get("reason") or m.get("note") or ""
             horizon = m.get("horizon_years")
             cell = val if val is not None else f"跳过（{reason}）"
-            if val is not None and horizon:
-                cell = f"{val}（{horizon}年后，非现值）"
+            if val is not None:
+                # 2026-08-09：每个估值法显式标注时点——现值 / N年后（非现值，仅参考）
+                cell = (
+                    f"{val}（{horizon}年后，非现值）"
+                    if horizon else f"{val}（现值）"
+                )
             lines.append(f"| {m.get('method')} | {cell} |")
         if m8 and m8.outputs.get("buy_price"):
             lines.append(

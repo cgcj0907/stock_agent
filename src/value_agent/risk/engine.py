@@ -46,6 +46,8 @@ RISK_PROFILE: dict[str, tuple[float, float]] = {
 
 # 情绪热度阈值（与 M7 一致）
 SENTIMENT_HOT = 0.66
+# 8.9：安全边际风险「贴近下沿」容差（现价 ≤ 下沿×(1+容差) → low 档）
+NEAR_LOW_TOLERANCE = 0.10
 
 
 @dataclass
@@ -87,6 +89,44 @@ def _risk_item(
         "veto_candidate": veto_candidate,
         "expected_loss": _expected_loss(category),  # 8.3：P×L 期望损失
     }
+
+
+def _safety_margin_severity(m8: dict, m4: dict | None = None) -> tuple[str, str]:
+    """安全边际风险严重度分级（8.9，替代旧版恒 high）。
+
+    触发前提：discount = 1 - 现价/内在价值下沿 < 0（现价高于下沿、无安全边际）。
+    严重度按「无安全边际的程度」分级，避免把「合理偏下」与「高估」一律打成 high：
+    - 下沿 < 现价 ≤ 中值（M8 status=合理偏下）→ low/medium：合理价但无折扣，属估值纪律风险；
+      贴近下沿（现价 ≤ 下沿×1.10）→ low（几乎贴着下沿，纪律问题最轻），其余 → medium；
+    - 中值 < 现价 ≤ 上沿（M8 status=合理偏上）→ high：偏贵且无缓冲；
+    - 现价 > 上沿（M8 status=高估）→ high：明显高于内在价值上沿（沿用旧档，
+      不与 M7 泡沫项叠加成 critical）；
+    - 位置信息缺失（M4 缺失/降级）→ 保守回退 high（fail-safe，保持旧行为）。
+
+    返回 (severity, impact)：impact 带现价与所处区间，便于 M11/前端直接展示。
+    """
+    price = m8.get("price")
+    iv = (m4 or {}).get("intrinsic_value") or {}
+    low, mid, high = iv.get("low"), iv.get("mid"), iv.get("high")
+    if price is not None and low is not None and mid is not None:
+        try:
+            price = float(price)
+        except (TypeError, ValueError):
+            price = None
+        if price is not None:
+            if price <= mid:
+                if price <= low * (1 + NEAR_LOW_TOLERANCE):
+                    return ("low",
+                            f"安全边际略为负（现价 {price:.2f} 贴近内在价值下沿 {low}）")
+                return ("medium",
+                        f"安全边际为负（现价 {price:.2f} 高于内在价值下沿 {low}，未及中值 {mid}）")
+            if high is not None and price <= high:
+                return ("high",
+                        f"安全边际为负（现价 {price:.2f} 高于内在价值中值 {mid}）")
+            if high is not None and price > high:
+                return ("high",
+                        f"安全边际为负（现价 {price:.2f} 高于内在价值上沿 {high}）")
+    return ("high", "安全边际为负（现价高于内在价值下沿）")
 
 
 def _max_loss_scenario(high_items: list[dict], m8: dict, m4: dict | None = None) -> dict:
@@ -295,12 +335,14 @@ def assess_risk(inputs: dict[str, ModuleResult], assumptions: dict | None = None
             mitigation="等待情绪降温/分档建仓，不一次性买入",
         ))
 
-    # M8 安全边际风险
+    # M8 安全边际风险（8.9：severity 按现价位置分级，不再恒 high——
+    # 「合理偏下/无折扣」是估值纪律问题（medium），「偏贵/高估」才是高风险（high））
     m8 = out("M8_safety_margin")
     if m8.get("discount") is not None and m8["discount"] < 0:
         n += 1
-        items.append(_risk_item(n, "安全边际", "high", "M8_safety_margin",
-                                "discount<0", "安全边际为负（现价高于内在价值下沿）"))
+        sev, impact = _safety_margin_severity(m8, out("M4_valuation"))
+        items.append(_risk_item(n, "安全边际", sev, "M8_safety_margin",
+                                "discount<0", impact))
 
     # 一票否决：行业明确下行 + 高杠杆（潜在永久损失路径：景气反转时高杠杆放大亏损）。
     # 生产稽核（2026-08-09）：仅凭 M3 prosperity=down（任何负 EPS CAGR 都触发）会误杀

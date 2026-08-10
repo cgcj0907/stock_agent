@@ -286,6 +286,98 @@ def test_risk_aggregates_and_veto():
     assert sorted(r.monitor_candidates) == ["R-004", "R-005"]  # 泡沫(high) + 安全边际(high) 进入监控候选
 
 
+def test_risk_safety_margin_severity_medium_when_price_below_mid():
+    """8.9：安全边际为负但现价未及中值（合理偏下）→ medium，不进监控候选。
+
+    生产案例（603049 中策橡胶）：现价 48.76 > 下沿 40.75 但 < 中值 49.28，
+    旧版一律 high，与 M8「合理偏下/fair」标签打架；现在降为 medium。
+    """
+    inputs = {
+        "M4_valuation": _mod("M4_valuation", {
+            "intrinsic_value": {"low": 40.75, "mid": 49.28, "high": 57.82},
+            "current_price": 48.76,
+        }),
+        "M8_safety_margin": _mod("M8_safety_margin", {
+            "price": 48.76, "discount": 1 - 48.76 / 40.75,
+            "status": "合理偏下", "mos_state": "fair",
+        }, 60),
+    }
+    r = assess_risk(inputs)
+    item = next(it for it in r.risk_items if it["trigger"] == "discount<0")
+    assert item["severity"] == "medium"
+    assert item["id"] not in r.monitor_candidates
+    assert "未及中值" in item["impact"]
+    assert r.max_severity == "medium"  # M10 风险修正不再按 high 打折
+
+
+def test_risk_safety_margin_severity_low_when_near_low():
+    """8.9：现价贴近下沿（≤ 下沿×1.10）→ low 档（纪律问题最轻，不进监控候选）。"""
+    inputs = {
+        "M4_valuation": _mod("M4_valuation", {
+            "intrinsic_value": {"low": 40.75, "mid": 49.28, "high": 57.82},
+            "current_price": 42.0,
+        }),
+        "M8_safety_margin": _mod("M8_safety_margin", {
+            "price": 42.0, "discount": 1 - 42.0 / 40.75,
+            "status": "合理偏下", "mos_state": "fair",
+        }, 60),
+    }
+    r = assess_risk(inputs)
+    item = next(it for it in r.risk_items if it["trigger"] == "discount<0")
+    assert item["severity"] == "low"
+    assert item["id"] not in r.monitor_candidates
+    assert "贴近内在价值下沿" in item["impact"]
+
+
+def test_risk_safety_margin_severity_high_above_mid():
+    """8.9：现价在中值与上沿之间（合理偏上）→ high，进监控候选。"""
+    inputs = {
+        "M4_valuation": _mod("M4_valuation", {
+            "intrinsic_value": {"low": 40.75, "mid": 49.28, "high": 57.82},
+            "current_price": 54.0,
+        }),
+        "M8_safety_margin": _mod("M8_safety_margin", {
+            "price": 54.0, "discount": 1 - 54.0 / 40.75,
+            "status": "合理偏上（安全边际为负）", "mos_state": "expensive",
+        }, 30),
+    }
+    r = assess_risk(inputs)
+    item = next(it for it in r.risk_items if it["trigger"] == "discount<0")
+    assert item["severity"] == "high"
+    assert item["id"] in r.monitor_candidates
+    assert "高于内在价值中值" in item["impact"]
+
+
+def test_risk_safety_margin_severity_high_above_high():
+    """8.9：现价高于内在价值上沿（高估）→ high，进监控候选（沿用旧档）。"""
+    inputs = {
+        "M4_valuation": _mod("M4_valuation", {
+            "intrinsic_value": {"low": 40.75, "mid": 49.28, "high": 57.82},
+            "current_price": 65.0,
+        }),
+        "M8_safety_margin": _mod("M8_safety_margin", {
+            "price": 65.0, "discount": 1 - 65.0 / 40.75,
+            "status": "高估（高于内在价值上沿）", "mos_state": "expensive",
+        }, 10),
+    }
+    r = assess_risk(inputs)
+    item = next(it for it in r.risk_items if it["trigger"] == "discount<0")
+    assert item["severity"] == "high"
+    assert item["id"] in r.monitor_candidates
+    assert "高于内在价值上沿" in item["impact"]
+
+
+def test_risk_safety_margin_severity_fallback_high_without_position():
+    """8.9：位置信息缺失（M4 缺失/降级）→ 保守回退 high，保持旧行为（fail-safe）。"""
+    inputs = {
+        "M8_safety_margin": _mod("M8_safety_margin", {"discount": -0.3}, 10),
+    }
+    r = assess_risk(inputs)
+    item = next(it for it in r.risk_items if it["trigger"] == "discount<0")
+    assert item["severity"] == "high"
+    assert item["id"] in r.monitor_candidates
+
+
 def test_risk_veto_on_bad_financials():
     """回归：M2 分数在 handoff.quality_score / ModuleResult.score，不在 outputs["score"].
 

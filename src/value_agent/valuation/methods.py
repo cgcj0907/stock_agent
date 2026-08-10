@@ -23,8 +23,12 @@ class MethodResult:
     horizon_years: int | None = None
 
 
-# 现金化比率夹逼区间：OCF/净利 的正常区间（0.5~1.5），防止一次性损益把 DCF 基数拉爆/打穿
-CASH_RATIO_LOW, CASH_RATIO_HIGH = 0.5, 1.5
+# 现金化比率夹逼区间：OCF/净利 的保守区间（0.6~1.3），防止一次性损益把 DCF 基数拉爆/打穿。
+# 2026-08-09 收紧（P1-2，东鹏 1.40 案例）：高 OCF/NP（>1.3）多为预收/折旧等「质量信号」
+# （已体现在 M2 质量分），不宜全额放大 DCF 基数；低 OCF/NP（<0.6）盈利质量存疑，同样压缩。
+CASH_RATIO_LOW, CASH_RATIO_HIGH = 0.6, 1.3
+# 现金化比率「注意区间」：原始 OCF/NP 落在此区间外时，evidence 显式提示（夹逼仍按上面保守区间）
+CASH_ATTN_LOW, CASH_ATTN_HIGH = 0.7, 1.3
 
 
 def cash_earnings_proxy(
@@ -175,28 +179,42 @@ def relative_median_pe(
     *,
     normalized_eps: float | None = None,
     pe_cap: float | None = None,
+    recent_window: int | None = None,
 ) -> MethodResult:
-    """相对估值：合理价 = PE 历史中位数 × EPS。
+    """相对估值：合理价 = PE 中位数 × EPS。
 
     normalized_eps / pe_cap：**周期股正常化保护**。周期股直接用「当期 EPS × 历史中位 PE」
     会双重失真：景气高点的当期 EPS × 被低谷年份（EPS≈0 → PE 上百）顶高的历史中位 PE，
     会把估值顶到天上去（如中国船舶：1.40 × 101 = 142 元 vs 现价 35）。
     传入 normalized_eps（近 N 年 EPS 中位数）时代替当期 EPS，并把 PE 夹逼到 pe_cap
     （默认 25），避免亏损/微利年份的异常 PE 拉高估值。
+
+    recent_window：**成长次新股保护（跨期不可比）**。pe_history 按「最新在前」传入；
+    当高成长公司（近 N 年 EPS CAGR 高）的 PE 历史被上市初期高 PE 主导时，传入
+    recent_window（交易日数），中位数只取最近 N 个交易日——避免「上市初期高 PE ×
+    当期高 EPS」双重放大（如东鹏饮料：全历史中位 PE 41.3 × 当期 EPS 8.49 = 350 元，
+    而近 250 日 PE 中位约 15~18，更贴近当前盈利可比口径）。
     """
     if eps is None or not pe_history:
         return MethodResult("relative_median_pe", None, note="缺 EPS 或 PE 历史")
-    median_pe = statistics.median(pe_history)
+    hist = (
+        pe_history[:recent_window]
+        if recent_window is not None and len(pe_history) > recent_window
+        else pe_history
+    )
+    median_pe = statistics.median(hist)
     base, mode = (normalized_eps, "normalized") if normalized_eps is not None else (eps, "current")
     pe_used = min(median_pe, pe_cap) if pe_cap else median_pe  # 封顶对当期/正常化口径都生效
     if base is None or base <= 0 or pe_used <= 0:
         return MethodResult("relative_median_pe", None, note="EPS 或 PE 非正，不适用")
+    params: dict = {
+        "median_pe": round(median_pe, 2), "pe_used": round(pe_used, 2),
+        "eps_base": mode, "n": len(hist),
+    }
+    if recent_window is not None and len(pe_history) > recent_window:
+        params["median_window_days"] = recent_window
     return MethodResult(
-        "relative_median_pe", round(base * pe_used, 2),
-        params={
-            "median_pe": round(median_pe, 2), "pe_used": round(pe_used, 2),
-            "eps_base": mode, "n": len(pe_history),
-        },
+        "relative_median_pe", round(base * pe_used, 2), params=params,
     )
 
 

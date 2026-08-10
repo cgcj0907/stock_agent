@@ -80,8 +80,12 @@ def test_methods_to_list_includes_horizon():
     rows = methods_to_list(r.methods, r.method_confidences)
     tang_row = next(x for x in rows if x["method"] == "tang")
     assert tang_row["horizon_years"] == 3
+    assert tang_row["value_type"] == "future"
+    assert tang_row["horizon_label"] == "3年后（未来值）"
     dcf_row = next(x for x in rows if x["method"] == "dcf")
     assert dcf_row["horizon_years"] is None
+    assert dcf_row["value_type"] == "present"
+    assert dcf_row["horizon_label"] == "现值"
 
 
 def test_engine_intrinsic_range_and_score():
@@ -278,9 +282,11 @@ def test_dcf_cash_proxy():
     r = dcf(4.5, 0.10, 0.10, 0.03, cash_eps=5.4)
     assert r.params["profit_base"] == "cash_proxy"
     assert r.params["cash_eps"] == 5.4
-    # ocf_to_np 夹逼到 [0.5, 1.5]，防一次性损益失真
-    assert cash_earnings_proxy(4.5, ocf_to_np=3.0) == pytest.approx(4.5 * 1.5)
-    assert cash_earnings_proxy(4.5, ocf_to_np=0.2) == pytest.approx(4.5 * 0.5)
+    # ocf_to_np 夹逼到 [0.6, 1.3]（P1-2 收紧：高 OCF/NP 是质量信号，不宜全额放大 DCF 基数）
+    assert cash_earnings_proxy(4.5, ocf_to_np=3.0) == pytest.approx(4.5 * 1.3)
+    assert cash_earnings_proxy(4.5, ocf_to_np=0.2) == pytest.approx(4.5 * 0.6)
+    # 正常比值原样透传
+    assert cash_earnings_proxy(4.5, ocf_to_np=1.2) == pytest.approx(4.5 * 1.2)
     # ocfps 兜底；无现金流字段 → EPS
     assert cash_earnings_proxy(4.5, ocfps=6.0) == pytest.approx(6.0)
     assert cash_earnings_proxy(4.5) == pytest.approx(4.5)
@@ -427,6 +433,20 @@ def test_llm_apply_calibration_spread_caps_discount_rate():
     p, _w, _delta = apply_calibration(default_params(), METHOD_WEIGHTS, calib)
     assert p["growth_rate"] == 0.10  # 12% → 10%（= r 12% − 2%）
     assert p["discount_rate"] == 0.12
+    assert p["discount_rate"] - p["growth_rate"] >= 0.02 - 1e-9
+
+
+def test_llm_apply_calibration_keeps_growth_when_rate_capped():
+    """P1-3（东鹏/中策 2026-08-09 案例）：LLM 建议 g=12%、r=9% 时，
+    旧逻辑把增速静默降到「原折现率−2%」=7%（增速上调被吞掉）；
+    修复后折现率先抬满到 12%，增速保留为 10%（= 上限 12% − 2%）。"""
+    from value_agent.valuation.engine import METHOD_WEIGHTS, default_params
+    from value_agent.valuation.llm import apply_calibration
+
+    calib = {"parameter_adjustments": {"growth_rate": 0.12, "discount_rate": 0.09}}
+    p, _w, _delta = apply_calibration(default_params(), METHOD_WEIGHTS, calib)
+    assert p["discount_rate"] == 0.12      # 折现率顶到上限
+    assert p["growth_rate"] == 0.10        # 增速保留（不再回落到 0.07）
     assert p["discount_rate"] - p["growth_rate"] >= 0.02 - 1e-9
 
 
@@ -855,3 +875,103 @@ def test_intrinsic_low_never_below_most_conservative_method():
     assert r.intrinsic["low"] is not None
     assert r.intrinsic["low"] >= min(applicable) * mult - 0.01  # 下沿不低于最保守方法
     assert any("下沿抬升" in e for e in r.evidence)
+
+
+# ---------- 2026-08-09 生产会话稽核（P1-1/P1-2/P1-3 + 现值/未来标注） ----------
+
+def test_relative_median_pe_recent_window():
+    """P1-1：recent_window 只取最近 N 个交易日 PE 中位（pe_history 最新在前）。"""
+    from value_agent.valuation.methods import relative_median_pe
+
+    # 全史中位被上市初期高 PE 主导：中位数(12,13,11,30,35,40) = (13+30)/2 = 21.5
+    # 近 3 个值（最新在前）：中位 12
+    pe_hist = [12.0, 13.0, 11.0, 30.0, 35.0, 40.0]
+    full = relative_median_pe(8.5, pe_hist)
+    assert full.value == pytest.approx(8.5 * 21.5, abs=0.01)
+    r = relative_median_pe(8.5, pe_hist, recent_window=3)
+    assert r.params["n"] == 3
+    assert r.params["median_window_days"] == 3
+    assert r.value == pytest.approx(8.5 * 12.0, abs=0.01)
+    # 窗口大于样本时退化为全史
+    r2 = relative_median_pe(8.5, pe_hist, recent_window=100)
+    assert r2.value == full.value
+    assert "median_window_days" not in r2.params
+
+
+def test_high_growth_new_stock_uses_recent_pe_window():
+    """P1-1 引擎级：高成长（EPS CAGR ≥ 20%）次新股 → relative_median_pe 改用近期 PE 窗口。
+
+    东鹏饮料案例还原：早期高 PE（40+）主导历史中位，近端 PE 低；当期 EPS 8.49。
+    修复前相对PE ≈ 8.49×41 ≈ 350，修复后 ≈ 8.49×近端中位。
+    """
+    # eps_history 升序（最新在最后）：4 年 CAGR ≈ 40%
+    eps_hist = [1.7, 2.5, 4.1, 6.0, 8.49]
+    # pe_history 最新在前：近 250 日 PE ~12-16（低），更早 ~40-48（上市初期高 PE）
+    pe_hist = [12.0, 14.0, 13.0, 16.0, 15.0] * 50 + [42.0, 45.0, 40.0, 48.0, 44.0] * 100
+    r = run_valuation(
+        eps=8.49, bvps=30.0, pe_history=pe_hist, dividend=None,
+        business_type="growth", params={"growth_rate": 0.10},
+        eps_history=eps_hist,
+    )
+    rel = r.methods["relative_median_pe"]
+    assert rel.value is not None
+    assert rel.params["median_window_days"] == 250  # 触发近期窗口
+    assert rel.params["n"] == 250
+    assert any("成长次新股保护" in e for e in r.evidence)
+    # 近端中位 = 中位数(12,14,13,16,15) = 14 → 8.49×14 ≈ 118.86（远低于全史 8.49×44≈373）
+    assert rel.value == pytest.approx(8.49 * 14.0, abs=0.01)
+    # 全史中位（对照，无保护时）：8.49 × 全史中位（远高于近端）
+    import statistics as _st
+    full = run_valuation(
+        eps=8.49, bvps=30.0, pe_history=pe_hist, dividend=None,
+        business_type="growth", params={"growth_rate": 0.10},
+    )
+    assert full.methods["relative_median_pe"].value == pytest.approx(8.49 * _st.median(pe_hist), abs=0.01)
+    assert full.methods["relative_median_pe"].value > rel.value * 2  # 保护后显著回落
+    # 无高成长（CAGR 低）→ 不用窗口
+    eps_hist_flat = [8.0, 8.1, 8.2, 8.3, 8.49]
+    r2 = run_valuation(
+        eps=8.49, bvps=30.0, pe_history=pe_hist, dividend=None,
+        business_type="growth", params={"growth_rate": 0.10},
+        eps_history=eps_hist_flat,
+    )
+    assert "median_window_days" not in r2.methods["relative_median_pe"].params
+    assert not any("成长次新股保护" in e for e in r2.evidence)
+
+
+def test_method_evidence_marks_present_vs_future():
+    """2026-08-09：每个估值法的 evidence 显式标注 现值 / N年后·未来值。"""
+    r = run_valuation(eps=4.5, bvps=31.7, pe_history=[21.0, 21.3], dividend=2.2)
+    dcf_line = next(e for e in r.evidence if e.startswith("dcf:") and "（现值）" in e)
+    assert "（现值）" in dcf_line
+    tang_line = next(e for e in r.evidence if e.startswith("tang:") and "3年后·未来值" in e)
+    assert "3年后·未来值" in tang_line
+
+
+def test_cash_proxy_divergence_evidence():
+    """P1-2：OCF/净利 原始比值偏离 1 时 evidence 显式提示。"""
+    r = run_valuation(
+        eps=8.49, bvps=30.0, pe_history=[20.0, 21.0], dividend=2.0,
+        ocf_to_np=1.40,
+    )
+    assert any("OCF/净利 原始比值" in e for e in r.evidence)
+    r2 = run_valuation(
+        eps=8.49, bvps=30.0, pe_history=[20.0, 21.0], dividend=2.0,
+        ocf_to_np=1.10,
+    )
+    assert not any("OCF/净利 原始比值" in e for e in r2.evidence)
+
+
+def test_graham_formula_uses_newest_pe():
+    """修复潜在 bug：pe_history 最新在前，当期 PE 取 pe_history[0] 而非 [-1]。"""
+    # 最新 PE=5（<10 → 启用格雷厄姆公式）；旧逻辑取 [-1]=30 会误跳过
+    r = run_valuation(
+        eps=4.0, bvps=30.0, pe_history=[5.0, 20.0, 30.0], dividend=1.0,
+        business_type="consumer_monopoly",
+    )
+    assert r.methods["graham_formula"].value is not None
+    r2 = run_valuation(
+        eps=4.0, bvps=30.0, pe_history=[15.0, 5.0, 8.0], dividend=1.0,
+        business_type="consumer_monopoly",
+    )
+    assert r2.methods["graham_formula"].value is None

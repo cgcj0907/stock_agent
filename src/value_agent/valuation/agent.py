@@ -63,6 +63,13 @@ def methods_to_list(methods: dict, confidences: dict | None = None) -> list[dict
             "confidence": confidences.get(name, 0.0) if m.value is not None else 0.0,
             # v2.3：估值时点口径——None=现值；3=三年后估值（唐朝法，不进入当前内在价值区间）
             "horizon_years": m.horizon_years,
+            # 2026-08-09：显式时点标签——present=现值（进入当前内在价值区间）；
+            # future=N年后（仅参考展示）。前端/备忘录据此标注「现值 / N年后·未来值」。
+            "value_type": "present" if m.horizon_years is None else "future",
+            "horizon_label": (
+                "现值" if m.horizon_years is None
+                else f"{m.horizon_years}年后（未来值）"
+            ),
         }
         for name, m in methods.items()
     ]

@@ -65,3 +65,24 @@ def test_decision_snapshot_includes_calibration_trace():
     assert "calibration_trace" in snap
     assert snap["calibration_trace"]["M5_moat"]["outcome"] == "applied"
     assert snap["calibration_trace"]["M5_moat"]["delta"] == 5.0
+
+
+def test_memo_method_table_marks_present_vs_future(stub_data):
+    """2026-08-09：备忘录方法对照表每个估值法显式标注 现值 / N年后·非现值。"""
+    from value_agent.agents.builtin import register_builtin_agents
+    from value_agent.agents.registry import AgentRegistry
+    from value_agent.sessions import InMemoryStore, SessionManager
+    from value_agent.workflow import WorkflowEngine, default_workflow
+
+    reg = register_builtin_agents(AgentRegistry())
+    sm = SessionManager(InMemoryStore())
+    session = sm.create_session("600519", "贵州茅台")
+    engine = WorkflowEngine(reg, sm, data=stub_data)
+    engine.run(session, default_workflow())
+
+    memo = build_memo(session)
+    table = [ln for ln in memo.splitlines() if ln.startswith("| ")]
+    # 现值方法带「（现值）」
+    assert any("（现值）" in ln and "dcf" in ln for ln in table)
+    # 未来方法（唐朝法）带「（3年后，非现值）」
+    assert any("（3年后，非现值）" in ln and "tang" in ln for ln in table)

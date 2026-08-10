@@ -164,6 +164,11 @@ def apply_calibration(
         if new_dr - gr >= 0.02:
             p["discount_rate"] = new_dr
         else:
-            p["growth_rate"] = max(0.0, round(dr - 0.02, 4))
+            # 折现率顶到上限仍拉不出 2% 价差：先把折现率抬满，再尽量保住增速。
+            # P1-3 修复（2026-08-09，东鹏/中策 g=12%、r=9% 案例）：旧逻辑把增速降到
+            # 「原折现率−2%」（12%/9% → g=7%），把 LLM 的增速上调整个吞掉、与 M3 脱节；
+            # 改为 r 先抬到 12% 再 g=10%，保留大部分增速上调（12%/12% → g=10% 不变）。
+            p["discount_rate"] = new_dr
+            p["growth_rate"] = max(0.0, round(new_dr - 0.02, 4))
     delta = _to_float(calib.get("valuation_confidence_delta"), 0.0)
     return p, w, delta

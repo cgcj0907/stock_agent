@@ -87,13 +87,15 @@ def _certainty_adjusted_discount(
         f = RISK_FACTOR[risk_level]
         req *= f
         notes.append(f"风险 {risk_level} → ×{f:.2f}")
-    req += margin_adjustment
     if persona_adjustment:
         req += persona_adjustment
         notes.append(f"个人画像 → +{persona_adjustment:.2f}")
+    # 情绪调整前的确定性分级值（展示用）：避免证据里"50%×1.10=50%"的算术误导
+    certainty_req = round(req, 4)
+    req += margin_adjustment
     low, high = REQUIRED_CLAMP
     req = round(min(high, max(low, req)), 4)
-    return req, notes
+    return req, notes, certainty_req
 
 
 def run_safety_margin(
@@ -121,8 +123,9 @@ def run_safety_margin(
         # 用户手动覆盖（assumptions.required_discount）：尊重原值，不走确定性公式与夹逼，
         # 但显式叠加（情绪/个人画像）仍并入
         req, certainty_notes = round(base_req + margin_adjustment + persona_adjustment, 4), []
+        certainty_req = round(base_req, 4)
     else:
-        req, certainty_notes = _certainty_adjusted_discount(
+        req, certainty_notes, certainty_req = _certainty_adjusted_discount(
             base_req, moat_width=moat_width, risk_level=risk_level,
             margin_adjustment=margin_adjustment, persona_adjustment=persona_adjustment,
         )
@@ -184,12 +187,13 @@ def run_safety_margin(
     if certainty_notes:
         evidence.insert(
             1,
-            f"确定性分级要求折扣：{base_req:.0%} × {' × '.join(certainty_notes)} = {req:.0%}（夹逼 [{REQUIRED_CLAMP[0]:.0%}, {REQUIRED_CLAMP[1]:.0%}]）",
+            f"确定性分级要求折扣：{base_req:.0%} × {' × '.join(certainty_notes)} = {certainty_req:.0%}（夹逼 [{REQUIRED_CLAMP[0]:.0%}, {REQUIRED_CLAMP[1]:.0%}]）",
         )
     if margin_adjustment:
+        # 放在确定性分级之后，展示「55% −5% → 净 50%」的完整算术，避免 50%×1.10=50% 的误导
         evidence.insert(
-            1,
-            f"市场情绪调整（M7）：margin_adjustment {margin_adjustment:+.0%}",
+            2 if certainty_notes else 1,
+            f"市场情绪调整（M7）：margin_adjustment {margin_adjustment:+.0%} → 净要求折扣 {req:.0%}",
         )
     if sell_reference:
         evidence.append(

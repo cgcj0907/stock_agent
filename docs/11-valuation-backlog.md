@@ -458,6 +458,9 @@
 - ✅ **8.11 端到端否决链路测试**：新增测试（stub 好财务 → 否决 → M10 avoid）。
 - ✅ **8.3(M10) LLM 定性理由接入**：LLM 对（维度分,总分,档位）给 1–2 条赞成/反对理由，
   白名单后并入 decision_reasons。
+- ✅ **8.12 安全边际风险严重度分级**：R-005「安全边际为负」不再恒 high——按 M4 intrinsic_value + M8 price 分级
+  （下沿~中值内贴近下沿 ≤1.10×low→low / 其余→medium，中值~上沿→high，>上沿→high，M4 缺失回退 high）；
+  合理偏下场景 M9 max_severity 降为 medium、不进 M11 监控候选（买入区间仍由 price_buy 覆盖），压力情景估算不变。
 - ✅ **8.4 decision_watch 进 runner 事件**：runner 对 blocked_by_veto 的 decision_watch 发提醒事件。
 - ✅ **8.5 memo/前端展示 decision_reasons 与 handoff**：memo「决策理由（M10）」+ handoff 小节。
 - ✅ **8.6 决策快照审计纳入 reasons/handoff**：build_decision_snapshot 补 decision_reasons + handoff。
@@ -524,6 +527,19 @@
   补发「财报季复查」提醒（runner `quarterly_review` 参数 + CLI flag）。
 - ✅ 存储/ingest：`northbound`/`margin` 表自动建表 + `ingest_company` 落库 + DataManager 查询接口。
 
+---
+
+## 已实施（第四批，2026-08-09 —— 会话稽核驱动：成长次新股跨期不可比 + 现金化基数 + 增速参数链路）
+
+- ✅ **2.3b 成长次新股相对PE保护（P1-1）**：近 N 年年化 EPS CAGR ≥ 20% 时，`relative_median_pe` 改用
+  「最近 250 交易日」PE 中位（`recent_window`），解决「上市初期高 PE × 当期高 EPS」双重放大
+  （东鹏饮料：历史中位 42 → 近端 14.5，相对PE 356→123）。
+- ✅ **1.2 现金化基数收紧（P1-2）**：`CASH_RATIO` 夹逼 [0.5,1.5]→[0.6,1.3]（高 OCF/NP>1.3 属质量信号，
+  已在 M2 体现，不再全额放大 DCF 基数）；原始比值偏离 1（0.7~1.3 外）evidence 显式提示。
+- ✅ **2.1 增速参数链路修复（P1-3）**：`apply_calibration` r−g≥2% 校验改为「折现率先抬满到 12% 再降增速到 10%」，
+  不再把 LLM 增速上调静默吞回 discount−2%（12%/9% → g 7%→10%，与 M3 保守档更贴近）。
+- ✅ **现值/未来标注**：M4 方法级 `value_type`（present/future）+ `horizon_label` + evidence「（现值）/（N年后·未来值）」+
+  备忘录/前端方法表显式标注；修复 graham_formula 当期 PE 取序（pe_history[0]）。
 ### 核实后仍拿不到（免费源无接口 / 需人工/付费）
 - 1.3 保险 EV（内含价值）：无免费个股 EV 数据源（年报手工整理，未结构化）。
 - 5.3 转换成本/网络效应的规则代理：需客户集中度/迁移成本，无免费 API（仅 LLM 定性）。

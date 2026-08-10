@@ -116,6 +116,20 @@ def test_certainty_discount_none_moat_high_risk_clamped():
     assert 0.2 <= r.required_discount <= 0.6
 
 
+def test_certainty_discount_evidence_shows_intermediate_before_margin():
+    """8.9：确定性分级证据显示情绪调整前的中间值，算术不再误导（50%×1.00×1.10=55%，再 −5% → 净 50%）。"""
+    r = run_safety_margin(
+        40.0, INTRINSIC, business_type="cyclical",
+        moat_width="medium", risk_level="high", margin_adjustment=-0.05,
+    )
+    assert r.required_discount == pytest.approx(0.50, abs=0.001)
+    cert = next(e for e in r.evidence if "确定性分级要求折扣" in e)
+    assert "= 55%" in cert  # 中间值（乘数链结果），而非被情绪调整污染后的净 50%
+    adj = next(e for e in r.evidence if "市场情绪调整" in e)
+    assert "margin_adjustment -5%" in adj
+    assert "净要求折扣 50%" in adj
+
+
 def test_buy_tranches_three_tiers():
     """6.2：分批建仓三档（1.0/0.85/0.7 × 买入价，各 1/3）。"""
     r = run_safety_margin(40.0, INTRINSIC)

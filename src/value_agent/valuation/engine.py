@@ -25,6 +25,8 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 from .methods import (
+    CASH_ATTN_HIGH,
+    CASH_ATTN_LOW,
     MethodResult,
     cash_earnings_proxy,
     dcf,
@@ -102,6 +104,12 @@ CYCLICAL_EPS_YEARS = 5   # 正常化 EPS = 近 N 年 EPS 中位数
 # 2.3：次新股最少样本门槛——PE 历史 < 250 交易日或年报 < 3 期 → 相对估值/增速置信度降级
 NEW_STOCK_PE_MIN = 250        # 交易日
 NEW_STOCK_ANNUAL_MIN = 3      # 年报期数
+
+# 2.3b 成长次新股保护（P1-1，2026-08-09，东鹏 41.3×EPS=350 案例）：
+#   历史中位 PE 被上市初期高 PE 主导、与当期高盈利跨期不可比时，
+#   relative_median_pe 改用「最近 N 个交易日」PE 中位（pe_history 最新在前）。
+RECENT_PE_WINDOW_DAYS = 250        # 近期 PE 窗口（交易日）
+GROWTH_EPS_CAGR_MIN = 0.20         # 近 N 年年化 EPS CAGR ≥ 20% → 视为高成长、跨期不可比
 
 # 2.6：格雷厄姆公式（1970s 4.4/Y 参数）仅当期 PE < 10 时启用
 GRAHAM_FORMULA_MAX_PE = 10.0
@@ -466,6 +474,18 @@ def run_valuation(
         and not (business_type == "financial" and financial_subtype in NORMALIZED_SUBTYPES)
     )
 
+    # 2.3b 成长次新股保护：近 N 年年化 EPS CAGR ≥ 20% → 历史中位 PE 与当期盈利跨期不可比，
+    # relative_median_pe 改用「最近 RECENT_PE_WINDOW_DAYS 交易日」PE 中位（pe_history 最新在前）。
+    eps_cagr: float | None = None
+    if eps_history:
+        hist_pos = [e for e in eps_history if e is not None and e > 0]
+        if len(hist_pos) >= 2 and hist_pos[0] > 0:
+            eps_cagr = (hist_pos[-1] / hist_pos[0]) ** (1 / (len(hist_pos) - 1)) - 1
+    high_growth_uncomparable = (
+        eps_cagr is not None and eps_cagr >= GROWTH_EPS_CAGR_MIN
+        and len(pe_history) > RECENT_PE_WINDOW_DAYS  # 窗口有意义（否则全史=近期）
+    )
+
     # 3) 执行方法
     methods: dict[str, MethodResult] = {}
     if "dcf" in allowed:
@@ -484,7 +504,8 @@ def run_valuation(
         methods["ncav"] = ncav(ncav_ps)
     if "graham_formula" in allowed:
         # 2.6：格雷厄姆公式仅当期 PE < 10 时启用（1970s 参数过时，仅深度价值辅助）
-        current_pe = pe_history[-1] if pe_history else None
+        # pe_history 最新在前（agent.py 按 trade_date 降序），pe_history[0] = 当期 PE
+        current_pe = pe_history[0] if pe_history else None
         if current_pe is not None and current_pe >= GRAHAM_FORMULA_MAX_PE:
             methods["graham_formula"] = MethodResult(
                 "graham_formula", None,
@@ -497,10 +518,12 @@ def run_valuation(
         methods["ddm"] = ddm(dividend, g, r, eps=eps)
     if "relative_median_pe" in allowed:
         # 周期股/券商：正常化 EPS + PE 封顶（无 EPS 历史时至少对当期 EPS 封顶，避免 101 倍失真）
+        # 2.3b：高成长次新股 → 改用近期 PE 窗口（跨期不可比保护）
         methods["relative_median_pe"] = relative_median_pe(
             eps, pe_history,
             normalized_eps=normalized_eps,
             pe_cap=(CYCLICAL_PE_CAP if need_normalized else None),
+            recent_window=(RECENT_PE_WINDOW_DAYS if high_growth_uncomparable else None),
         )
     if "pb_band" in allowed:
         methods["pb_band"] = pb_band(bvps, pb_history)
@@ -542,6 +565,12 @@ def run_valuation(
             f"⚠️ 次新股门槛（2.3）：年报仅 {len([e for e in eps_history if e is not None])} 期 < {NEW_STOCK_ANNUAL_MIN}，"
             f"增速与正常化口径参考性降低"
         )
+    if high_growth_uncomparable:
+        evidence.append(
+            f"⚠️ 成长次新股保护（2.3b）：近 {len([e for e in eps_history if e is not None])} 期 EPS "
+            f"CAGR {eps_cagr:.1%} ≥ {GROWTH_EPS_CAGR_MIN:.0%}，历史中位 PE 与当期盈利跨期不可比，"
+            f"relative_median_pe 改用最近 {RECENT_PE_WINDOW_DAYS} 交易日 PE 中位"
+        )
     if "need_normalized_micro" in locals() or need_normalized and business_type not in ("cyclical",):
         pass  # 微利正常化提示由下方统一输出
     if loss_mode:
@@ -551,11 +580,21 @@ def run_valuation(
     for m in methods.values():
         if m.value is not None:
             note = f"（{m.note}）" if m.note else ""
-            evidence.append(f"{m.name}: {m.value} 元{note}（{m.params}）")
+            # 估值时点口径：现值=进入当前内在价值区间；N年后=未来值，仅参考展示
+            horizon = (
+                f"（{m.horizon_years}年后·未来值）"
+                if m.horizon_years is not None else "（现值）"
+            )
+            evidence.append(f"{m.name}: {m.value} 元{note}（{m.params}）{horizon}")
         else:
             evidence.append(f"{m.name}: 跳过（{m.note}）")
     if cash_proxy_used and "dcf" in allowed:
         evidence.append(f"DCF 盈利基数：现金化利润代理 {cash_eps}（ocf_to_np×EPS 或 OCFPS）")
+        if ocf_to_np is not None and not (CASH_ATTN_LOW <= ocf_to_np <= CASH_ATTN_HIGH):
+            evidence.append(
+                f"⚠️ OCF/净利 原始比值 {ocf_to_np:.2f} 偏离 1（注意区间 "
+                f"{CASH_ATTN_LOW:.1f}~{CASH_ATTN_HIGH:.1f}），DCF 基数已按夹逼保守处理"
+            )
     evidence += ks.evidence
     evidence += q_evidence
 

@@ -258,6 +258,10 @@ DIV_ZERO           # 除零/不可计算
   ```
 - `vetoes[]`：`{"id", "reason", "severity"}`（一票否决，独立于 risk_items）
 - `qualitative`（LLM 红队）：`key_assumptions[]`、`permanent_loss_paths[]`、`verdict`
+- 严重度分级（8.12）：`安全边际` 风险项（trigger=`discount<0`）不再恒 high——
+  按 M4 `intrinsic_value` + M8 `price` 分级：下沿~中值（合理偏下）内贴近下沿（现价 ≤ 下沿×1.10）→ `low`、
+  其余 → `medium`；中值~上沿（合理偏上）→ `high`；>上沿（高估）→ `high`；
+  M4 位置缺失时保守回退 `high`（fail-safe）。
 - `handoff`：
   - `veto_flags [req]`：否决 id 列表（M10 用，替代读 `outputs.veto`）
   - `max_severity [req]`：`low|medium|high|critical`
