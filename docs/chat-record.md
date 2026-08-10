@@ -166,3 +166,8 @@
 - 排查「中国平安第一条买入规则能否触发」：生产 Supabase `monitor_rules` 表有该规则（price_buy ≤56.76 元，active），
   实时价 53.32 ≤ 56.76 触发验证通过；但发现 FC 定时任务路径 `run_daily_job`（/api/daily）只推 webhook **从不把命中写回 monitor_hits**，
   导致前端监控中心命中记录恒为空；修复 daily.py 增加写回 + runner 按 (code, rule_type) 去重，端到端验证落库 1 条，577 测试全绿 + ruff 通过。
+
+### 轮次 6 · 2026-08-10
+- 清理中国平安 `monitor_rules` 重复物化（12→6 条，保留每组最早一条，全表仅平安有重复）；根因是物化行带 user_id 而
+  replace_for_session 只清理 user_id IS NULL 行；修复：replace_for_session 增加 owner_user_id 参数（物化时传会话归属用户，
+  清理该用户旧物化行），InMemory/Sqlite/Supabase 三端一致 + manager 物化传入，新增防重复测试，全量 578 通过 + ruff。

@@ -723,3 +723,36 @@ def test_run_daily_job_persists_monitor_hits(tmp_path):
     assert summary2["monitor_events"] == 1
     loaded2 = store.list()
     assert len(loaded2[0].monitor_hits) == 1
+
+
+def test_rules_store_replace_owner_dedupes(tmp_path):
+    """防重复物化：同一归属用户重复 replace 不叠加；其他用户自定义行保留。"""
+    from value_agent.monitor.rules_store import SqliteRuleStore
+
+    store = SqliteRuleStore(str(tmp_path / "sessions.db"))
+    try:
+        base = {"company_code": "601318", "company_name": "中国平安",
+                "severity": "info", "source_module": "M11_monitor", "action": "action"}
+        # 第一次物化（归属 u-1）
+        store.replace_for_session("s1", [
+            {**base, "rule_type": "price_buy", "message": "第一档", "params": {"price": 56.76}, "user_id": "u-1"},
+            {**base, "rule_type": "price_sell", "message": "卖出", "params": {"price": 95.1}, "user_id": "u-1"},
+        ], owner_user_id="u-1")
+        # 用户自定义行（其他用户 u-2）应保留
+        store.replace_for_session("s1", [
+            {**base, "rule_type": "price_buy", "message": "自定义", "params": {"price": 30.0}, "user_id": "u-2"},
+        ])
+        # 第二次物化（同一归属 u-1）：旧 u-1 行清理，不叠加
+        store.replace_for_session("s1", [
+            {**base, "rule_type": "price_buy", "message": "第一档", "params": {"price": 56.76}, "user_id": "u-1"},
+            {**base, "rule_type": "price_sell", "message": "卖出", "params": {"price": 95.1}, "user_id": "u-1"},
+        ], owner_user_id="u-1")
+
+        rows = store.list_by_session("s1")
+        assert len(rows) == 3  # u-1 两条（无重复） + u-2 一条保留
+        types = {r["rule_type"] for r in rows}
+        assert types == {"price_buy", "price_sell"}
+        u2 = [r for r in rows if r.get("user_id") == "u-2"]
+        assert len(u2) == 1 and u2[0]["params"]["price"] == 30.0
+    finally:
+        store.close()

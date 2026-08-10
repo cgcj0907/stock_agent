@@ -67,8 +67,18 @@ class MonitorRuleStore(ABC):
     """监控规则存储接口。规则行统一为 dict（见 _row_to_dict）。"""
 
     @abstractmethod
-    def replace_for_session(self, session_id: str, rules: list[dict]) -> int:
-        """用最新规则替换某会话的系统规则（user_id 非空的自定义行保留），返回写入条数。"""
+    def replace_for_session(
+        self,
+        session_id: str,
+        rules: list[dict],
+        owner_user_id: str | None = None,
+    ) -> int:
+        """用最新规则替换某会话的系统规则，返回写入条数。
+
+        - owner_user_id 为空：只清理 user_id IS NULL 的系统行，保留全部用户自定义行；
+        - owner_user_id 非空：同时清理归属该用户的旧物化行（重复物化不叠加），
+          其他用户的自定义行仍保留。
+        """
 
     @abstractmethod
     def list_by_session(self, session_id: str) -> list[dict]:
@@ -121,8 +131,16 @@ class InMemoryRuleStore(MonitorRuleStore):
     def __init__(self) -> None:
         self._rows: dict[str, list[dict]] = {}
 
-    def replace_for_session(self, session_id: str, rules: list[dict]) -> int:
-        kept = [r for r in self._rows.get(session_id, []) if r.get("user_id")]
+    def replace_for_session(
+        self,
+        session_id: str,
+        rules: list[dict],
+        owner_user_id: str | None = None,
+    ) -> int:
+        kept = [
+            r for r in self._rows.get(session_id, [])
+            if r.get("user_id") and r.get("user_id") != owner_user_id
+        ]
         rows = [_normalize_rule(r, session_id) for r in rules]
         rows.extend(kept)
         self._rows[session_id] = rows
@@ -153,11 +171,23 @@ class SqliteRuleStore(MonitorRuleStore):
         self._conn.executescript(_SQLITE_DDL)
         self._conn.commit()
 
-    def replace_for_session(self, session_id: str, rules: list[dict]) -> int:
-        # 只替换系统规则（user_id IS NULL），保留用户自定义行
-        self._conn.execute(
-            "DELETE FROM monitor_rules WHERE session_id = ? AND user_id IS NULL", (session_id,)
-        )
+    def replace_for_session(
+        self,
+        session_id: str,
+        rules: list[dict],
+        owner_user_id: str | None = None,
+    ) -> int:
+        # 默认只替换系统规则（user_id IS NULL），保留用户自定义行；
+        # 传入 owner_user_id 时同时清理归属该用户的旧物化行（重复物化不叠加）
+        if owner_user_id:
+            self._conn.execute(
+                "DELETE FROM monitor_rules WHERE session_id = ? AND (user_id IS NULL OR user_id = ?)",
+                (session_id, owner_user_id),
+            )
+        else:
+            self._conn.execute(
+                "DELETE FROM monitor_rules WHERE session_id = ? AND user_id IS NULL", (session_id,)
+            )
         for r in rules:
             row = _normalize_rule(r, session_id)
             self._conn.execute(
@@ -218,12 +248,23 @@ class SupabaseRuleStore(MonitorRuleStore):
         with self._conn.cursor() as cur:
             cur.execute(_PG_DDL)
 
-    def replace_for_session(self, session_id: str, rules: list[dict]) -> int:
+    def replace_for_session(
+        self,
+        session_id: str,
+        rules: list[dict],
+        owner_user_id: str | None = None,
+    ) -> int:
         with self._conn.cursor() as cur:
-            cur.execute(
-                "DELETE FROM monitor_rules WHERE session_id = %s AND user_id IS NULL",
-                (session_id,),
-            )
+            if owner_user_id:
+                cur.execute(
+                    "DELETE FROM monitor_rules WHERE session_id = %s AND (user_id IS NULL OR user_id = %s)",
+                    (session_id, owner_user_id),
+                )
+            else:
+                cur.execute(
+                    "DELETE FROM monitor_rules WHERE session_id = %s AND user_id IS NULL",
+                    (session_id,),
+                )
             for r in rules:
                 row = _normalize_rule(r, session_id)
                 cur.execute(

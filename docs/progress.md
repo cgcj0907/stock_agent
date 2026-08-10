@@ -121,6 +121,18 @@
 
 ## 历史变更日志（详细）
 
+> ✅ 2026-08-10 **monitor_rules 防重复物化修复 + 生产重复数据清理**：
+> ① 生产清理：中国平安 monitor_rules 12 条 = 同一批规则物化 2 次（07:32:42/07:32:43 各 6 条），按
+>    (session_id, rule_type, trigger) 保留最早一条删除 6 条（全表仅平安存在该重复模式）；
+> ② 根因：M11 物化行 `setdefault("user_id", session.user_id)` 带归属用户，而 `replace_for_session` 只清理
+>    user_id IS NULL 的系统行 → 旧物化行永不清理，重复物化叠加；
+> ③ 修复：`replace_for_session` 增加 `owner_user_id` 参数（非空时同时清理归属该用户的旧物化行），
+>    InMemory/Sqlite/Supabase 三端一致；`_sync_monitor_rules` 物化时传 `owner_user_id=session.user_id`；
+>    默认不传时保持「只替换系统规则、保留用户自定义行」原行为（兼容既有测试）；
+> ④ 测试：新增 `test_rules_store_replace_owner_dedupes`（同归属重复物化不叠加 + 其他用户自定义行保留），
+>    全量 **578 通过** + ruff。
+
+
 > ✅ 2026-08-10 **FC 每日任务命中落库修复（中国平安买入规则触发排查驱动）**：
 > ① 排查：生产 `monitor_rules` 表存在平安 price_buy 规则（第一档 ≤56.76 元，active=true，会话 sess_b2d34bdc3bd7），
 >    实时价 53.32 ≤ 56.76 满足触发（AkShare 验证），但该会话 `monitor_hits` 为空——根因是 FC 定时任务入口

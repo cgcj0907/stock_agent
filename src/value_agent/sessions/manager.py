@@ -420,7 +420,8 @@ class SessionManager:
             row.setdefault("user_id", session.user_id)  # 规则归属用户 → 按用户推送
             rows.append(row)
         try:
-            self._rules_store.replace_for_session(session.id, rows)
+            # owner_user_id=会话归属用户：重物化时同时清理该用户旧行，避免重复物化叠加
+            self._rules_store.replace_for_session(session.id, rows, owner_user_id=session.user_id)
         except Exception:
             logger.exception("监控规则物化失败（不影响会话保存）")
 
