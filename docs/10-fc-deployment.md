@@ -135,13 +135,15 @@ curl https://value-agent-vjdugjsdaa.cn-chengdu.fcapp.run/health   # → {"status
 
 ### 10.1 代码侧（已完成）
 
-- `src/value_agent/daily.py::run_daily_job()`：**只读模式**——读已完成会话 + `monitor_rules` 表
-  （回退 JSONB/M8）→ 按规则代码**实时拉最新价**判断 → 命中按用户推送飞书/企微。
-  **不做任何行情/估值数据写入**（Supabase 只读、不占连接池）；价格获取失败只跳过不中断。
-- `src/value_agent/main.py`：两个入口，任选其一：
+- `src/value_agent/daily.py::run_daily_job()`：读已完成会话 + `monitor_rules` 表
+  （回退 JSONB/M8）→ 按规则代码**实时拉最新价**判断 → 命中**写回会话 `monitor_hits`**（前端监控中心可读
+  + 跨会话记忆，按 (code, rule_type) 去重）→ 按用户推送飞书/企微。
+  **不写行情/估值数据**；价格获取失败只跳过不中断。
+- `src/value_agent/main.py`：三个入口，任选其一（都走 `run_daily_job()`）：
+  - `POST /invoke`：**FC 定时触发器（异步事件）对 Web 函数的实际调用路径**——FC 把控制台「触发消息」
+    以 POST /invoke 发来（body 即 `{"action": "daily", "token": "<DAILY_TOKEN>"}`），手动解析兼容非 JSON content-type
+  - `POST /`：兼容备用入口（同 /invoke 逻辑）
   - `POST /api/daily`：HTTP 直接调用（curl / FC「HTTP 触发」模式），可选鉴权头 `x-daily-token`
-  - `POST /`：**FC 定时触发器（异步事件）入口**——FC 把定时事件以 HTTP POST 发到函数根路径 `/`，
-    事件体即控制台「触发消息」，如 `{"action": "daily", "token": "<DAILY_TOKEN>"}`
 - **按用户通知**：`user_webhooks(user_id, channel, webhook_url)` 表 + `GET/PUT /api/webhooks` +
   `POST /api/webhooks/test`（JWT 鉴权，RLS 隔离）。分析会话从登录 JWT 绑定 `user_id`，M11 规则
   物化时带上归属；每日监控按规则归属推给对应（未配渠道的用户跳过，全局规则走环境变量 webhook）。
@@ -151,7 +153,7 @@ curl https://value-agent-vjdugjsdaa.cn-chengdu.fcapp.run/health   # → {"status
 
 1. 镜像需已包含上述入口（重新 build/push 一次，见第四节）。
 2. 函数 `value-agent` → **触发器** → 创建触发器：
-   - 类型：**定时触发器**
+   - 类型：**定时触发器**（异步调用）
    - 触发方式：按表单选 **指定时间**（或 自定义 cron，控制台时区已是 `Asia/Shanghai`）
    - 指定时间：`14:00:00`（或你要的时刻；留空日期/星期 = 每天触发）
    - **触发消息**（Event Payload）填：
@@ -159,6 +161,9 @@ curl https://value-agent-vjdugjsdaa.cn-chengdu.fcapp.run/health   # → {"status
      {"action": "daily", "token": "<你的 DAILY_TOKEN>"}
      ```
      （未设 `DAILY_TOKEN` 就不带 token 字段）
+   - ⚠️ FC 定时触发器会把该事件 POST 到 **`/invoke`**（Web 函数事件入口），**不是 `/`**；
+     代码已实现 `/invoke`（手动解析 body，兼容任意 content-type）。若 FC 上 `/invoke` 返回 404，
+     说明镜像没包含最新代码，需重新 build/push 并「修改镜像」拉取。
 3. 环境变量确认已有：`DATABASE_URL`、`SESSION_STORE=supabase`、`DATA_WRITE_BACK=sync`；
    新增可选 `DAILY_TOKEN`（与触发消息里的 token 一致）。
 4. 超时 600s 已够用（完整 daily：自选股 ≤100 只增量更新 + 监控，通常 1–3 分钟）。

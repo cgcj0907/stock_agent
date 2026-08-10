@@ -121,6 +121,19 @@
 
 ## 历史变更日志（详细）
 
+> ✅ 2026-08-10 **FC 定时触发器 404 修复（新增 POST /invoke 事件入口）**：
+> ① 现象：FC 定时触发器（异步事件）显示已触发，但 monitor_hits 无新增、无推送——调线上 FC 发现
+>    `/api/daily` 与 `/` 均正常（命中写回 + 推送企业微信成功），而 **POST /invoke 返回 404**；
+> ② 根因：阿里云 FC 定时触发器对 Web 函数/自定义容器的事件调用走 **POST /invoke**（事件入口），不是 `/`；
+>    项目此前只实现 `/` 与 `/api/daily`，定时触发请求被 FastAPI 404 吃掉（FC 显示"触发成功"但 daily 从未执行）；
+> ③ 修复：`main.py` 新增 `POST /invoke`（async 手动解析 body JSON，兼容非 application/json content-type，
+>    与根路径共用 `_run_daily_event` 校验/执行）；保留 `/` 与 `/api/daily` 入口；docs/10 §10.1/§10.2 更新说明；
+> ④ 测试：`test_daily_api.py` 新增 `test_fc_invoke_entry_runs_daily`（404/401/正确 token/非 JSON body 兜底），
+>    全量 **579 通过** + ruff；
+> ⑤ 部署要求：FC 需重新 build/push 镜像并「修改镜像」拉取，定时触发器（触发消息
+>    `{"action":"daily","token":...}`）随即走 /invoke 生效。
+
+
 > ✅ 2026-08-10 **monitor_rules 防重复物化修复 + 生产重复数据清理**：
 > ① 生产清理：中国平安 monitor_rules 12 条 = 同一批规则物化 2 次（07:32:42/07:32:43 各 6 条），按
 >    (session_id, rule_type, trigger) 保留最早一条删除 6 条（全表仅平安存在该重复模式）；

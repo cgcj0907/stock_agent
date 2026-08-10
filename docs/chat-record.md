@@ -171,3 +171,9 @@
 - 清理中国平安 `monitor_rules` 重复物化（12→6 条，保留每组最早一条，全表仅平安有重复）；根因是物化行带 user_id 而
   replace_for_session 只清理 user_id IS NULL 行；修复：replace_for_session 增加 owner_user_id 参数（物化时传会话归属用户，
   清理该用户旧物化行），InMemory/Sqlite/Supabase 三端一致 + manager 物化传入，新增防重复测试，全量 578 通过 + ruff。
+
+### 轮次 7 · 2026-08-10
+- 排查「FC 定时触发器已触发但监控中心仍无命中」：调线上 FC `/api/daily` 与 `/` 均正常（命中写回 + 推送企业微信），
+  但发现 FC 定时触发器（异步事件）对 Web 函数的实际调用路径是 **POST /invoke**，而项目未实现该路由 → 触发请求被 404 吃掉、
+  daily 从未执行；新增 `/invoke` 入口（手动解析 body 兼容任意 content-type，复用根路径校验逻辑）+ 回归测试，
+  全量 579 通过 + ruff；需重新部署镜像后定时触发器才生效。

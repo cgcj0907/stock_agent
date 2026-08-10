@@ -115,3 +115,35 @@ def test_webhook_api_crud_and_test(monkeypatch):
     # 空 url 删除
     r = client.put("/api/webhooks", json={"channel": "feishu", "webhook_url": ""}, headers=auth_h)
     assert r.status_code == 200 and r.json()["webhooks"] == {}
+
+
+def test_fc_invoke_entry_runs_daily(monkeypatch):
+    """FC 定时触发器实际调用路径 POST /invoke：与根路径 / 同逻辑。
+
+    回归：此前 /invoke 未实现 → 定时触发器请求被 404 吃掉，daily 从不执行。
+    """
+    monkeypatch.setenv("DAILY_TOKEN", "secret123")
+    calls: list[str] = []
+
+    def fake_daily(**kw):
+        calls.append("hit")
+        return _fake_daily(**kw)
+
+    monkeypatch.setattr(m, "run_daily_job", fake_daily)
+    client = TestClient(m.app)
+
+    # 未知事件 → 404
+    assert client.post("/invoke", json={"action": "unknown"}).status_code == 404
+    # token 不匹配 → 401
+    assert client.post("/invoke", json={"action": "daily", "token": "wrong"}).status_code == 401
+    # 正确 token（JSON body）→ 200 并执行
+    r = client.post("/invoke", json={"action": "daily", "token": "secret123"})
+    assert r.status_code == 200
+    assert r.json()["monitor_events"] == 0
+    assert calls == ["hit"]
+    # 未设 DAILY_TOKEN 时：非 JSON content-type 的原始 body 也能解析并放行
+    monkeypatch.delenv("DAILY_TOKEN", raising=False)
+    calls.clear()
+    r = client.post("/invoke", content='{"action": "daily"}', headers={"Content-Type": "application/octet-stream"})
+    assert r.status_code == 200
+    assert calls == ["hit"]

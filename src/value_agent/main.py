@@ -657,11 +657,39 @@ def fc_timer_event(
     event: FCTimerEvent | None = None,
     x_daily_token: str | None = Header(default=None),
 ) -> DailyRunResult:
-    """FC 定时触发器（异步事件）入口：FC 会把定时事件以 HTTP POST 发到函数根路径 /。
+    """FC 定时触发器（异步事件）入口：兼容直接把定时事件 POST 到函数根路径 /。
 
     控制台「触发消息」填：{"action": "daily", "token": "<DAILY_TOKEN>"}
-    设了 DAILY_TOKEN 时校验 token（body.token 或 x-daily-token 头均可），防止公开根路径被滥用。
+    设了 DAILY_TOKEN 时校验 token（body.token 或 x-daily-token 头均可），防止公开入口被滥用。
+    注意：阿里云 FC 定时触发器对 Web 函数的实际调用路径是 POST /invoke（见 fc_invoke_entry）。
     """
+    return _run_daily_event(event, x_daily_token)
+
+
+@app.post("/invoke")
+async def fc_invoke_entry(request: Request) -> DailyRunResult:
+    """FC 定时触发器（异步事件）对 Web 函数/自定义容器的实际调用入口：POST /invoke。
+
+    阿里云 FC 定时触发器的事件调用走 /invoke（而非 /），body 为控制台「触发消息」原样 JSON；
+    手动解析 body（兼容非 application/json 的 content-type），再复用根路径的校验与执行逻辑。
+    """
+    raw = (await request.body()).decode("utf-8", "ignore").strip()
+    event: FCTimerEvent | None = None
+    if raw:
+        try:
+            data = json.loads(raw)
+            if isinstance(data, dict):
+                event = FCTimerEvent(**data)
+        except (TypeError, ValueError):
+            event = None
+    return _run_daily_event(event, request.headers.get("x-daily-token"))
+
+
+def _run_daily_event(
+    event: FCTimerEvent | None,
+    x_daily_token: str | None,
+) -> DailyRunResult:
+    """解析并执行定时触发事件（/ 与 /invoke 共用）。"""
     action = event.action if event is not None else ""
     if action not in ("daily", "run_daily"):
         raise HTTPException(status_code=404, detail=f"未知事件：{action or '(空)'}")

@@ -22,6 +22,10 @@
 
 ## 关键里程碑明细
 
+### 2026-08-10 · FC 定时触发器 404 修复（/invoke 事件入口）
+阿里云 FC 定时触发器对 Web 函数实际 POST /invoke，项目此前未实现该路由 → 触发请求被 404 吃掉、daily 从不执行；
+新增 /invoke 入口（手动解析 body、兼容任意 content-type）+ 回归测试，全量 579 通过；重新部署镜像后定时监控生效。
+
 ### 2026-08-10 · FC 每日监控命中落库修复
 FC 定时任务（/api/daily → run_daily_job）此前只推 webhook 不写 monitor_hits，导致前端监控中心命中记录恒为空；
 修复 daily.py 写回会话 + runner 按 (code, rule_type) 去重；中国平安第一档买入（≤56.76，现价 53.32）端到端验证落库，
