@@ -188,3 +188,8 @@
   **event.payload（字符串）** 传给函数，body 形如 {"triggerTime":..., "payload":"{\"action\":...}"}，action 在嵌套 payload 里；
   main.py `_parse_timer_event` 兼容 FC 事件结构（payload 再 JSON 解析），新增回归测试，全量 580 通过 + ruff；
   需重新 build/push 镜像并修改镜像后生效。
+
+### 轮次 10 · 2026-08-11
+- 按用户要求：daily 监控**规则源只认 monitor_rules 表**，去掉会话 JSONB M11 规则与 M8 buy/sell 回退
+  （用户可能保留会话但删除规则，删除即不再触发）；runner 先取表规则、空则跳过（不再为无规则会话拉行情）；
+  迁移 10+ 个测试到 rules_store 注入 + 新增 2 个反转测试（JSONB/M8 不回退），全量 580 通过 + ruff。

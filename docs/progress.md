@@ -121,6 +121,18 @@
 
 ## 历史变更日志（详细）
 
+> ✅ 2026-08-11 **daily 规则源收口：只读 monitor_rules 表，去除 JSONB/M8 回退**：
+> ① 背景：东方财富 warn 来自会话 JSONB 的 M11 mos_watch 规则（表里没有但 daily 回退扫到）；用户删记录后，
+>    明确「规则管理以表为准——保留会话但删除规则后不应再触发」；
+> ② 改动：`_rules_for_session` 只读 monitor_rules 表（rules_store），不再回退会话 JSONB M11 / M8 buy/sell；
+>    `run_daily_monitor` 先取表规则、空则跳过该会话（顺带省掉无效行情请求）；daily.py/runner.py 注释与 docs 同步；
+> ③ 测试：迁移 10+ 个依赖回退的测试改为 rules_store 注入（InMemory/Sqlite），新增
+>    `test_daily_runner_ignores_m8_without_table_rules` + `test_daily_runner_ignores_jsonb_when_table_empty` 反转回归，
+>    全量 **580 通过** + ruff；
+> ④ 影响：现存未物化到表的会话（如国电南瑞 600406，JSONB 5 条规则、表 0 条）将**不再被 daily 评估**；
+>    平安（表 6 条）继续监控。
+
+
 > ✅ 2026-08-10 **FC 定时触发器事件结构兼容（payload 包装）**：
 > ① 现象：FC 日志显示定时触发器（RequestId t-...）POST /invoke 返回 404 且无 daily 执行日志；而同一实例手动调用
 >    （body 顶层 {"action","token"}）返回 200 并正常执行——镜像/路由正常，问题在请求体解析；

@@ -4,9 +4,9 @@
 - CLI：`value-agent daily`（本地/容器手动跑）
 - FastAPI：`POST /api/daily`（阿里云 FC 定时触发器调用，大陆 IP 拉 AkShare）
 
-数据流：读已完成会话 + monitor_rules 表 → 按规则里的代码**实时拉最新价**（AkShare，大陆 IP）
+数据流：读已完成会话 + **monitor_rules 表（唯一规则源）** → 按规则里的代码**实时拉最新价**（AkShare，大陆 IP）
 → 评估触发 → 命中**写回会话 monitor_hits**（前端监控中心可读 + 跨会话记忆）→ 按用户推送飞书/企业微信。
-**不写行情/估值数据**（Supabase 只写 monitor_hits）。
+**不回退会话 JSONB/M8**：用户保留会话但删除规则后即不再触发。**不写行情/估值数据**。
 依赖可注入，便于测试。
 """
 from __future__ import annotations
@@ -32,7 +32,7 @@ def run_daily_job(
 ) -> dict:
     """执行一次每日任务（只读），返回汇总 dict。
 
-    读已完成会话 + monitor_rules 表；价格来自实时源（按规则代码拉最新价），
+    读已完成会话 + monitor_rules 表（唯一规则源，不回退 JSONB/M8）；价格来自实时源（按规则代码拉最新价），
     命中写回会话 monitor_hits（不写行情/估值）。默认按环境配置创建真实组件并 close；测试可注入替身。
     """
     source = source or _default_source()
@@ -41,7 +41,7 @@ def run_daily_job(
     webhook_store = webhook_store or create_user_webhook_store()
     errors: list[str] = []
     try:
-        # 1) 监控评估：规则以 monitor_rules 表为准（回退会话 JSONB → M8），
+        # 1) 监控评估：规则只读 monitor_rules 表（唯一规则源，不回退 JSONB/M8），
         #    价格按规则代码实时拉取（只读，不写库）
         try:
             sessions = store.list()

@@ -68,7 +68,12 @@ def _session_with_m8(buy: float, sell: float, code="600519") -> Session:
 def test_daily_runner_records_monitor_hits():
     """I-2：触发事件写入 session.monitor_hits（跨会话记忆输入）。"""
     session = _session_with_m8(buy=42.5, sell=179.69)
-    events = run_daily_monitor([session], _CheapSource())
+    rules_store = _store_rules(session, [
+        {"rule_type": "price_buy", "company_code": session.company_code, "company_name": "测试",
+         "message": "跌破买入区间", "severity": "info", "action": "action",
+         "source_module": "M8_safety_margin", "params": {"price": 42.5}},
+    ])
+    events = run_daily_monitor([session], _CheapSource(), rules_store=rules_store)
     assert len(events) == 1
     assert session.monitor_hits
     hit = session.monitor_hits[0]
@@ -153,7 +158,12 @@ def test_monitor_plan_replays_prior_warn_hits():
 
 def test_daily_runner_fires_buy_event_when_price_below_buy():
     session = _session_with_m8(buy=42.5, sell=179.69)
-    events = run_daily_monitor([session], _CheapSource())
+    rules_store = _store_rules(session, [
+        {"rule_type": "price_buy", "company_code": session.company_code, "company_name": "测试",
+         "message": "跌破买入区间", "severity": "info", "action": "action",
+         "source_module": "M8_safety_margin", "params": {"price": 42.5}},
+    ])
+    events = run_daily_monitor([session], _CheapSource(), rules_store=rules_store)
     assert len(events) == 1
     assert events[0].rule_type == "price_buy"
     assert "15.0" in events[0].message
@@ -165,7 +175,12 @@ def test_daily_runner_fires_sell_event_when_price_above_sell():
             return {"records": [{"trade_date": "20260804", "close": 200.0}]}
 
     session = _session_with_m8(buy=42.5, sell=179.69)
-    events = run_daily_monitor([session], _ExpensiveSource())
+    rules_store = _store_rules(session, [
+        {"rule_type": "price_sell", "company_code": session.company_code, "company_name": "测试",
+         "message": "达到卖出区间", "severity": "warn", "action": "action",
+         "source_module": "M8_safety_margin", "params": {"price": 179.69}},
+    ])
+    events = run_daily_monitor([session], _ExpensiveSource(), rules_store=rules_store)
     assert len(events) == 1
     assert events[0].rule_type == "price_sell"
 
@@ -222,15 +237,23 @@ def test_monitor_plan_ignores_missing_m10():
 
 def test_daily_runner_hits_persist_roundtrip(tmp_path):
     """I-2 记忆闭环：cmd_monitor 必须把命中写回存储；重载后仍在（此前只改内存即丢）。"""
+    from value_agent.monitor.rules_store import SqliteRuleStore
     from value_agent.sessions.store import SqliteStore
 
-    store = SqliteStore(str(tmp_path / "sessions.db"))
+    db = str(tmp_path / "sessions.db")
+    store = SqliteStore(db)
+    rules_store = SqliteRuleStore(db)
     session = _session_with_m8(buy=42.5, sell=179.69)
     store.save(session)
+    rules_store.replace_for_session(session.id, [
+        {"rule_type": "price_buy", "company_code": session.company_code, "company_name": "测试",
+         "message": "跌破买入区间", "severity": "info", "action": "action",
+         "source_module": "M8_safety_margin", "params": {"price": 42.5}},
+    ])
 
     loaded = store.list()
     assert not loaded[0].monitor_hits
-    events = run_daily_monitor(loaded, _CheapSource())
+    events = run_daily_monitor(loaded, _CheapSource(), rules_store=rules_store)
     assert len(events) == 1
     for s in loaded:  # cmd_monitor 的写回行为：复用同一份列表
         if s.monitor_hits:
@@ -239,6 +262,7 @@ def test_daily_runner_hits_persist_roundtrip(tmp_path):
     again = store.list()
     assert len(again[0].monitor_hits) == 1
     assert again[0].monitor_hits[0]["rule_type"] == "price_buy"
+    rules_store.close()
 
 
 def test_memory_loop_end_to_end(tmp_path):
@@ -250,12 +274,22 @@ def test_memory_loop_end_to_end(tmp_path):
         def daily_prices(self, code, start=None, end=None):
             return {"records": [{"trade_date": "20260804", "close": 200.0}]}
 
-    store = SqliteStore(str(tmp_path / "sessions.db"))
-    store.save(_session_with_m8(buy=42.5, sell=179.69))
+    from value_agent.monitor.rules_store import SqliteRuleStore
+
+    db = str(tmp_path / "sessions.db")
+    store = SqliteStore(db)
+    rules_store = SqliteRuleStore(db)
+    session = _session_with_m8(buy=42.5, sell=179.69)
+    store.save(session)
+    rules_store.replace_for_session(session.id, [
+        {"rule_type": "price_sell", "company_code": session.company_code, "company_name": "测试",
+         "message": "达到卖出区间", "severity": "warn", "action": "action",
+         "source_module": "M8_safety_margin", "params": {"price": 179.69}},
+    ])
 
     # 第 1 天：price_sell（warn）命中并持久化
     loaded = store.list()
-    events = run_daily_monitor(loaded, _ExpensiveSource())
+    events = run_daily_monitor(loaded, _ExpensiveSource(), rules_store=rules_store)
     assert len(events) == 1 and events[0].rule_type == "price_sell"
     for s in loaded:
         if s.monitor_hits:
@@ -366,14 +400,25 @@ def _session_with_rules(rules: list[dict], code="600519") -> Session:
     return s
 
 
+def _store_rules(session: Session, rules: list[dict]):
+    """把规则写入 InMemoryRuleStore（模拟 monitor_rules 表），供 runner 读取。"""
+    from value_agent.monitor.rules_store import InMemoryRuleStore
+
+    rs = InMemoryRuleStore()
+    rs.replace_for_session(session.id, rules)
+    return rs
+
+
 def test_daily_runner_consumes_monitor_rules():
     """9.1：runner 消费 M11 生成的 monitor_rules（price_buy 用 params.price 阈值）。"""
-    session = _session_with_rules([
-        {"rule_type": "price_buy", "trigger": "现价 ≤ 42.5 元", "message": "跌破买入区间",
+    session = _session_with_rules([])
+    rules_store = _store_rules(session, [
+        {"rule_type": "price_buy", "company_code": session.company_code, "company_name": "测试",
+         "trigger": "现价 ≤ 42.5 元", "message": "跌破买入区间",
          "severity": "info", "source_module": "M8_safety_margin", "action": "action",
          "params": {"price": 42.5}},
     ])
-    events = run_daily_monitor([session], _RulesSource())
+    events = run_daily_monitor([session], _RulesSource(), rules_store=rules_store)
     assert len(events) == 1
     assert events[0].rule_type == "price_buy"
     assert "15.0" in events[0].message
@@ -381,12 +426,13 @@ def test_daily_runner_consumes_monitor_rules():
 
 def test_daily_runner_decision_watch_veto_event():
     """8.4：decision_watch（blocked_by_veto）进 runner 事件 → 「解除前不建仓」提醒。"""
-    session = _session_with_rules([
+    session = _session_with_rules([])
+    rules_store = _store_rules(session, [
         {"rule_type": "decision_watch", "trigger": "M10 决策=avoid", "message": "决策回避：一票否决生效，解除前不建仓",
          "severity": "warn", "source_module": "M10_decision", "action": "watch",
          "params": {"blocked_by_veto": True}},
     ])
-    events = run_daily_monitor([session], _RulesSource())
+    events = run_daily_monitor([session], _RulesSource(), rules_store=rules_store)
     assert len(events) == 1
     assert events[0].rule_type == "decision_watch"
     assert "解除前不建仓" in events[0].message
@@ -394,21 +440,24 @@ def test_daily_runner_decision_watch_veto_event():
 
 def test_daily_runner_critical_watch_alert():
     """9.2：非价格 critical 级 watch → 独立告警事件（可执行路径）。"""
-    session = _session_with_rules([
+    session = _session_with_rules([])
+    rules_store = _store_rules(session, [
         {"rule_type": "risk_watch", "trigger": "erosion_risk", "message": "护城河被侵蚀",
          "severity": "critical", "source_module": "M5_moat", "action": "watch"},
     ])
-    events = run_daily_monitor([session], _RulesSource())
+    events = run_daily_monitor([session], _RulesSource(), rules_store=rules_store)
     assert len(events) == 1
     assert events[0].rule_type == "risk_watch"
     assert events[0].severity == "critical"
 
 
-def test_daily_runner_falls_back_to_m8_without_rules():
-    """旧会话无 M11 规则 → 回退 M8 buy/sell（历史行为）。"""
+def test_daily_runner_ignores_m8_without_table_rules():
+    """规则只读 monitor_rules 表：会话 M8 buy/sell 不再回退（删表规则后即不触发）。"""
+    from value_agent.monitor.rules_store import InMemoryRuleStore
+
     session = _session_with_m8(buy=42.5, sell=179.69)
-    events = run_daily_monitor([session], _RulesSource())
-    assert len(events) == 1 and events[0].rule_type == "price_buy"
+    events = run_daily_monitor([session], _RulesSource(), rules_store=InMemoryRuleStore())
+    assert events == []
 
 
 def _mock_httpx_post(handler):
@@ -506,19 +555,20 @@ def test_send_webhook_text_no_channels():
 
 def test_daily_runner_quarterly_review_emits_watch_alerts():
     """9.3：财报季模式对 warn/critical 非价格 watch 补发复查提醒。"""
-    session = _session_with_rules([
+    session = _session_with_rules([])
+    rules_store = _store_rules(session, [
         {"rule_type": "prosperity_watch", "trigger": "景气评级=下行", "message": "行业景气下行",
          "severity": "warn", "source_module": "M3_growth", "action": "watch"},
         {"rule_type": "price_buy", "trigger": "现价 ≤ 42.5 元", "message": "跌破买入区间",
          "severity": "info", "source_module": "M8_safety_margin", "action": "action",
          "params": {"price": 42.5}},
     ])
-    events = run_daily_monitor([session], _RulesSource(), quarterly_review=True)
+    events = run_daily_monitor([session], _RulesSource(), quarterly_review=True, rules_store=rules_store)
     # price_buy 触发 + prosperity_watch 财报季复查提醒
     assert any("财报季复查" in e.message for e in events)
     assert any(e.rule_type == "price_buy" for e in events)
     # 非财报季模式不产生复查提醒
-    events2 = run_daily_monitor([session], _RulesSource())
+    events2 = run_daily_monitor([session], _RulesSource(), rules_store=rules_store)
     assert not any("财报季复查" in e.message for e in events2)
 
 
@@ -574,8 +624,8 @@ def test_run_daily_monitor_reads_rules_from_store():
     assert "50.0" in events[0].message
 
 
-def test_run_daily_monitor_rules_store_falls_back_to_jsonb():
-    """表里没有该会话规则 → 回退会话 JSONB 的 M11 规则（老数据兼容）。"""
+def test_daily_runner_ignores_jsonb_when_table_empty():
+    """规则只读 monitor_rules 表：表里没有该会话规则时，不回退会话 JSONB 的 M11 规则。"""
     from value_agent.monitor.rules_store import InMemoryRuleStore
 
     session = _session_with_rules([
@@ -584,7 +634,7 @@ def test_run_daily_monitor_rules_store_falls_back_to_jsonb():
          "params": {"price": 42.5}},
     ])
     events = run_daily_monitor([session], _RulesSource(), rules_store=InMemoryRuleStore())
-    assert len(events) == 1 and events[0].rule_type == "price_buy"
+    assert events == []
 
 
 def test_persist_materializes_rules_to_store(tmp_path):
@@ -685,8 +735,13 @@ def test_run_daily_job_degrades_on_data_source_failure():
 def test_daily_runner_dedupes_monitor_hits():
     """I-2 去重：同 (code, rule_type) 再次触发时覆盖而非追加。"""
     session = _session_with_m8(buy=42.5, sell=179.69)
-    run_daily_monitor([session], _CheapSource())
-    run_daily_monitor([session], _CheapSource())
+    rules_store = _store_rules(session, [
+        {"rule_type": "price_buy", "company_code": session.company_code, "company_name": "测试",
+         "message": "跌破买入区间", "severity": "info", "action": "action",
+         "source_module": "M8_safety_margin", "params": {"price": 42.5}},
+    ])
+    run_daily_monitor([session], _CheapSource(), rules_store=rules_store)
+    run_daily_monitor([session], _CheapSource(), rules_store=rules_store)
     assert len(session.monitor_hits) == 1
     assert session.monitor_hits[0]["rule_type"] == "price_buy"
     assert "occurred_at" in session.monitor_hits[0]

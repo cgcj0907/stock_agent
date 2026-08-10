@@ -135,8 +135,8 @@ curl https://value-agent-vjdugjsdaa.cn-chengdu.fcapp.run/health   # → {"status
 
 ### 10.1 代码侧（已完成）
 
-- `src/value_agent/daily.py::run_daily_job()`：读已完成会话 + `monitor_rules` 表
-  （回退 JSONB/M8）→ 按规则代码**实时拉最新价**判断 → 命中**写回会话 `monitor_hits`**（前端监控中心可读
+- `src/value_agent/daily.py::run_daily_job()`：读已完成会话 + `monitor_rules` 表（**唯一规则源**，
+  不回退会话 JSONB/M8，删除表规则即不再触发）→ 按规则代码**实时拉最新价**判断 → 命中**写回会话 `monitor_hits`**（前端监控中心可读
   + 跨会话记忆，按 (code, rule_type) 去重）→ 按用户推送飞书/企微。
   **不写行情/估值数据**；价格获取失败只跳过不中断。
 - `src/value_agent/main.py`：三个入口，任选其一（都走 `run_daily_job()`）：

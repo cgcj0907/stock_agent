@@ -4,7 +4,7 @@
 
 9.1（backlog）：runner 消费 M11 生成的 `monitor_rules`（price_buy/price_sell 用
 params.price 阈值评估；decision_watch 否决 → 提醒；critical 级非价格 watch → 独立告警），
-不再另写一份 M8 价格逻辑。旧会话（无 M11 规则）回退 M8 buy/sell 保持兼容。
+不再另写一份 M8 价格逻辑，**规则源只认 monitor_rules 表**（不回退会话 JSONB/M8）。
 """
 from __future__ import annotations
 
@@ -96,17 +96,14 @@ def _evaluate_rule(rule: dict, price: float) -> MonitorEvent | None:
 
 
 def _rules_for_session(session: Session, rules_store) -> list[dict] | None:
-    """取某会话的监控规则：优先 monitor_rules 表（规则源），回退会话 JSONB 的 M11 规则。"""
-    if rules_store is not None:
-        stored = rules_store.list_by_session(session.id)
-        if stored:
-            return stored
-    m11 = session.module_results.get("M11_monitor")
-    if m11 and m11.outputs:
-        raw = m11.outputs.get("monitor_rules")
-        if raw:
-            return [r for r in raw if isinstance(r, dict)]
-    return None
+    """取某会话的监控规则：**只读 monitor_rules 表**（规则源，支持用户编辑/删除）。
+
+    刻意不回退会话 JSONB 的 M11 规则或 M8 buy/sell：用户可能保留会话但删除规则，
+    规则管理以表为准——删除即不再触发，避免「表里删了、JSONB 又扫出来」。
+    """
+    if rules_store is None:
+        return None
+    return rules_store.list_by_session(session.id) or None
 
 
 def run_daily_monitor(
@@ -116,10 +113,11 @@ def run_daily_monitor(
     quarterly_review: bool = False,
     rules_store=None,
 ) -> list[MonitorEvent]:
-    """对已完成会话，用 M11 监控规则（或旧 M8 回退）评估触发条件。
+    """对已完成会话，用 monitor_rules 表里的规则评估触发条件。
 
-    rules_store：monitor_rules 表存储（可选）。传入时规则以表为准（支持用户编辑），
-    表里没有该会话规则再回退会话 JSONB → M8。不传则维持原 JSONB 行为。
+    规则源只认 monitor_rules 表（rules_store）：用户保留会话但删除规则后即不再触发；
+    不再回退会话 JSONB 的 M11 规则 / M8 buy/sell。
+    rules_store 为 None 或表里没有该会话规则 → 该会话不参与评估。
     quarterly_review（9.3 财报季自动复查）：True 时对 warn/critical 级非价格 watch
     （景气/财务/风险/决策）补发「财报季复查」提醒事件，覆盖日常只展示在 memo 的复查项。
     """
@@ -127,51 +125,33 @@ def run_daily_monitor(
     for session in sessions:
         if session.status != SessionStatus.COMPLETED:
             continue
+        # 只读 monitor_rules 表：表里没有该会话规则 → 不评估（不回退 JSONB/M8）
+        rules = _rules_for_session(session, rules_store)
+        if not rules:
+            continue
         price = _latest_close(source, session.company_code)
         if price is None:
             continue
         name = session.company_name or session.company_code
-        rules = _rules_for_session(session, rules_store)
-
-        if rules:
-            for rule in rules:
-                if not isinstance(rule, dict):
-                    continue
-                rule = dict(rule)
-                rule.setdefault("_code", session.company_code)
-                rule.setdefault("_name", name)
-                rule.setdefault("user_id", session.user_id)  # 规则归属 → 按用户推送
-                ev = _evaluate_rule(rule, price)
-                if ev is not None:
-                    events.append(ev)
-                # 9.3：财报季复查——warn/critical 非价格 watch 生成复查提醒
-                if quarterly_review and rule.get("rule_type") not in _PRICE_RULES:
-                    sev = rule.get("severity", "info")
-                    if sev in ("warn", "critical"):
-                        events.append(MonitorEvent(
-                            session.company_code, name, rule.get("rule_type", "review"),
-                            f"【财报季复查】{rule.get('message') or rule.get('trigger') or ''}",
-                            sev,
-                        ))
-        else:
-            # 旧会话回退：无 M11 规则时用 M8 buy/sell（历史行为）
-            m8 = session.module_results.get("M8_safety_margin")
-            if m8 is None or not m8.outputs.get("buy_price"):
+        for rule in rules:
+            if not isinstance(rule, dict):
                 continue
-            buy = m8.outputs["buy_price"]
-            sell = m8.outputs.get("sell_price")
-            if price <= buy:
-                events.append(MonitorEvent(
-                    session.company_code, name, "price_buy",
-                    f"现价 {price} ≤ 买入区间 {buy}，可分批建仓", "info",
-                    user_id=session.user_id,
-                ))
-            elif sell is not None and price >= sell:
-                events.append(MonitorEvent(
-                    session.company_code, name, "price_sell",
-                    f"现价 {price} ≥ 卖出区间 {sell}，考虑兑现", "warn",
-                    user_id=session.user_id,
-                ))
+            rule = dict(rule)
+            rule.setdefault("_code", session.company_code)
+            rule.setdefault("_name", name)
+            rule.setdefault("user_id", session.user_id)  # 规则归属 → 按用户推送
+            ev = _evaluate_rule(rule, price)
+            if ev is not None:
+                events.append(ev)
+            # 9.3：财报季复查——warn/critical 非价格 watch 生成复查提醒
+            if quarterly_review and rule.get("rule_type") not in _PRICE_RULES:
+                sev = rule.get("severity", "info")
+                if sev in ("warn", "critical"):
+                    events.append(MonitorEvent(
+                        session.company_code, name, rule.get("rule_type", "review"),
+                        f"【财报季复查】{rule.get('message') or rule.get('trigger') or ''}",
+                        sev,
+                    ))
     # I-2 记忆：把本次命中写入各会话 monitor_hits（跨会话输入供下次分析注入）。
     # 按 (code, rule_type) 去重：同一条规则再次触发时用最新一次覆盖，
     # 避免每日任务重复追加导致 monitor_hits 膨胀、前端时间线刷屏。

@@ -472,7 +472,7 @@
 
 ### 9. 跟踪监控（M11）
 - ✅ **9.1 runner 消费 monitor_rules**：runner 读 M11 规则（price_buy/price_sell 用 params.price 阈值），
-  旧会话回退 M8。
+  **规则源只认 monitor_rules 表**，不回退会话 JSONB/M8（用户删表规则后即不再触发）。
 - ✅ **9.2 非价格 watch 接入可执行路径**：decision_watch(veto) / valuation_sell / mos_watch / critical 级
   risk·fundamental watch → 每日提醒事件。
 - ✅ **9.4 规则字段 description → message**：引擎/agent/memo/前端统一 `message`，契约测试防回退。
