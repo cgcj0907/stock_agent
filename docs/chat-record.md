@@ -24,7 +24,7 @@
 | 4 | 2026-08-09 | 完善 chat-record 右侧栏记录 + 右栏落地收敛 | 先补全 Chat #1 右栏迭代记录；随后按用户反馈落地右栏收敛：右栏改为仅分析/聊天记录详情按需出现，WorkflowRail 全面去卡片改用分割线分层，前端测试/tsc/eslint 通过 |
 | 5 | 2026-08-09 | 基于生产 sessions 稽核估值引擎（M4） |
 | 6 | 2026-08-09 | 前端 UI 优化盘点 |
-| 7 | 2026-08-11 | 分析结果卡片 UI 优化落地（P0/P1 + 导出 PDF） | 专项盘点后全量落地：状态徽章降噪/评分并入结论/字号与空值统一/语义色收敛 lib/tone/瀑布流 16px+3 列/卡片头单行/长卡内部折叠/结果摘要条/MemoCard hero 语义着色/Metric 统一；并新增 /report/[id] 分析结果导出 PDF；tsc/eslint/64 测试/构建全绿 |
+| 7 | 2026-08-11 | 分析结果卡片 UI 优化 + 导出 PDF + Supabase 直读迁移 | P0/P1 全量落地；导出 PDF 修复（备忘录结构化兜底/报告页多源+导出模式）；前端会话/备忘录/命中/状态对账改 Supabase 直读 + 后端会话归属校验 + RLS 加固；后端 581 测试全绿、前端 67 测试通过 |
  对照前端代码与 08-frontend-plan 产出 UI 优化清单（P0 快赢/ P1 重点/ P2 后续），涵盖数字格式、图表主题、骨架屏、备忘录分享、监控中心、动效与表单体系等；本轮仅分析与文档，无代码改动 |
  拉取 6 个生产会话（5 家公司/4 类生意），逐会话核对 M4 路由/参数/区间/校准与 M8·M10 一致性；确认路由、正常化、kill_switch、下沿保护、校准压分机制均生效；发现成长次新股相对PE失真 + DCF增速与M3脱节等 P1 问题 |
 
@@ -222,3 +222,25 @@
   长卡内部折叠（M4 参数与校准、M9 深度风险分析默认折叠）、结果区摘要条（模块/风险/否决计数）、
   MemoCard 加权总分按档位着色、Metric 指标卡统一为共享组件；
   新增 report-summary 摘要纯函数 + 3 回归测试；验证：tsc/eslint 全绿、前端 **64 测试通过**、`next build --webpack` 通过。
+
+### 轮次 4 · 2026-08-11
+- 排查「导出 PDF 没有信息」：真实登录账号复现——`/report/[id]` 内容正常，但备忘录打印页 `/memo/[id]`
+  因 `memos` 表无 Markdown 行而显示「还没有生成备忘录」（UI 展示的是结构化 MemoCard，与打印页数据源不一致）；
+  修复：备忘录页 Markdown 缺失时回退渲染结构化 MemoCard（与对话页一致）+ 隐藏复制/导出 .md 按钮；
+  报告页增强：后端超时 8s→25s、新增 Supabase `sessions` 表 payload 兜底、备忘录 Markdown 兜底、
+  ResultCard 新增导出模式（默认展开分析依据与全部字段，保证 PDF 内容完整）；
+  验证：真实账号浏览仪表盘/对话/监控/工作流均正常，tsc/eslint 全绿、前端 64 测试通过、构建通过。
+
+### 轮次 5 · 2026-08-11
+- 按用户建议改为**前端直读 Supabase**：实测（临时跳过后端）报告页仅靠 Supabase `sessions.payload` 即可完整渲染，
+  故把报告页与备忘录页的会话获取改为 **Supabase 直读优先 + 后端 API 兜底**（payload 为 session.to_dict() 已剔除 api_key）；
+  deploy/supabase_sessions.sql 补充 RLS 加固（owner_read_sessions，仅归属用户可读）；
+  验证：tsc/eslint 全绿、64 测试通过、构建通过、浏览器实测两导出页均正常。
+
+### 轮次 6 · 2026-08-11
+- 按盘点结论批量把「Supabase 里有却绕 API」的读路径切直连：仪表盘最近结论、监控中心命中、
+  对话记录状态对账、对话详情会话/备忘录均改 **Supabase sessions.payload / memos 批量直读 + 后端兜底**，
+  新增共享 `lib/session-read.ts` / `lib/session-supabase.ts` 纯函数 + 3 回归测试；
+  后端会话归属校验：13 个会话端点（含 list/get/run/chat/SSE/delete 等）加 `_assert_session_owner`，
+  列表按 user_id 过滤，新增归属回归测试；deploy SQL 补 user_webhooks RLS；
+  验证：后端 **581 测试全绿 + ruff**、前端 67 测试通过、tsc/eslint/构建通过、浏览器实测四页正常。

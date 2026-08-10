@@ -27,6 +27,8 @@ export interface SessionView {
   workflow_id: string;
   assumptions?: Record<string, unknown>;
   memo_versions: string[];
+  /** 跨会话监控命中历史（I-2，会话 payload 含 monitor_hits） */
+  monitor_hits?: unknown[];
   /** P1/P2（docs/13 §13）：连接覆盖警告 + 质量门禁（关键模块降级 → 不完整） */
   warnings?: Record<string, unknown>[];
   incomplete?: boolean;

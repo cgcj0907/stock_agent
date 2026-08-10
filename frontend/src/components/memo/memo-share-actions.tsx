@@ -9,9 +9,12 @@ import { Button } from "@/components/ui/button";
 export function MemoShareActions({
   markdown,
   fileName,
+  hasMarkdown = true,
 }: {
   markdown: string;
   fileName: string;
+  /** Markdown 缺失（结构化兜底）时隐藏复制/导出，仅保留打印。 */
+  hasMarkdown?: boolean;
 }) {
   async function copy() {
     try {
@@ -36,14 +39,18 @@ export function MemoShareActions({
 
   return (
     <div className="flex flex-wrap items-center gap-2 print:hidden">
-      <Button variant="outline" size="sm" onClick={copy} className="rounded-lg">
-        <Copy className="size-3.5" />
-        复制 Markdown
-      </Button>
-      <Button variant="outline" size="sm" onClick={download} className="rounded-lg">
-        <Download className="size-3.5" />
-        导出 .md
-      </Button>
+      {hasMarkdown && (
+        <>
+          <Button variant="outline" size="sm" onClick={copy} className="rounded-lg">
+            <Copy className="size-3.5" />
+            复制 Markdown
+          </Button>
+          <Button variant="outline" size="sm" onClick={download} className="rounded-lg">
+            <Download className="size-3.5" />
+            导出 .md
+          </Button>
+        </>
+      )}
       <Button variant="outline" size="sm" onClick={() => window.print()} className="rounded-lg">
         <Printer className="size-3.5" />
         打印 / PDF

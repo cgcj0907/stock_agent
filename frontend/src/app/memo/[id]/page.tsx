@@ -6,20 +6,26 @@ import remarkGfm from "remark-gfm";
 
 import { MemoShareActions } from "@/components/memo/memo-share-actions";
 import { Badge } from "@/components/ui/badge";
+import { MemoCard } from "@/components/workflow/memo-card";
+import { backendAuthHeaders } from "@/lib/backend-auth";
 import { getCurrentUser } from "@/lib/supabase/auth";
 import { createClient } from "@/lib/supabase/server";
+import { sessionFromPayload } from "@/lib/session-read";
 import { getWorkflow } from "@/lib/workflows/catalog";
 import { timeAgo } from "@/lib/time";
 import {
   CONVERSATION_STATUS,
   type Conversation,
 } from "@/types/conversation";
+import type { SessionView } from "@/hooks/use-workflow-run";
 
 export const metadata = { title: "投资备忘录" };
 
 /**
  * 备忘录分享 / 打印页（SSR）：
- * 需登录（RLS 只允许本人读取），以干净的排版渲染最新版备忘录，支持复制 / 导出 / 打印 PDF。
+ * 需登录（RLS 只允许本人读取），以干净的排版渲染最新版备忘录。
+ * Markdown 备忘录缺失时（memos 表无行，如经后端直接运行的会话），
+ * 回退渲染与对话详情页一致的结构化 MemoCard（数据来自会话 module_results）。
  */
 export default async function MemoSharePage({
   params,
@@ -49,11 +55,56 @@ export default async function MemoSharePage({
     .maybeSingle();
 
   const markdown = (memo?.content as string | undefined) ?? "";
+
+  // 结构化兜底：Markdown 缺失时渲染与对话页一致的 MemoCard。
+  // Supabase sessions 表直读优先（快、无 FC 冷启动依赖，payload 已脱敏），后端 API 兜底。
+  let session: SessionView | null = null;
+  if (!markdown) {
+    try {
+      const { data: sessRow } = await supabase
+        .from("sessions")
+        .select("payload")
+        .eq("id", conversation.session_id)
+        .maybeSingle();
+      session = sessionFromPayload(sessRow, {
+        id: conversation.session_id,
+        company_code: conversation.company_code,
+        company_name: conversation.company_name,
+        status: conversation.status,
+        workflow_id: conversation.workflow_id,
+      });
+    } catch {
+      // RLS 或表缺失：忽略
+    }
+    if (!session) {
+      const base =
+        process.env.API_BASE_SERVER || process.env.NEXT_PUBLIC_API_BASE || "";
+      if (base) {
+        const root = base.replace(/\/+$/, "");
+        try {
+          const res = await fetch(
+            `${root}/api/sessions/${conversation.session_id}`,
+            {
+              headers: await backendAuthHeaders(),
+              cache: "no-store",
+              signal: AbortSignal.timeout(25000),
+            }
+          );
+          if (res.ok) session = (await res.json()) as SessionView;
+        } catch {
+          // 后端不可用：仍展示头部，用户可回到对话页查看
+        }
+      }
+    }
+  }
+
   const wf = getWorkflow(conversation.workflow_id);
   const status =
     CONVERSATION_STATUS[conversation.status] ?? CONVERSATION_STATUS.created;
   const label = conversation.company_name || conversation.company_code;
   const fileName = `${label}-${conversation.company_code}-投资备忘录`;
+  const moduleResults = session?.module_results ?? {};
+  const hasStructured = Object.keys(moduleResults).length > 0;
 
   return (
     <main className="min-h-full bg-background">
@@ -67,7 +118,11 @@ export default async function MemoSharePage({
             <ArrowLeft className="size-4" />
             返回对话
           </Link>
-          <MemoShareActions markdown={markdown} fileName={fileName} />
+          <MemoShareActions
+            markdown={markdown}
+            fileName={fileName}
+            hasMarkdown={Boolean(markdown)}
+          />
         </div>
 
         {/* 报告头 */}
@@ -96,11 +151,27 @@ export default async function MemoSharePage({
           </div>
         </header>
 
-        {/* 备忘录正文 */}
+        {/* 备忘录正文：优先 Markdown，缺失时用结构化 MemoCard 兜底 */}
         {markdown ? (
           <article className="prose prose-sm max-w-none dark:prose-invert prose-headings:scroll-mt-6">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{markdown}</ReactMarkdown>
           </article>
+        ) : hasStructured ? (
+          <div className="flex flex-col gap-2">
+            <p className="text-xs text-muted-foreground">
+              （该会话未生成 Markdown 备忘录，以下为与对话页一致的结构化摘要）
+            </p>
+            <MemoCard
+              companyCode={conversation.company_code}
+              companyName={conversation.company_name}
+              workflowId={conversation.workflow_id}
+              status={conversation.status}
+              moduleResults={moduleResults}
+              sessionId={conversation.session_id}
+              createdAt={conversation.created_at}
+              assumptions={session?.assumptions}
+            />
+          </div>
         ) : (
           <div className="rounded-2xl border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
             该对话还没有生成备忘录

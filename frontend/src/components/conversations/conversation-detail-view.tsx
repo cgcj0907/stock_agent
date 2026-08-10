@@ -42,6 +42,10 @@ import { MemoCard } from "@/components/workflow/memo-card";
 import { findAgent } from "@/lib/agents/catalog";
 import { api, chatViaSse, runSessionViaSse, watchSessionViaSse } from "@/lib/api";
 import { createClient } from "@/lib/supabase/client";
+import {
+  readMemoFromSupabase,
+  readSessionFromSupabase,
+} from "@/lib/session-supabase";
 import { getWorkflow, type StepStatus } from "@/lib/workflows/catalog";
 import { timeAgo } from "@/lib/time";
 import {
@@ -145,21 +149,42 @@ export function ConversationDetailView({
   const showRunning = running || sessionRunning;
   const progressConnected = running ? liveConnected : liveConnected || sessionRunning;
 
+  const sessionFallback = React.useMemo(
+    () => ({
+      id: conversation.session_id,
+      company_code: conversation.company_code,
+      company_name: conversation.company_name,
+      status: conversation.status,
+      workflow_id: conversation.workflow_id,
+    }),
+    [
+      conversation.session_id,
+      conversation.company_code,
+      conversation.company_name,
+      conversation.status,
+      conversation.workflow_id,
+    ]
+  );
+
+  /** Supabase 直读优先，后端兜底（会话 + 备忘录）。 */
   const syncSession = React.useCallback(
     async (options?: { showToast?: boolean; showLoading?: boolean }) => {
       const { showToast = true, showLoading = true } = options ?? {};
       if (showLoading) setLoading(true);
       setError(null);
       try {
-        const s = await api<SessionView>(
-          `/api/sessions/${conversation.session_id}`
-        );
+        const supabase = createClient();
+        const s =
+          (await readSessionFromSupabase(
+            supabase,
+            conversation.session_id,
+            sessionFallback
+          )) ??
+          (await api<SessionView>(`/api/sessions/${conversation.session_id}`));
         setSession(s);
         try {
-          const memoRes = await api<{ memo?: string }>(
-            `/api/sessions/${conversation.session_id}/memo`
-          );
-          if (memoRes.memo) setMemo(memoRes.memo);
+          const memo = await readMemoFromSupabase(supabase, conversation.id);
+          if (memo) setMemo(memo);
         } catch {
           // 无备忘录
         }
@@ -170,7 +195,7 @@ export function ConversationDetailView({
         if (showLoading) setLoading(false);
       }
     },
-    [conversation.session_id]
+    [conversation.session_id, conversation.id, sessionFallback]
   );
 
   async function refresh(showToast = true) {
@@ -219,14 +244,19 @@ export function ConversationDetailView({
       if (cancelled || syncing) return;
       syncing = true;
       try {
-        const s = await api<SessionView>(`/api/sessions/${conversation.session_id}`);
+        const supabase = createClient();
+        const s =
+          (await readSessionFromSupabase(
+            supabase,
+            conversation.session_id,
+            sessionFallback
+          )) ??
+          (await api<SessionView>(`/api/sessions/${conversation.session_id}`));
         if (cancelled) return;
         setSession(s);
         try {
-          const memoRes = await api<{ memo?: string }>(
-            `/api/sessions/${conversation.session_id}/memo`
-          );
-          if (!cancelled && memoRes.memo) setMemo(memoRes.memo);
+          const memo = await readMemoFromSupabase(supabase, conversation.id);
+          if (!cancelled && memo) setMemo(memo);
         } catch {
           // 无备忘录
         }
@@ -243,7 +273,14 @@ export function ConversationDetailView({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [conversation.session_id, liveConnected, running, sessionRunning]);
+  }, [
+    conversation.session_id,
+    conversation.id,
+    liveConnected,
+    running,
+    sessionRunning,
+    sessionFallback,
+  ]);
 
   async function handleRerun() {
     setRunning(true);
@@ -289,16 +326,19 @@ export function ConversationDetailView({
           setError(message);
         },
       });
-      const s = await api<SessionView>(
-        `/api/sessions/${conversation.session_id}`
-      );
+      const supabase = createClient();
+      const s =
+        (await readSessionFromSupabase(
+          supabase,
+          conversation.session_id,
+          sessionFallback
+        )) ??
+        (await api<SessionView>(`/api/sessions/${conversation.session_id}`));
       setSession(s);
       // 保留 liveStatuses：分析完成后动作流继续留在对话中（Codex 风格）
       try {
-        const memoRes = await api<{ memo?: string }>(
-          `/api/sessions/${conversation.session_id}/memo`
-        );
-        if (memoRes.memo) setMemo(memoRes.memo);
+        const memo = await readMemoFromSupabase(supabase, conversation.id);
+        if (memo) setMemo(memo);
       } catch {
         // 忽略
       }

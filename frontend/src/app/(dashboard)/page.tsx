@@ -170,47 +170,114 @@ export default async function DashboardPage() {
       // agent_favorites 表未创建时忽略
     }
 
-    // 最近会话结论（M10 conclusion/total + M8 mos_state；后端不可用时降级为空）
-    const base =
-      process.env.API_BASE_SERVER || process.env.NEXT_PUBLIC_API_BASE || "";
-    if (base && recent.length > 0) {
-      const root = base.replace(/\/+$/, "");
-      const headers = await backendAuthHeaders();
-      const fetched = await Promise.all(
-        recent.map(async (c): Promise<SessionSummary | null> => {
-          try {
-            const res = await fetch(`${root}/api/sessions/${c.session_id}`, {
-              headers,
-              cache: "no-store",
-              signal: AbortSignal.timeout(4000),
-            });
-            if (!res.ok) return null;
-            const s = (await res.json()) as {
-              module_results?: Record<string, { outputs?: Record<string, unknown> }>;
-            };
-            const m10 = s.module_results?.M10_decision?.outputs;
-            const m8 = s.module_results?.M8_safety_margin?.outputs;
-            const conclusion =
-              typeof m10?.conclusion === "string" ? m10.conclusion : null;
-            const total =
-              typeof m10?.total === "number" && Number.isFinite(m10.total)
-                ? m10.total
-                : null;
-            const mos = typeof m8?.mos_state === "string" ? m8.mos_state : null;
-            return {
-              conversationId: c.id,
-              company: c.company_name || c.company_code,
-              code: c.company_code,
-              conclusion,
-              total,
-              mos,
-            };
-          } catch {
-            return null;
-          }
-        }),
-      );
-      summaries = fetched.filter((s): s is SessionSummary => s !== null);
+    // 最近会话结论（M10 conclusion/total + M8 mos_state）：
+    // Supabase sessions.payload 批量直读优先（快、无 FC 冷启动），后端 API 兜底。
+    if (recent.length > 0) {
+      const payloadById = new Map<string, Record<string, unknown>>();
+      try {
+        const { data: rows } = await supabase
+          .from("sessions")
+          .select("id, payload")
+          .in(
+            "id",
+            recent.map((c) => c.session_id),
+          );
+        for (const r of rows ?? []) {
+          payloadById.set(
+            String(r.id),
+            (r.payload ?? {}) as Record<string, unknown>,
+          );
+        }
+      } catch {
+        // RLS 或表缺失：走后端兜底
+      }
+
+      const fetched: SessionSummary[] = [];
+      for (const c of recent) {
+        const s = payloadById.get(c.session_id) as
+          | {
+              module_results?: Record<
+                string,
+                { outputs?: Record<string, unknown> }
+              >;
+            }
+          | undefined;
+        const mr = s?.module_results;
+        const m10 = mr?.M10_decision?.outputs;
+        const m8 = mr?.M8_safety_margin?.outputs;
+        const conclusion =
+          typeof m10?.conclusion === "string" ? m10.conclusion : null;
+        const total =
+          typeof m10?.total === "number" && Number.isFinite(m10.total)
+            ? m10.total
+            : null;
+        const mos = typeof m8?.mos_state === "string" ? m8.mos_state : null;
+        if (conclusion != null || total != null || mos != null) {
+          fetched.push({
+            conversationId: c.id,
+            company: c.company_name || c.company_code,
+            code: c.company_code,
+            conclusion,
+            total,
+            mos,
+          });
+        }
+      }
+      summaries = fetched;
+
+      // 兜底：Supabase 批量未读到（如 RLS/表缺失）且配置了后端时，逐会话走后端
+      if (summaries.length === 0) {
+        const base =
+          process.env.API_BASE_SERVER || process.env.NEXT_PUBLIC_API_BASE || "";
+        if (base) {
+          const root = base.replace(/\/+$/, "");
+          const headers = await backendAuthHeaders();
+          const fetchedBackend = await Promise.all(
+            recent.map(async (c): Promise<SessionSummary | null> => {
+              try {
+                const res = await fetch(
+                  `${root}/api/sessions/${c.session_id}`,
+                  {
+                    headers,
+                    cache: "no-store",
+                    signal: AbortSignal.timeout(4000),
+                  },
+                );
+                if (!res.ok) return null;
+                const s = (await res.json()) as {
+                  module_results?: Record<
+                    string,
+                    { outputs?: Record<string, unknown> }
+                  >;
+                };
+                const m10b = s.module_results?.M10_decision?.outputs;
+                const m8b = s.module_results?.M8_safety_margin?.outputs;
+                return {
+                  conversationId: c.id,
+                  company: c.company_name || c.company_code,
+                  code: c.company_code,
+                  conclusion:
+                    typeof m10b?.conclusion === "string"
+                      ? m10b.conclusion
+                      : null,
+                  total:
+                    typeof m10b?.total === "number" &&
+                    Number.isFinite(m10b.total)
+                      ? m10b.total
+                      : null,
+                  mos:
+                    typeof m8b?.mos_state === "string" ? m8b.mos_state : null,
+                };
+              } catch {
+                return null;
+              }
+            }),
+          );
+          summaries = fetchedBackend.filter(
+            (s): s is SessionSummary => s !== null,
+          );
+        }
+      }
     }
   }
 
@@ -262,7 +329,15 @@ export default async function DashboardPage() {
                         {s.code}
                       </Badge>
                       {s.total != null && (
-                        <span className="text-sm font-bold tabular-nums">
+                        <span
+                          className={`text-sm font-bold tabular-nums ${
+                            s.total >= 60
+                              ? "text-emerald-600 dark:text-emerald-400"
+                              : s.total >= 40
+                                ? "text-amber-600 dark:text-amber-400"
+                                : "text-red-600 dark:text-red-400"
+                          }`}
+                        >
                           {Math.round(s.total)}
                         </span>
                       )}

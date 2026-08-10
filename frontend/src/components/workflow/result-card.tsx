@@ -135,9 +135,14 @@ function ExpandToggle({
 export function ResultCard({
   agent,
   result,
+  defaultShowEvidence = false,
+  defaultShowAllOutputs = false,
 }: {
   agent?: AgentInfo;
   result: ModuleResultView;
+  /** 导出/打印场景：默认展开分析依据与全部字段，保证 PDF 内容完整。 */
+  defaultShowEvidence?: boolean;
+  defaultShowAllOutputs?: boolean;
 }) {
   const badge = STATUS_BADGE[result.status] ?? STATUS_BADGE.pending;
   const StatusIcon = badge.icon;
@@ -148,9 +153,9 @@ export function ResultCard({
   const tone = score != null ? scoreTone(score) : null;
   const verdict = verdictFor(result);
   const hasModuleView = result.module in MODULE_OUTPUT_COMPONENTS;
-  const [showAllOutputs, setShowAllOutputs] = React.useState(false);
-  // 分析依据默认折叠，卡片更清爽；有告警条目时在折叠头用角标提示
-  const [showEvidence, setShowEvidence] = React.useState(false);
+  const [showAllOutputs, setShowAllOutputs] = React.useState(defaultShowAllOutputs);
+  // 分析依据默认折叠，卡片更清爽；有告警条目时在折叠头用角标提示（导出场景可展开）
+  const [showEvidence, setShowEvidence] = React.useState(defaultShowEvidence);
 
   const visibleOutputs = showAllOutputs
     ? entries

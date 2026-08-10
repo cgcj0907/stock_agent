@@ -98,31 +98,65 @@ export default async function MonitorPage() {
     // ignore
   }
 
-  // 4) 命中时间线：最近 5 个已完成会话的 monitor_hits（后端会话 JSON；后端不可用时降级为空）
+  // 4) 命中时间线：最近 5 个已完成会话的 monitor_hits（Supabase sessions.payload 批量直读，后端兜底）
   const completed = conversations.filter((c) => c.status === "completed");
-  const base =
-    process.env.API_BASE_SERVER || process.env.NEXT_PUBLIC_API_BASE || "";
+  const hasBackend = Boolean(
+    process.env.API_BASE_SERVER || process.env.NEXT_PUBLIC_API_BASE || ""
+  );
   const hits: MonitorHit[] = [];
-  if (base) {
-    const root = base.replace(/\/+$/, "");
-    for (const c of completed.slice(0, 5)) {
-      try {
-        const res = await fetch(`${root}/api/sessions/${c.session_id}`, {
-          headers: await backendAuthHeaders(),
-          cache: "no-store",
-          signal: AbortSignal.timeout(5000),
+  const recent = completed.slice(0, 5);
+  const hitById = new Map<string, MonitorHit[]>();
+  try {
+    const { data: rows } = await supabase
+      .from("sessions")
+      .select("id, payload")
+      .in(
+        "id",
+        recent.map((c) => c.session_id),
+      );
+    for (const r of rows ?? []) {
+      const hh = (r.payload as { monitor_hits?: MonitorHit[] } | null)
+        ?.monitor_hits;
+      if (Array.isArray(hh)) hitById.set(String(r.id), hh);
+    }
+  } catch {
+    // RLS 或表缺失：走后端兜底
+  }
+  for (const c of recent) {
+    const hs = hitById.get(c.session_id);
+    if (hs) {
+      for (const h of hs) {
+        hits.push({
+          ...h,
+          company: c.company_name || c.company_code,
+          company_code: c.company_code,
         });
-        if (!res.ok) continue;
-        const s = (await res.json()) as { monitor_hits?: MonitorHit[] };
-        for (const h of s.monitor_hits ?? []) {
-          hits.push({
-            ...h,
-            company: c.company_name || c.company_code,
-            company_code: c.company_code,
+      }
+    } else {
+      // 兜底：该会话 Supabase 未读到 → 走后端
+      const base =
+        process.env.API_BASE_SERVER || process.env.NEXT_PUBLIC_API_BASE || "";
+      if (base) {
+        const root = base.replace(/\/+$/, "");
+        try {
+          const res = await fetch(`${root}/api/sessions/${c.session_id}`, {
+            headers: await backendAuthHeaders(),
+            cache: "no-store",
+            signal: AbortSignal.timeout(5000),
           });
+          if (res.ok) {
+            const s = (await res.json()) as { monitor_hits?: MonitorHit[] };
+            for (const h of s.monitor_hits ?? []) {
+              hits.push({
+                ...h,
+                company: c.company_name || c.company_code,
+                company_code: c.company_code,
+              });
+            }
+          }
+        } catch {
+          // 后端不可用，跳过该会话
         }
-      } catch {
-        // 后端不可用，跳过该会话
       }
     }
   }
@@ -135,7 +169,7 @@ export default async function MonitorPage() {
       webhooks={webhooks}
       rules={rules}
       hits={hits}
-      backendUnavailable={!base}
+      backendUnavailable={!hasBackend}
     />
   );
 }

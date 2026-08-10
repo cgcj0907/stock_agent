@@ -138,3 +138,45 @@ def test_middleware_requires_frontend_token(es256_env, monkeypatch):
     # 无效 token → 401
     r = client.get("/api/agents", headers={"Authorization": "Bearer not-a-jwt"})
     assert r.status_code == 401
+
+
+def test_session_ownership_read(es256_env, monkeypatch):
+    """会话归属校验：登录用户只能读/删自己的会话，列表只返回自己的会话。"""
+    import os
+
+    os.environ["SESSION_STORE"] = "memory"
+    os.environ["DATABASE_URL"] = ""
+
+    from fastapi.testclient import TestClient
+
+    from value_agent.main import _manager, app
+
+    session = _manager.create_session("600519", "贵州茅台", user_id="user-123")
+    sid = session.id
+
+    client = TestClient(app)
+    sk, _ = es256_env
+
+    def auth(sub: str):
+        return {"Authorization": f"Bearer {_es256_token(sk, _claims(sub=sub))}"}
+
+    # 本人可读
+    r = client.get(f"/api/sessions/{sid}", headers=auth("user-123"))
+    assert r.status_code == 200
+    assert r.json()["id"] == sid
+
+    # 他人读 → 404（不暴露会话存在）
+    r = client.get(f"/api/sessions/{sid}", headers=auth("user-456"))
+    assert r.status_code == 404
+
+    # 列表只含本人会话
+    ids_own = [x["id"] for x in client.get("/api/sessions", headers=auth("user-123")).json()["sessions"]]
+    assert sid in ids_own
+    ids_other = [x["id"] for x in client.get("/api/sessions", headers=auth("user-456")).json()["sessions"]]
+    assert sid not in ids_other
+
+    # 他人删除 → 404，本人删除 → 200
+    r = client.delete(f"/api/sessions/{sid}", headers=auth("user-456"))
+    assert r.status_code == 404
+    r = client.delete(f"/api/sessions/{sid}", headers=auth("user-123"))
+    assert r.status_code == 200

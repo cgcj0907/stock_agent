@@ -176,6 +176,19 @@ def _load_session(session_id: str):
         raise HTTPException(status_code=404, detail="会话不存在") from None
 
 
+def _request_user_id(request: Request) -> str | None:
+    """当前登录用户 id（鉴权关闭 / CLI 时为空）。"""
+    user = getattr(request.state, "user", None) or {}
+    return user.get("sub")
+
+
+def _assert_session_owner(session: Session, request: Request) -> None:
+    """会话归属校验：登录用户只能访问自己的会话；鉴权关闭或未归属（旧/系统）会话放行。"""
+    uid = _request_user_id(request)
+    if uid and session.user_id and session.user_id != uid:
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+
 def _step_status_events(
     session: Session,
     workflow: Workflow,
@@ -253,27 +266,34 @@ def create_session(req: CreateSessionRequest, request: Request) -> dict:
 
 
 @app.get("/api/sessions")
-def list_sessions(status: str | None = None) -> dict:
+def list_sessions(request: Request, status: str | None = None) -> dict:
     sessions = _store.list(status=status)
+    uid = _request_user_id(request)
+    if uid:
+        sessions = [s for s in sessions if s.user_id == uid]
     return {"sessions": [_public_session(s) for s in sessions]}
 
 
 @app.get("/api/sessions/{session_id}")
-def get_session(session_id: str) -> dict:
-    return _public_session(_load_session(session_id))
+def get_session(session_id: str, request: Request) -> dict:
+    session = _load_session(session_id)
+    _assert_session_owner(session, request)
+    return _public_session(session)
 
 
 @app.post("/api/sessions/{session_id}/run")
-def run_session(session_id: str) -> dict:
+def run_session(session_id: str, request: Request) -> dict:
     session = _load_session(session_id)
+    _assert_session_owner(session, request)
     flow = _load_workflow(session)
     _engine.run(session, flow)
     return _public_session(session)
 
 
 @app.post("/api/sessions/{session_id}/messages")
-def post_message(session_id: str, req: MessageRequest) -> dict:
+def post_message(session_id: str, req: MessageRequest, request: Request) -> dict:
     session = _load_session(session_id)
+    _assert_session_owner(session, request)
     _manager.add_message(session, "user", req.content, action=req.action)
     return _public_session(session)
 
@@ -311,9 +331,10 @@ def _chat_prompt(session: Session, content: str) -> tuple[str, str]:
 
 
 @app.post("/api/sessions/{session_id}/chat")
-def chat(session_id: str, req: ChatRequest) -> dict:
+def chat(session_id: str, req: ChatRequest, request: Request) -> dict:
     """追问对话（阻塞版）：记录用户消息 → 用 LLM 回复 → 记录 assistant 消息。"""
     session = _load_session(session_id)
+    _assert_session_owner(session, request)
     content = req.content.strip()
     if not content:
         raise HTTPException(status_code=400, detail="消息不能为空")
@@ -336,7 +357,7 @@ def chat(session_id: str, req: ChatRequest) -> dict:
 
 
 @app.post("/api/sessions/{session_id}/chat/stream")
-def chat_stream(session_id: str, req: ChatRequest) -> StreamingResponse:
+def chat_stream(session_id: str, req: ChatRequest, request: Request) -> StreamingResponse:
     """追问对话（流式版）：SSE 实时推送 chat_chunk（kind=content|thinking），结尾 done。
 
     事件流：
@@ -346,6 +367,7 @@ def chat_stream(session_id: str, req: ChatRequest) -> StreamingResponse:
     心跳：每 15s 发送 `: keep-alive` 注释，防止长链接被代理切断。
     """
     session = _load_session(session_id)
+    _assert_session_owner(session, request)
     content = req.content.strip()
     if not content:
         raise HTTPException(status_code=400, detail="消息不能为空")
@@ -407,26 +429,29 @@ def chat_stream(session_id: str, req: ChatRequest) -> StreamingResponse:
 
 
 @app.post("/api/sessions/{session_id}/rerun")
-def rerun_session(session_id: str, req: RerunRequest) -> dict:
+def rerun_session(session_id: str, req: RerunRequest, request: Request) -> dict:
     session = _load_session(session_id)
+    _assert_session_owner(session, request)
     # 支持内置模块（ModuleName）与自定义智能体（任意 agent id，如 M0_investor_profile）
     ordered = _manager.rerun(session, req.modules, assumptions=req.assumptions)
     return {"rerun_order": ordered, "session": _public_session(session)}
 
 
 @app.post("/api/sessions/{session_id}/memo")
-def save_memo(session_id: str) -> dict:
+def save_memo(session_id: str, request: Request) -> dict:
     """生成并保存一份备忘录版本（版本化：每次调用 +1 版）。"""
     session = _load_session(session_id)
+    _assert_session_owner(session, request)
     memo = build_memo(session)
     _manager.save_memo_version(session, memo)
     return {"session_id": session_id, "version": len(session.memo_versions), "memo": memo}
 
 
 @app.post("/api/sessions/{session_id}/resume")
-def resume_session(session_id: str) -> dict:
+def resume_session(session_id: str, request: Request) -> dict:
     """恢复 failed / awaiting_input 会话（断点续跑）。"""
     session = _load_session(session_id)
+    _assert_session_owner(session, request)
     if session.status not in (SessionStatus.FAILED, SessionStatus.AWAITING_INPUT):
         raise HTTPException(
             status_code=400,
@@ -437,16 +462,18 @@ def resume_session(session_id: str) -> dict:
 
 
 @app.delete("/api/sessions/{session_id}")
-def delete_session(session_id: str) -> dict:
+def delete_session(session_id: str, request: Request) -> dict:
     """删除会话。"""
-    _load_session(session_id)  # 不存在则 404
+    session = _load_session(session_id)  # 不存在则 404
+    _assert_session_owner(session, request)
     _store.delete(session_id)
     return {"deleted": session_id}
 
 
 @app.get("/api/sessions/{session_id}/memo")
-def get_memo(session_id: str) -> dict:
+def get_memo(session_id: str, request: Request) -> dict:
     session = _load_session(session_id)
+    _assert_session_owner(session, request)
     if session.memo_versions:
         memo = session.memo_versions[-1]
     else:
@@ -455,14 +482,15 @@ def get_memo(session_id: str) -> dict:
 
 
 @app.post("/api/sessions/{session_id}/archive")
-def archive_session(session_id: str) -> dict:
+def archive_session(session_id: str, request: Request) -> dict:
     session = _load_session(session_id)
+    _assert_session_owner(session, request)
     _manager.archive(session)
     return _public_session(session)
 
 
 @app.get("/api/sessions/{session_id}/events")
-def stream_events(session_id: str):
+def stream_events(session_id: str, request: Request):
     """SSE 长链接：运行工作流并实时推送每个步骤的进度（浏览器直连）。
 
     事件流：
@@ -474,6 +502,7 @@ def stream_events(session_id: str):
     心跳：每 15s 发送 `: keep-alive` 注释，避免代理/平台（Render/Vercel）切断空闲长链接。
     """
     session = _load_session(session_id)
+    _assert_session_owner(session, request)
     flow = _load_workflow(session)
     q: queue.Queue[dict | None] = queue.Queue()
 
@@ -549,9 +578,10 @@ def stream_events(session_id: str):
 
 
 @app.get("/api/sessions/{session_id}/watch")
-def watch_events(session_id: str):
+def watch_events(session_id: str, request: Request):
     """SSE 观察接口：仅订阅会话进度，不触发新的执行。"""
     session = _load_session(session_id)
+    _assert_session_owner(session, request)
     flow = _load_workflow(session)
 
     def gen():

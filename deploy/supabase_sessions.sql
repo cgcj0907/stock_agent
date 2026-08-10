@@ -36,3 +36,20 @@ create table if not exists public.user_webhooks (
   updated_at timestamptz not null default now(),
   primary key (user_id, channel)
 );
+
+-- 前端报告/备忘录导出页直接读取 sessions（payload 为 session.to_dict()，已剔除 api_key）。
+-- 建议启用 RLS，仅允许会话归属用户读取：auth.uid() = payload->>'user_id'（后端走服务角色不受影响）。
+-- 在 Supabase SQL Editor 执行一次即可。
+alter table if exists public.sessions enable row level security;
+drop policy if exists "owner_read_sessions" on public.sessions;
+create policy "owner_read_sessions" on public.sessions
+  for select
+  using ((payload ->> 'user_id')::uuid = auth.uid());
+
+-- 用户通知渠道同样启用 RLS：仅本人可读写（前端设置页/监控中心直读；后端服务角色不受影响）。
+alter table if exists public.user_webhooks enable row level security;
+drop policy if exists "owner_webhooks" on public.user_webhooks;
+create policy "owner_webhooks" on public.user_webhooks
+  for all
+  using (user_id = auth.uid())
+  with check (user_id = auth.uid());

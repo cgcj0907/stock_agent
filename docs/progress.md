@@ -709,3 +709,34 @@
 >    结果区摘要条（模块数/含风险数/否决数，`lib/report-summary.ts` 纯函数）、
 >    MemoCard 加权总分按档位语义着色、Metric 指标卡收敛为共享 `components/workflow/metric.tsx`；
 > ③ 测试：新增 report-summary 3 个回归测试；验证 tsc/eslint 全绿、前端 **64 测试通过**、`next build --webpack` 通过、dev 冒烟正常。
+
+> ✅ 2026-08-11 **导出 PDF 无信息修复 + 真实账号 UI 体检（Chat #7 轮次 4）**：
+> ① 根因：UI 的「投资备忘录」是结构化 MemoCard（来自 module_results），而备忘录打印页 `/memo/[id]`
+>    只渲染 `memos` 表的 Markdown——近期会话 Markdown 未落库 → 打印页空白；
+>    报告页 `/report/[id]` 依赖后端 `/api/sessions/{id}`，FC 冷启动 >8s 超时会整体为空；
+> ② 修复：备忘录页 Markdown 缺失时回退渲染结构化 MemoCard（与对话页一致）+ 无 Markdown 时隐藏复制/导出 .md；
+>    报告页后端超时 8s→25s + Supabase `sessions.payload` 兜底 + memos Markdown 兜底；
+>    ResultCard 新增导出模式 prop（defaultShowEvidence/defaultShowAllOutputs），报告页启用 → PDF 含完整分析依据；
+> ③ 用真实账号登录逐页体检（仪表盘/对话详情/监控中心/工作流页）确认正常，附带发现 MemoShareActions 空复制问题一并修复；
+> ④ 验证：tsc/eslint 全绿、前端 **64 测试通过**、`next build --webpack` 通过、浏览器实测备忘录页/报告页均有完整内容。
+
+> ✅ 2026-08-11 **导出页改为前端直读 Supabase（Chat #7 轮次 5）**：
+> ① 实测验证：临时让报告页完全跳过后端（base=""），仅靠 Supabase `sessions.payload` 仍完整渲染
+>    （结果卡 + 备忘录）——确认前端可直连 Supabase；
+> ② 重构：报告页 / 备忘录页会话获取改为 **Supabase `sessions` 表直读优先 + 后端 API 兜底**，
+>    彻底摆脱 FC 冷启动超时导致导出空白的问题；payload 由后端 session.to_dict() 序列化，已剔除 api_key；
+> ③ 加固：deploy/supabase_sessions.sql 新增 RLS 策略 owner_read_sessions
+>    （仅 `payload->>'user_id' = auth.uid()` 归属用户可读，后端服务角色不受影响）；
+> ④ 验证：tsc/eslint 全绿、前端 64 测试通过、`next build --webpack` 通过、浏览器实测两导出页正常。
+
+> ✅ 2026-08-11 **前端 Supabase 直读迁移 + 后端会话归属校验（Chat #7 轮次 6）**：
+> ① 读路径批量迁移（Supabase 直读优先 + 后端兜底）：仪表盘最近结论（sessions.payload 批量）、
+>    监控中心命中时间线（payload.monitor_hits 批量）、对话记录状态对账（payload.status 批量）、
+>    对话详情会话 + 备忘录（sessions.payload + memos 表）；
+>    新增共享纯函数 `lib/session-read.ts`（sessionFromPayload）+ `lib/session-supabase.ts` 客户端封装 + 3 回归测试；
+> ② 后端安全：13 个会话端点（list/get/run/messages/chat/chat_stream/rerun/memo/resume/delete/get_memo/archive/events/watch）
+>    加 `_assert_session_owner`（登录用户只能访问自己会话，未归属放行），`list_sessions` 按 user_id 过滤；
+>    新增 tests/test_auth.py 归属回归（本人 200/他人 404/列表隔离/删除隔离）；
+> ③ RLS 加固：deploy/supabase_sessions.sql 补 user_webhooks owner 策略（sessions 上一轮已补）；
+> ④ 验证：后端 **581 测试全绿 + ruff**、前端 **67 测试通过**、tsc/eslint/构建通过、
+>    浏览器实测仪表盘/对话详情/监控中心/对话列表均正常。

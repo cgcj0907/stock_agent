@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { FileText } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import { ReportActions } from "@/components/report/report-actions";
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +11,7 @@ import { ResultCard } from "@/components/workflow/result-card";
 import { findAgent } from "@/lib/agents/catalog";
 import { backendAuthHeaders } from "@/lib/backend-auth";
 import { orderedModuleResults } from "@/lib/report";
+import { sessionFromPayload } from "@/lib/session-read";
 import { getCurrentUser } from "@/lib/supabase/auth";
 import { createClient } from "@/lib/supabase/server";
 import { getWorkflow } from "@/lib/workflows/catalog";
@@ -66,22 +69,56 @@ export default async function ReportPage({
   const conversation = (conv as Conversation) ?? null;
   if (!conversation) notFound();
 
-  // 会话（模块结果）后端预取；后端不可用时降级为空态（头部仍可打印）
+  // 会话（模块结果）多源获取：**Supabase sessions 表直读优先**（快、无 FC 冷启动依赖；
+  // payload 由后端 session.to_dict() 序列化，已剔除 api_key），后端 API 仅作兜底。
   let session: SessionView | null = null;
-  const base =
-    process.env.API_BASE_SERVER || process.env.NEXT_PUBLIC_API_BASE || "";
-  if (base) {
-    const root = base.replace(/\/+$/, "");
-    try {
-      const res = await fetch(`${root}/api/sessions/${conversation.session_id}`, {
-        headers: await backendAuthHeaders(),
-        cache: "no-store",
-        signal: AbortSignal.timeout(8000),
-      });
-      if (res.ok) session = (await res.json()) as SessionView;
-    } catch {
-      // 后端不可用：保留头部与空态，供再次打印
+  try {
+    const { data: sessRow } = await supabase
+      .from("sessions")
+      .select("payload")
+      .eq("id", conversation.session_id)
+      .maybeSingle();
+    session = sessionFromPayload(sessRow, {
+      id: conversation.session_id,
+      company_code: conversation.company_code,
+      company_name: conversation.company_name,
+      status: conversation.status,
+      workflow_id: conversation.workflow_id,
+    });
+  } catch {
+    // RLS 或表缺失：忽略，继续后端兜底
+  }
+  if (!session) {
+    const base =
+      process.env.API_BASE_SERVER || process.env.NEXT_PUBLIC_API_BASE || "";
+    if (base) {
+      const root = base.replace(/\/+$/, "");
+      try {
+        const res = await fetch(`${root}/api/sessions/${conversation.session_id}`, {
+          headers: await backendAuthHeaders(),
+          cache: "no-store",
+          signal: AbortSignal.timeout(25000),
+        });
+        if (res.ok) session = (await res.json()) as SessionView;
+      } catch {
+        // 后端不可用：保留头部与空态
+      }
     }
+  }
+
+  // Markdown 备忘录（memos 表）兜底：模块结果不可用时报告页仍有正文可导出
+  let memoMarkdown = "";
+  try {
+    const { data: memoRow } = await supabase
+      .from("memos")
+      .select("content")
+      .eq("conversation_id", id)
+      .order("version", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    memoMarkdown = (memoRow?.content as string | undefined) ?? "";
+  } catch {
+    // 忽略
   }
 
   const wf = getWorkflow(conversation.workflow_id);
@@ -132,23 +169,31 @@ export default async function ReportPage({
           </div>
         </header>
 
-        {/* 执行摘要（投资备忘录） */}
-        {ordered.length > 0 && (
+        {/* 执行摘要（投资备忘录）：模块结果可用时用结构化 MemoCard，否则回退 Markdown */}
+        {(ordered.length > 0 || memoMarkdown) && (
           <section className="mb-8 flex flex-col gap-3 print:break-inside-avoid">
             <h2 className="flex items-center gap-2 text-base font-semibold">
               <FileText className="size-4 text-emerald-600 dark:text-emerald-400" />
               投资备忘录
             </h2>
-            <MemoCard
-              companyCode={conversation.company_code}
-              companyName={conversation.company_name}
-              workflowId={conversation.workflow_id}
-              status={conversation.status}
-              moduleResults={moduleResults}
-              sessionId={conversation.session_id}
-              createdAt={conversation.created_at}
-              assumptions={session?.assumptions}
-            />
+            {ordered.length > 0 ? (
+              <MemoCard
+                companyCode={conversation.company_code}
+                companyName={conversation.company_name}
+                workflowId={conversation.workflow_id}
+                status={conversation.status}
+                moduleResults={moduleResults}
+                sessionId={conversation.session_id}
+                createdAt={conversation.created_at}
+                assumptions={session?.assumptions}
+              />
+            ) : (
+              <article className="prose prose-sm max-w-none rounded-2xl border bg-card px-6 py-5 dark:prose-invert prose-headings:scroll-mt-6">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {memoMarkdown}
+                </ReactMarkdown>
+              </article>
+            )}
           </section>
         )}
 
@@ -162,7 +207,13 @@ export default async function ReportPage({
           ) : (
             ordered.map(({ agent, result }) => (
               <div key={agent} className="print:break-inside-avoid">
-                <ResultCard agent={findAgent(agent)} result={result} />
+                {/* 导出模式：展开分析依据与全部字段，保证 PDF 内容与 UI 一致 */}
+                <ResultCard
+                  agent={findAgent(agent)}
+                  result={result}
+                  defaultShowEvidence
+                  defaultShowAllOutputs
+                />
               </div>
             ))
           )}
