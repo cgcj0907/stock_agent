@@ -4,6 +4,8 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 
+import pytest
+
 from value_agent.data.manager import DataManager
 from value_agent.data.sources.mock_source import MockDataSource
 from value_agent.data.storage.sqlite_storage import SqliteMarketStorage
@@ -222,3 +224,69 @@ def test_postgres_storage_reconnects_after_stale_connection(monkeypatch):
     # 第一次 SELECT 触发 OperationalError → 重连（_connect 第 2 次）后重试成功
     assert st.latest("valuation_history", "600519") == "20260801"
     assert state["connect"] == 2, "断线后应自动重连一次"
+
+
+def test_postgres_upsert_does_not_mask_error_with_set_session(monkeypatch):
+    """生产稽核回归：financials 缺 bvps 列时 upsert 应把原始 ProgrammingError
+    （column "bvps" does not exist）抛给上层，而不是被 finally 里的
+    "set_session cannot be used inside a transaction" 掩盖。"""
+    import psycopg2
+
+    from value_agent.data.storage.postgres_storage import PostgresMarketStorage
+
+    class _FakeCursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def execute(self, sql, params=None):
+            # DDL / 迁移在 __init__ 里跑（no-op），只模拟 INSERT 报缺列
+            if sql.lstrip().upper().startswith("INSERT"):
+                raise psycopg2.ProgrammingError('column "bvps" does not exist')
+
+        def executemany(self, sql, rows):
+            self.execute(sql)
+
+    class _FakeConn:
+        closed = False
+
+        def __init__(self):
+            self._autocommit = True
+            self._txn = False
+            self.rollbacks = 0
+
+        @property
+        def autocommit(self):
+            return self._autocommit
+
+        @autocommit.setter
+        def autocommit(self, value):
+            # 模拟 psycopg2：事务未结束时切 autocommit 会抛 set_session 错误
+            if value and self._txn:
+                raise psycopg2.ProgrammingError(
+                    "set_session cannot be used inside a transaction"
+                )
+            self._autocommit = value
+            self._txn = not value
+
+        def rollback(self):
+            self._txn = False
+            self.rollbacks += 1
+
+        def cursor(self):
+            return _FakeCursor()
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(PostgresMarketStorage, "_connect", lambda self: _FakeConn())
+    st = PostgresMarketStorage("postgresql://fake")
+    with pytest.raises(psycopg2.ProgrammingError, match="bvps"):
+        st.upsert("financials", "600519", [
+            {"period": "20231231", "roe": 18.0, "eps": 5.0, "bvps": 30.0},
+        ])
+    # 修复后：finally 先 rollback 清事务再复位 autocommit，原始异常不被掩盖
+    assert st._conn.rollbacks >= 1, "应先 rollback 再复位 autocommit"
+    assert st._conn.autocommit is True, "autocommit 应复位为 True"

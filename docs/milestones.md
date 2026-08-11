@@ -22,6 +22,19 @@
 
 ## 关键里程碑明细
 
+### 2026-08-11 · financials 缺列修复（bvps 等 6 列迁移）+ memo 红队结构化回归
+生产日志定位并修复三个真实 bug：① Supabase 存量 `financials` 表缺 bvps/ncav_ps/rd_ratio/interest_debt_ratio/
+contract_liability_ratio/ocf_to_np_parent 6 列（读穿 SELECT 与后台回写 INSERT 均报 `column "bvps" does not exist`）→
+`PostgresMarketStorage` 初始化新增幂等 `_MIGRATIONS`；② upsert 事务残留把原始缺列错误掩盖成
+`set_session cannot be used inside a transaction` → finally 先 rollback 再复位 autocommit；③ 8.6 结构化红队
+`permanent_loss_paths` 让备忘录 `GET /memo` 500（TypeError）→ dict/字符串双兼容。新增 3 个回归测试，
+全量 **584 通过 + ruff**；部署新镜像后存量库自动补列、memo 恢复可用。
+
+### 2026-08-11 · 前后端拆仓推送到 EconSwarm 双仓库
+按用户要求将当前单仓拆分为两份快照：`frontend/` 子目录推送到 `git@github.com:EconSwarm/frontend.git` 的 `main`，
+根目录（排除 `frontend/`）推送到 `git@github.com:EconSwarm/backend.git` 的 `main`；
+推送前分别将两个目标仓库原 `main` 备份到 `backup/pre-overwrite-20260811-110726`，全过程未改动本地 `origin`。
+
 ### 2026-08-10 · FC 定时触发器事件结构修复（payload 包装解析）
 阿里云定时触发器把控制台「触发消息」作为 event.payload（字符串）传给函数，action 在嵌套 payload 里，
 此前 /invoke 只解析顶层导致定时触发 404、daily 不执行；新增 _parse_timer_event 兼容 FC 事件结构 + 回归测试，

@@ -202,10 +202,19 @@ def build_memo(session: Session) -> str:
             lines.append(f"- 压力情景：{max_loss.get('scenario')}，估算最大回撤 {max_loss.get('estimated_downside_pct')}%")
         red = m9.outputs.get("llm_red_team")
         if isinstance(red, dict):
-            if red.get("key_assumptions"):
-                lines.append(f"- 红队关键假设：{'；'.join(red['key_assumptions'])}")
-            if red.get("permanent_loss_paths"):
-                lines.append(f"- 红队永久损失路径：{'；'.join(red['permanent_loss_paths'])}")
+            # 8.6：permanent_loss_paths 已是结构化 dict（path/veto_candidate/confidence），
+            # 兼容旧会话的字符串数组；直接 join dict 会 TypeError（sequence item: dict）
+            kass = [str(x).strip() for x in red.get("key_assumptions") or []
+                    if isinstance(x, str) and str(x).strip()]
+            if kass:
+                lines.append(f"- 红队关键假设：{'；'.join(kass)}")
+            paths = [
+                str(p_.get("path") if isinstance(p_, dict) else p_).strip()
+                for p_ in red.get("permanent_loss_paths") or []
+            ]
+            paths = [p_ for p_ in paths if p_]
+            if paths:
+                lines.append(f"- 红队永久损失路径：{'；'.join(paths)}")
             if red.get("verdict"):
                 lines.append(f"- 红队结论：{red['verdict']}")
 

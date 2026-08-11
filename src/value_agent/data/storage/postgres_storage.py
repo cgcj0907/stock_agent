@@ -25,6 +25,22 @@ _CONNECT_KWARGS = {
     "keepalives_count": 5,
 }
 
+# 存量库迁移（幂等）：老表缺新列时补齐，CREATE TABLE IF NOT EXISTS 不会改已存在表。
+# - daily_price.turnover：情绪指标（历史已补，保留）。
+# - financials 资产负债表明细派生列（1.1/5.2/5.4/1.4，backlog 第二批）：
+#   老 Supabase financials 表没有这些列，读/写会报 column "... does not exist"
+#   （例如 column "bvps" does not exist）→ 生产回退实时源；这里在初始化时补齐。
+_MIGRATIONS: list[str] = [
+    "ALTER TABLE daily_price ADD COLUMN IF NOT EXISTS turnover DOUBLE PRECISION",
+    *[
+        f"ALTER TABLE financials ADD COLUMN IF NOT EXISTS {c} DOUBLE PRECISION"
+        for c in (
+            "bvps", "ncav_ps", "rd_ratio", "interest_debt_ratio",
+            "contract_liability_ratio", "ocf_to_np_parent",
+        )
+    ],
+]
+
 
 def _ddl(table: str) -> str:
     cols, pk = SCHEMA[table]["columns"], SCHEMA[table]["pk"]
@@ -56,10 +72,9 @@ class PostgresMarketStorage(MarketStorage):
         with self._conn.cursor() as cur:
             for table in SCHEMA:
                 cur.execute(_ddl(table))
-            # 存量库迁移：老 daily_price 表没有 turnover 列（情绪指标），补上（幂等）
-            cur.execute(
-                "ALTER TABLE daily_price ADD COLUMN IF NOT EXISTS turnover DOUBLE PRECISION"
-            )
+            # 存量库迁移：老表缺新列时补齐（幂等），见 _MIGRATIONS
+            for sql in _MIGRATIONS:
+                cur.execute(sql)
 
     def _connect(self):
         conn = self._psycopg2.connect(self._dsn, **_CONNECT_KWARGS)
@@ -140,7 +155,18 @@ class PostgresMarketStorage(MarketStorage):
                 if attempt == 2:
                     raise
             finally:
-                self._conn.autocommit = True
+                # 事务残留（例如 execute 抛非 OperationalError，如 column does not exist）
+                # 时，直接置 autocommit=True 会触发 psycopg2 "set_session cannot be used
+                # inside a transaction"，掩盖原始异常 → 先 rollback 清事务，再安全复位；
+                # 复位仍失败（连接已失效）也只记日志，不吞掉原始错误。
+                try:
+                    self._conn.rollback()
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("PG upsert 复位前 rollback 失败（可忽略）：%s", exc)
+                try:
+                    self._conn.autocommit = True
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("PG upsert 重置 autocommit 失败（可忽略）：%s", exc)
 
     def latest(self, table: str, code: str) -> str | None:
         date_col = DATE_COLUMN.get(table)

@@ -86,3 +86,58 @@ def test_memo_method_table_marks_present_vs_future(stub_data):
     assert any("（现值）" in ln and "dcf" in ln for ln in table)
     # 未来方法（唐朝法）带「（3年后，非现值）」
     assert any("（3年后，非现值）" in ln and "tang" in ln for ln in table)
+
+
+def test_memo_handles_structured_red_team_paths():
+    """8.6 回归：红队 permanent_loss_paths 为结构化 dict（path/veto_candidate/confidence）
+    时备忘录应正常渲染，而不是 TypeError: sequence item expected str instance, dict found。"""
+    from value_agent.core.contracts import build_meta
+    from value_agent.report.memo import build_memo
+    from value_agent.sessions.models import ModuleResult, ModuleStatus, Session
+
+    session = Session(company_code="600519")
+    session.module_results["M9_risk"] = ModuleResult(
+        module="M9_risk", status=ModuleStatus.DONE,
+        outputs={
+            "risk_items": [],
+            "vetoes": [],
+            "llm_red_team": {
+                "key_assumptions": ["需求见顶", "政策收紧"],
+                "permanent_loss_paths": [
+                    {"path": "品牌价值崩塌", "veto_candidate": True, "confidence": "high"},
+                    {"path": "基酒产能失速", "veto_candidate": False, "confidence": "medium"},
+                ],
+                "verdict": "反方结论：需跟踪终端动销",
+            },
+        },
+        meta=build_meta(0.0, "low"),
+    )
+    memo = build_memo(session)
+    assert "红队永久损失路径" in memo
+    assert "品牌价值崩塌" in memo and "基酒产能失速" in memo
+    assert "红队关键假设" in memo and "需求见顶" in memo
+    assert "红队结论" in memo and "终端动销" in memo
+
+
+def test_memo_handles_legacy_string_red_team_paths():
+    """兼容旧会话：permanent_loss_paths 为字符串数组时仍正常渲染。"""
+    from value_agent.core.contracts import build_meta
+    from value_agent.report.memo import build_memo
+    from value_agent.sessions.models import ModuleResult, ModuleStatus, Session
+
+    session = Session(company_code="600519")
+    session.module_results["M9_risk"] = ModuleResult(
+        module="M9_risk", status=ModuleStatus.DONE,
+        outputs={
+            "risk_items": [],
+            "vetoes": [],
+            "llm_red_team": {
+                "key_assumptions": ["假设一"],
+                "permanent_loss_paths": ["路径一", "路径二"],
+                "verdict": "结论",
+            },
+        },
+        meta=build_meta(0.0, "low"),
+    )
+    memo = build_memo(session)
+    assert "红队永久损失路径：路径一；路径二" in memo

@@ -27,6 +27,9 @@
 | 7 | 2026-08-11 | 分析结果卡片 UI 优化 + 导出 PDF + Supabase 直读迁移 | P0/P1 全量落地；导出 PDF 修复（备忘录结构化兜底/报告页多源+导出模式）；前端会话/备忘录/命中/状态对账改 Supabase 直读 + 后端会话归属校验 + RLS 加固；后端 581 测试全绿、前端 67 测试通过 |
 | 8 | 2026-08-11 | SQL 建表语句整理 | 通读全项目 4 份 SQL 的建表语句，产出 docs/database-tables.md 总览；去重 deploy/supabase_sessions.sql 中与 frontend/supabase/schema.sql 重复的 monitor_rules/user_webhooks，更新 docs/README 与 07-deployment-guide 引用；无业务逻辑改动 |
 | 9 | 2026-08-11 | 个人资料功能化 + 工作流界面去冗余收敛 | 设置页个人资料从占位升级为可读写的真实资料源（profiles/BFF/RLS/avatar storage）；同时继续收敛工作流页与右栏：DAG 去横线、估值区间统一为静态 div 条、投资结论去 Card、结果卡状态并入标题行 |
+| 10 | 2026-08-11 | daily_price 异步写入规则梳理 | 梳理 daily_price 等时间序列表的写入规则：INSERT_ONLY 只追加不覆盖、读穿缓存后台回写（独立连接 + 去重 + DATA_WRITE_BACK=sync 切换同步）、增量刷新与校验剔除 |
+| 11 | 2026-08-11 | 前后端拆仓推送到 EconSwarm 仓库 | 将单仓拆分为 frontend/backend 两份快照，分别强制推送到 `EconSwarm/frontend` 与 `EconSwarm/backend` 的 `main`；推送前先把两个目标仓库原 `main` 备份到时间戳分支，且不改本地 `origin` |
+| 12 | 2026-08-11 | financials 缺列修复 + FC 日志费用估算 | 依据生产 SLS 日志定位并修复 financials 表缺 bvps 等 6 列（读/写报 column does not exist + 后台回写被 set_session 掩盖）、备忘录红队结构化路径 TypeError；并给出 FC 日志服务费用估算（当前量级在 SLS 免费额度内） |
 
 ---
 
@@ -309,3 +312,46 @@
 ### 轮次 8 · 2026-08-11
 - 按用户指定的元素路径，微调 `WorkflowRail` 中“投资结论”区块根 `<section>` 的排版，只在该节点追加 `leading-6`，将行高设为 `24px`；
 - 本轮未改动全局样式或其他区块，仅做单点 CSS 收口。
+
+
+---
+
+## Chat #10 — 2026-08-11 — daily_price 异步写入规则梳理
+
+- **主题**：用户询问「dailyprice 这种的异步写入规则是什么」。
+- **总摘要**：梳理出 daily_price / valuation_history 等时间序列表的写入规则：INSERT_ONLY 只追加不覆盖（DO NOTHING）、读穿缓存后台回写（daemon 线程 + 独立存储连接 + 进程内去重 + DATA_WRITE_BACK=sync 同步落库）、日线增量刷新与写前校验。
+
+### 轮次 1 · 2026-08-11
+- 回答 daily_price 等表的异步写入规则：读穿缓存缺失时后台 daemon 线程回写（独立连接、失败不影响结果、同 (table,code) 进程内只写一次，`DATA_WRITE_BACK=sync` 可切同步）；写入层走 INSERT_ONLY 只追加（仅写最新日期之后的行，冲突 DO NOTHING，历史不覆盖），增量刷新只拉最新之后、失败回退缓存。
+
+### 轮次 2 · 2026-08-11
+- 用户指出 FC 无法靠后台异步写大表（daily_price 这种量级）；我据此提出新增 FC 侧同步预取接口 /api/data/update，
+  但用户确认「已经有这个功能了」（`value-agent data fetch` 预取 + `daily_update` 增量），要求不改代码；
+  已回退本轮全部未提交改动，仅保留对话记录，代码零改动。
+
+---
+
+## Chat #11 — 2026-08-11 — 前后端拆仓推送到 EconSwarm 仓库
+
+- **主题**：用户要求将当前单仓拆分后分别推送到 `git@github.com:EconSwarm/frontend.git` 与 `git@github.com:EconSwarm/backend.git`，并要求覆盖目标 `main`、先备份原分支且不影响本地 `origin`。
+- **总摘要**：基于当前仓库 `HEAD` 导出前端与后端两份临时快照仓库，分别将目标仓库原 `main` 备份到 `backup/pre-overwrite-20260811-110726`，随后强制推送到两个仓库的 `main`；全过程仅使用临时 `target` remote，本地原仓库 remote 未改动。
+
+### 轮次 1 · 2026-08-11
+- 确认前端推送目标为 `EconSwarm/frontend` 的 `main`，且前后端都采用覆盖 push；检查当前仓库仅有本地 `origin`，并核对两个目标仓库都已有 `main` 分支可备份。
+
+### 轮次 2 · 2026-08-11
+- 从当前仓库 `HEAD` 导出两份临时快照：前端仅取 `frontend/` 子目录，后端取根目录并排除 `frontend/`；在两个临时目录初始化 git 仓库并生成快照提交，避免改动当前工作仓库历史。
+
+### 轮次 3 · 2026-08-11
+- 将 `EconSwarm/frontend` 与 `EconSwarm/backend` 的原 `main` 都备份到 `backup/pre-overwrite-20260811-110726`，再分别强制推送新的 `main`；推送完成后复核远端引用，确认备份分支与新 `main` 均已就位。
+
+## Chat #12 — 2026-08-11 — financials 缺列修复 + FC 日志费用估算
+
+- **主题**：用户贴出 FC/SLS 生产日志（读 financials/600519 报 `column "bvps" does not exist`、后台回写 `set_session cannot be used inside a transaction`、`GET /memo` 500、日线多源失败），要求排查问题并估算 FC 日志服务费用。
+- **总摘要**：定位三个真实代码 bug 并修复（financials 缺列自动迁移、upsert 事务残留不再掩盖原始异常、备忘录兼容 8.6 结构化红队路径），新增 3 个回归测试，全量 **584 通过 + ruff**；日线多源失败判断为瞬时网络/反爬，无需改代码；按 SLS 单价 + 日志量估算 FC 日志服务费用在免费额度内（≈0 元/月，量级 3–30MB/月）。
+
+### 轮次 1 · 2026-08-11
+- 修复 financials 表缺列：`PostgresMarketStorage` 初始化新增 `_MIGRATIONS`，对存量 Supabase 表幂等补 `bvps/ncav_ps/rd_ratio/interest_debt_ratio/contract_liability_ratio/ocf_to_np_parent` 6 列（原只有 daily_price.turnover 迁移）；否则读穿缓存 SELECT 与后台回写 INSERT 都报 `column "bvps" does not exist`；
+- 修复 `upsert` finally 事务残留：execute 抛非 OperationalError（缺列）时直接置 autocommit 会报 `set_session cannot be used inside a transaction` 掩盖原始异常；改为先 rollback 清事务再复位，复位失败只记日志；
+- 修复备忘录 `build_memo`：8.6 起红队 `permanent_loss_paths` 是结构化 dict（path/veto_candidate/confidence），`'；'.join()` 报 `TypeError: expected str instance, dict found` → `GET /memo` 500；改为 dict/字符串双兼容；
+- 新增 3 个回归测试（memo 结构化红队 + 旧格式字符串 + upsert 不掩盖缺列错误），全量 **584 通过 + ruff 全绿**；docs 更新（chat-record/milestones/progress/10-fc-deployment）。

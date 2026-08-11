@@ -109,6 +109,9 @@ docker push registry.cn-chengdu.aliyuncs.com/zgy_20223090903005/value-agent:late
 | 9 | 日线仍偶发 `RemoteDisconnected` | 东财封 FC 出口 IP 时，akshare 回退打**同一个** `push2his.eastmoney.com` 域名 → 回退形同虚设 | `_daily_prices` 改多源回退链：东财 akshare → **新浪** → **腾讯**（独立主机），单位统一归一化（成交量→手、换手率→%） |
 | 10 | 请求老「卡在价格与估值分位」、SSE 中途断 | 完整分析超 FC **300s 超时**被掐断 + 存储/实时源无超时可无限挂起 | ① FC 超时提到 600s；② `PostgresMarketStorage` 加 connect_timeout/keepalive/statement_timeout/断线重连；③ 实时源 `_fetch_with_retry` 加 socket 级 45s 超时。**注：日线增量每次补写 + M7 情绪源不设预算，均按用户决策保留**（靠提 FC 超时解决） |
 | 9 | 日线仍偶发 `RemoteDisconnected` | 东财封 FC 出口 IP 时，akshare 回退打**同一个** `push2his.eastmoney.com` 域名 → 回退形同虚设 | `_daily_prices` 改多源回退链：东财 akshare → **新浪** → **腾讯**（独立主机），单位统一归一化（成交量→手、换手率→%） |
+| 11 | `读 financials/600519 失败：column "bvps" does not exist`（读穿 SELECT 与后台回写 INSERT 都报） | backlog 第二批给 financials 加了 bvps/ncav_ps/rd_ratio/interest_debt_ratio/contract_liability_ratio/ocf_to_np_parent 6 列，但存量 Supabase 表是早先 DDL 建的，`CREATE TABLE IF NOT EXISTS` 不会改已存在表 | `PostgresMarketStorage.__init__` 新增 `_MIGRATIONS`：对 financials 幂等 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` 补 6 列（含原 daily_price.turnover）；重新 build/push 后存量库自动补列 |
+| 12 | `[cache] financials 后台回写失败：set_session cannot be used inside a transaction` | upsert 的 execute 抛非 OperationalError（如缺列）后事务残留，finally 直接置 `autocommit=True` 触发 psycopg2 set_session 报错，把真正的缺列错误掩盖 | upsert finally 先 `rollback()` 清事务再复位 autocommit；复位失败仅记 debug 日志，不吞原始异常 |
+| 13 | `GET /api/sessions/<id>/memo` 500：`TypeError: sequence item 0: expected str instance, dict found` | 8.6 起红队 `permanent_loss_paths` 是结构化 dict（path/veto_candidate/confidence），备忘录 `'；'.join()` 按字符串处理 | `report/memo.py` 对 permanent_loss_paths 做 dict/字符串双兼容渲染（key_assumptions 同步过滤非字符串） |
 
 ## 八、快速验证
 

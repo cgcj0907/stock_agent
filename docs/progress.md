@@ -45,6 +45,7 @@
 - [x] point-in-time 数据快照（snapshots.py + records_before，回测防前视）2026-08-04
 - [x] 真实免费数据源拉取验证（BaoStock 连通 ✅，10 只自选股 47,996 条入库，茅台完整分析跑通；修复季度/年度口径）2026-08-04
 - [x] Supabase 建表 + DATABASE_URL 连接验证（Session Pooler 新加坡 5432，用户本机通过）2026-08-04
+- [x] 存量库缺列自动迁移（financials bvps/ncav_ps/rd_ratio/interest_debt_ratio/contract_liability_ratio/ocf_to_np_parent + daily_price.turnover，幂等）2026-08-11
 - 完成日期：
 
 ## S1 智能体 + 工作流 + 会话骨架 ✅ 2026-08-03
@@ -98,6 +99,7 @@
 ## S5 决策与报告
 - [x] M10 评分卡引擎（五维加权 + 档位 + 一票否决）2026-08-04（decision/engine.py + agent）
 - [x] 投资备忘录生成（markdown：M10 结论 + M2/M4/M8 要点）2026-08-04
+- [x] 备忘录兼容 8.6 结构化红队路径（permanent_loss_paths dict/字符串双兼容，修 `GET /memo` 500）2026-08-11
 - [ ] 会话重算 → 备忘录 v2（依赖重算已支持，接 API 端到端验证待做）
 - 完成日期：
 
@@ -120,6 +122,31 @@
 ---
 
 ## 历史变更日志（详细）
+
+> ✅ 2026-08-11 **financials 缺列修复 + memo 红队结构化回归 + FC 日志费用估算（Chat #12）**：
+> ① 背景：生产 SLS 日志显示 `读 financials/600519 失败（回退实时源）：column "bvps" does not exist`、
+>    `[cache] financials 600519 后台回写失败：set_session cannot be used inside a transaction`、
+>    `GET /api/sessions/<id>/memo 500（TypeError: expected str instance, dict found）`、日线多源失败；
+> ② 根因 1（缺列）：SCHEMA 1.1/5.2/5.4/1.4（backlog 第二批）给 financials 加了 6 个派生列，但存量 Supabase 表
+>    由早先 DDL 创建、`CREATE TABLE IF NOT EXISTS` 不会改已有表，读穿缓存 SELECT 与后台回写 INSERT 都引用这些列
+>    → 读失败回退实时源、写失败；`PostgresMarketStorage.__init__` 新增 `_MIGRATIONS`（含原 daily_price.turnover）
+>    幂等 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`；
+> ③ 根因 2（set_session）：upsert 的 execute 抛非 OperationalError（缺列）后事务残留，finally 直接置
+>    `autocommit=True` 触发 psycopg2 `set_session cannot be used inside a transaction`，把真正的缺列错误掩盖掉；
+>    改为 finally 先 rollback 清事务再复位 autocommit（复位失败仅 debug 日志，不吞原始异常）；
+> ④ 根因 3（memo 500）：8.6 起红队 `permanent_loss_paths` 是结构化 dict（path/veto_candidate/confidence），
+>    memo `'；'.join(red['permanent_loss_paths'])` 报 TypeError → 改为 dict/字符串双兼容渲染；
+> ⑤ 日线多源失败（eastmoney:ConnectionError / sina:empty / tencent:empty）判断为瞬时网络/反爬，多源回退链已存在，
+>    未改代码；
+> ⑥ 测试：新增 3 个回归（memo 结构化红队、旧格式字符串红队、upsert 不掩盖缺列错误），全量 **584 通过 + ruff**；
+> ⑦ FC 日志费用估算：按 SLS 单价（按写入 0.4 元/GB；按功能：读写流量 0.18 元/GB、索引 0.35 元/GB、热存储 0.0115 元/GB/天、
+>    免费额度 存储/索引/读写各 500MB/月）与日志量级（样例 ~15.7KB/58min，日均估 0.1–1MB）→ 月费用 ≈ 0 元（免费额度内）。
+
+> ✅ 2026-08-11 **前后端拆仓推送到 EconSwarm 双仓库**：
+> ① 用户确认前端推送到 `git@github.com:EconSwarm/frontend.git` 的 `main`，后端推送到 `git@github.com:EconSwarm/backend.git` 的 `main`，且两边都采用覆盖 push；
+> ② 先用 `git ls-remote` 核对两个目标仓库均已有 `main`，随后基于当前仓库 `HEAD` 导出两份临时快照：前端只取 `frontend/`，后端取根目录并排除 `frontend/`，在临时目录初始化独立 git 仓库，避免改动本地原仓库历史；
+> ③ 推送前分别将两个目标仓库原 `main` 备份为 `backup/pre-overwrite-20260811-110726`，再强制推送新的 `main`；复核远端分支后确认备份分支与覆盖后的 `main` 均已生效；
+> ④ 全过程未修改本地仓库现有 `origin` 配置，也未对当前工作仓库做 destructive git 操作；本轮为仓库迁移/交接动作，未跑额外测试。
 
 > ✅ 2026-08-11 **WorkflowRail 投资结论区块行高微调（Chat #9 轮次 8）**：
 > ① 按用户给出的元素路径与预览，定位到 `frontend/src/components/workflow/workflow-rail.tsx` 中“投资结论”区块根 `<section>`；
