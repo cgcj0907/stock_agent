@@ -1,0 +1,81 @@
+# ============================================================================
+# 云效流水线（YAML 模式参考）— value-agent 后端：GitHub → 构建镜像 → ACR → FC
+# ============================================================================
+# 适用：阿里云云效 Flow（https://flow.aliyun.com）
+# 用途：替代「本地 docker build/push + 控制台改镜像」，push main 后自动打包并发布 FC。
+# 用法：
+#   1) 云效 → 流水线 → 新建流水线 → 空模板 → 编辑器右上角切换「YAML 模式」；
+#   2) 粘贴本文件内容，替换全部 <...> 占位符（服务连接 ID，见企业设置 → 服务连接）；
+#   3) 或直接按 docs/10-fc-deployment.md §11 可视化点选（参数与本文件一致，推荐新手）。
+# 占位符：
+#   <GITHUB_SC>  GitHub 服务连接 ID（EconSwarm/backend 授权）
+#   <ACR_SC>     阿里云 ACR（个人版）服务连接 ID
+#   <FC_SC>      函数计算 FC 服务连接 ID（发布任务按引导新建/授权）
+# 已知坑（详见 docs/10-fc-deployment.md §11.5）：
+#   - 境内构建机直连 docker.io 拉基础镜像常超时 → 用 daocloud 镜像源 build-arg，
+#     或把 runsOn 换成云效香港公共构建集群（public/cn-hongkong）走默认基础镜像；
+#   - FC 是 linux/amd64，必须 --platform linux/amd64；--provenance=false 避免架构显示 unknown。
+# ============================================================================
+name: value-agent-backend-cd
+
+sources:
+  backend:
+    type: github
+    name: EconSwarm/backend
+    endpoint: https://github.com/EconSwarm/backend.git
+    branch: main
+    triggerEvents:
+      - push
+    certificate:
+      type: serviceConnection
+      serviceConnection: <GITHUB_SC>
+
+stages:
+  # ---------------------------------------------------------------- 构建镜像
+  build_image:
+    name: 构建并推送镜像到 ACR
+    jobs:
+      build_job:
+        name: 镜像构建并推送至阿里云镜像仓库个人版
+        runsOn: public/cn-beijing
+        steps:
+          acr_build:
+            step: ACRDockerBuild
+            name: 镜像构建并推送至 ACR（个人版）
+            workspace: backend
+            with:
+              # 镜像地址：与 FC 函数当前配置一致（ACR 个人版 latest 可覆盖）
+              artifact: registry.cn-chengdu.aliyuncs.com/zgy_20223090903005/value-agent:latest
+              # Dockerfile 路径相对代码库根目录
+              dockerfilePath: deploy/Dockerfile
+              # ACR 个人版服务连接
+              dockerRegistry: <ACR_SC>
+              # 更多构建参数（可视化里叫「更多构建参数」，逐项填写；
+              # YAML 字段名以控制台为准，若本步不支持可改用可视化配置）：
+              #   --platform linux/amd64
+              #   --provenance=false
+              #   --build-arg BASE_IMAGE=docker.m.daocloud.io/library/python:3.11-slim
+
+  # ---------------------------------------------------------------- 部署 FC
+  # 建议在控制台用可视化添加：任务组「函数计算应用发布」→ 发布方式「镜像」→
+  #   区域 cn-chengdu / 服务 value-agent / 函数 value-agent /
+  #   镜像地址 registry.cn-chengdu.aliyuncs.com/zgy_20223090903005/value-agent:latest
+  # （服务授权按引导新建 FC 服务连接）。
+  #
+  # YAML 组件 ID 以控制台组件下拉列表为准，以下为占位示例——确认后在编辑器里
+  # 取消注释并替换 <FC_SC>，或直接用可视化添加该任务组：
+  #
+  # deploy_fc:
+  #   name: 部署到函数计算（FC）
+  #   jobs:
+  #     fc_job:
+  #       name: 函数计算应用发布（镜像）
+  #       component: FCPublish
+  #       with:
+  #         region: cn-chengdu
+  #         serviceName: value-agent
+  #         functionName: value-agent
+  #         image: registry.cn-chengdu.aliyuncs.com/zgy_20223090903005/value-agent:latest
+  #         certificate:
+  #           type: serviceConnection
+  #           serviceConnection: <FC_SC>

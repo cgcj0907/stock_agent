@@ -125,6 +125,7 @@ curl https://value-agent-vjdugjsdaa.cn-chengdu.fcapp.run/health   # → {"status
 ## 九、相关文件
 
 - `deploy/Dockerfile`、`deploy/render.yaml`
+- `deploy/flow-pipeline.yml`（云效流水线 YAML 参考）、`.dockerignore`（构建上下文瘦身）
 - `src/value_agent/data/manager.py`（读穿缓存/回写/增量刷新）、`sources/akshare_source.py`（日线多源回退链）、`pipelines/ingest.py`（预取）
 - `src/value_agent/cli.py`（`data fetch` / `data ping`）
 - 相关 commit：`cf9b5a6`（curl_cffi+sync 写入）、`b48aaf9/3240f8b/df0d76e/cb8d1ee`（Dockerfile 系列）、`c7622a1`（日线增量刷新）
@@ -193,3 +194,73 @@ value-agent daily
 
 - GitHub Actions `daily.yml` 可停用（保留用于保活也可以，但 FC 每日写 Supabase 本身就在保活）。
 - 数据源失败会自动降级：记录 `errors`，监控继续用缓存行情，不会 500。
+
+## 十一、云效流水线 CI/CD（自动打包镜像 + 部署 FC）
+
+> 目标：把「本地 docker build/push + 控制台改镜像」改为**代码 push 即自动部署**。
+> 链路：GitHub `EconSwarm/backend`（main）→ 云效流水线 → 构建镜像（linux/amd64）→ 推送 ACR 个人版
+> → 「函数计算应用发布」（镜像方式）→ FC `value-agent` 拉取新镜像。
+> 配套文件：`deploy/flow-pipeline.yml`（YAML 参考）、`.dockerignore`。
+
+### 11.1 前置准备（一次性）
+
+| 项 | 操作 |
+|---|---|
+| GitHub 服务连接 | 云效 → 企业设置 → 服务连接 → 新建 → **GitHub**（按引导安装 GitHub App 授权 `EconSwarm/backend`），记下服务连接 ID |
+| ACR 服务连接 | 新建 → **阿里云 ACR（个人版）**，按引导完成 RAM 授权；确认成都 ACR 仓库 `zgy_20223090903005/value-agent` 已存在且**公开** |
+| FC 发布授权 | 新建流水线时按引导授权**函数计算**（或新建 FC 服务连接）；确认区域 `cn-chengdu`、服务/函数均为 `value-agent` |
+| 代码 | 后端已推送 `git@github.com:EconSwarm/backend.git` 的 `main`，仓库含 `deploy/Dockerfile`、`src/`、`config/` |
+
+### 11.2 可视化配置步骤（推荐）
+
+1. 云效 **flow.aliyun.com** → 流水线 → **新建流水线** → **空模板**；
+2. **添加代码源**：`GitHub` → `EconSwarm/backend` → 分支 `main` → 触发事件：**代码提交 push**；
+3. **阶段 1「构建镜像」**：添加任务 **镜像构建并推送至 ACR（个人版）**：
+   - 构建集群：**云效北京公共构建集群**（境内代码库；境外代码库可选香港集群）；
+   - 构建环境：默认/指定容器环境（build-steps/alinux3）均可；
+   - **Dockerfile 路径**：`deploy/Dockerfile`；
+   - **镜像地址**：`registry.cn-chengdu.aliyuncs.com/zgy_20223090903005/value-agent:latest`；
+   - **服务连接**：上一步的 ACR 个人版服务连接；
+   - **更多构建参数**（逐项填写）：
+     - `--platform linux/amd64`（**必填**：FC 是 amd64，Mac 本机 arm64 镜像不能直接用）；
+     - `--provenance=false`（避免 OCI attestation 导致 FC 拉取失败/架构 unknown）；
+     - `--build-arg BASE_IMAGE=docker.m.daocloud.io/library/python:3.11-slim`
+       （国内构建机直连 docker.io 常超时；也可改用香港构建集群 + 默认基础镜像）；
+   - 镜像缓存：默认（远端缓存，二次构建秒级）；
+4. **阶段 2「部署 FC」**：添加任务组 **函数计算应用发布**：
+   - 发布方式：**镜像**（函数是 custom-container）；
+   - 区域 `cn-chengdu`，服务 `value-agent`，函数 `value-agent`；
+   - 镜像地址：`registry.cn-chengdu.aliyuncs.com/zgy_20223090903005/value-agent:latest`
+     （或选「上一步构建产物」引用构建结果）；
+   - 服务授权：按引导新建 FC 服务连接；
+5. （可选）阶段间加**人工卡点**，生产发布前审批；
+6. **保存并运行**：首次跑通后，以后 push main 即自动触发。
+
+### 11.3 YAML 模式（Pipeline as Code）
+
+仓库已提供 `deploy/flow-pipeline.yml` 参考：新建流水线 → 空模板 → 编辑器右上角切 **YAML 模式** →
+粘贴文件内容 → 替换 `<GITHUB_SC>` / `<ACR_SC>` 占位符。
+说明：镜像构建步骤（`ACRDockerBuild`）为官方步骤；**FC 发布组件**的 YAML 标识以控制台组件下拉列表为准，
+建议该阶段用可视化添加（或取消文件内注释并替换组件 ID）。
+
+### 11.4 验证
+
+```bash
+curl https://value-agent-vjdugjsdaa.cn-chengdu.fcapp.run/health   # → {"status":"ok"}
+```
+- 流水线日志：构建 → 推送 → 发布三步全绿；
+- FC 控制台确认函数镜像已更新（最近更新时间变化）；
+- 跑一次分析确认 M4 正常（现价 + 6 个估值方法）；
+- **环境变量不受影响**：发布镜像只更新镜像，FC 上 `DATABASE_URL` / `DATA_WRITE_BACK=sync` 等
+  控制台配置保持不变；若发现被重置，在 FC 控制台核对后重新填写。
+
+### 11.5 已知坑（云效侧）
+
+| 报错/现象 | 处理 |
+|---|---|
+| 构建拉基础镜像 `registry-1.docker.io ... i/o timeout` | build-arg 换 `docker.m.daocloud.io/library/python:3.11-slim`，或换云效香港构建集群，或先把 python:3.11-slim 推到 ACR 再引用 |
+| 镜像架构显示 `unknown` | 构建参数补 `--provenance=false` |
+| 推送 ACR `insufficient_scope` / 认证失败 | 检查 ACR 服务连接授权与仓库权限；必要时 `docker buildx prune -af` 清缓存重试 |
+| ACR 个人版并发/速度限制 | 个人版不保障 SLA，量大换企业版 |
+| FC 发布后函数没变化 | 确认发布方式选了「镜像」且镜像地址正确；latest 需重新发布才会被 FC 重新拉取 |
+| 找不到 FC 函数/区域 | 检查 FC 服务连接授权与区域（cn-chengdu） |

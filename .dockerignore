@@ -1,0 +1,23 @@
+# 构建上下文瘦身：镜像只 COPY src/ 与 config/，其余目录不进 Docker 上下文。
+# 云效流水线 buildx 会把整个上下文上传构建机，排除大目录可显著加速构建。
+# 注意：.env 含密钥，绝不进镜像/上下文（AGENTS.md 红线）。
+.git
+.gitignore
+.github
+.env
+.env.*
+!.env.example
+.venv
+__pycache__
+*.py[cod]
+.pytest_cache
+.ruff_cache
+.superpowers
+frontend
+docs
+tests
+examples
+scripts
+data
+supabase
+uv.lock

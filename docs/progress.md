@@ -32,6 +32,7 @@
 - [ ] S3：配置 `LLM_API_KEY` 后验证 LLM 定性层输出
 - [ ] S5：会话重算 → 备忘录 v2 端到端验证（依赖重算已支持）
 - [ ] 部署：FC 超时 300s → 600s（控制台配置，见 [10-fc-deployment.md](10-fc-deployment.md)）
+- [ ] 部署：云效流水线打包镜像部署（配置已就绪：`deploy/flow-pipeline.yml` + `.dockerignore`，待控制台建流水线替换服务连接 ID 后首跑验证，见 [10-fc-deployment.md](10-fc-deployment.md) §11）
 
 ## 任务清单（按里程碑）
 
@@ -813,3 +814,13 @@
 >    报告页操作栏（ReportActions）新增「复制 Markdown / 导出 .md」（有 Markdown 时显示），备忘录分享能力保留；
 >    /memo/[id] 独立打印页保留（直接 URL 可用），仅去掉重复按钮；
 > ③ 验证：tsc/eslint 全绿、前端 **69 测试通过**、构建通过、浏览器实测对话页仅一个导出入口、报告页操作栏正常。
+
+> ✅ 2026-08-11 **云效流水线 CI/CD 配置（Chat #13）**：
+> ① 目标：用阿里云云效流水线替代本地 docker build/push + 控制台改镜像，push main 自动打包部署 FC；
+> ② 新增 `deploy/flow-pipeline.yml`（YAML 参考：GitHub `EconSwarm/backend`@main push 触发 → `ACRDockerBuild`
+>    构建并推送 ACR 个人版 `value-agent:latest`，含 `--platform linux/amd64` / `--provenance=false` /
+>    daocloud 基础镜像 build-arg 防 docker.io 超时；FC 发布阶段以控制台「函数计算应用发布」（镜像方式）为准）；
+> ③ 新增 `.dockerignore`（排除 .git/.venv/frontend/docs/tests/data 及 .env 密钥，加速云效 buildx 上下文）；
+> ④ docs/10-fc-deployment.md 新增 §11 云效流水线手册（前置准备/可视化配置/验证/已知坑）；
+> ⑤ 先提交上一轮 Chat #12 已验证修复（`0190db9`：financials 缺列迁移 + upsert 事务残留 + memo 红队兼容，
+>    584 测试 + ruff 全绿），本轮改动单独提交；流水线首次运行需在控制台替换服务连接 ID 后验证。

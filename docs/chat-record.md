@@ -29,7 +29,8 @@
 | 9 | 2026-08-11 | 个人资料功能化 + 工作流界面去冗余收敛 | 设置页个人资料从占位升级为可读写的真实资料源（profiles/BFF/RLS/avatar storage）；同时继续收敛工作流页与右栏：DAG 去横线、估值区间统一为静态 div 条、投资结论去 Card、结果卡状态并入标题行 |
 | 10 | 2026-08-11 | daily_price 异步写入规则梳理 | 梳理 daily_price 等时间序列表的写入规则：INSERT_ONLY 只追加不覆盖、读穿缓存后台回写（独立连接 + 去重 + DATA_WRITE_BACK=sync 切换同步）、增量刷新与校验剔除 |
 | 11 | 2026-08-11 | 前后端拆仓推送到 EconSwarm 仓库 | 将单仓拆分为 frontend/backend 两份快照，分别强制推送到 `EconSwarm/frontend` 与 `EconSwarm/backend` 的 `main`；推送前先把两个目标仓库原 `main` 备份到时间戳分支，且不改本地 `origin` |
-| 12 | 2026-08-11 | financials 缺列修复 + FC 日志费用估算 | 依据生产 SLS 日志定位并修复 financials 表缺 bvps 等 6 列（读/写报 column does not exist + 后台回写被 set_session 掩盖）、备忘录红队结构化路径 TypeError；并给出 FC 日志服务费用估算（当前量级在 SLS 免费额度内） |
+| 12 | 2026-08-11 | financials 缺列修复 + FC 日志费用估算 |
+| 13 | 2026-08-11 | 阿里云云效流水线打包镜像部署 | 依据生产 SLS 日志定位并修复 financials 表缺 bvps 等 6 列（读/写报 column does not exist + 后台回写被 set_session 掩盖）、备忘录红队结构化路径 TypeError；并给出 FC 日志服务费用估算（当前量级在 SLS 免费额度内） |
 
 ---
 
@@ -355,3 +356,14 @@
 - 修复 `upsert` finally 事务残留：execute 抛非 OperationalError（缺列）时直接置 autocommit 会报 `set_session cannot be used inside a transaction` 掩盖原始异常；改为先 rollback 清事务再复位，复位失败只记日志；
 - 修复备忘录 `build_memo`：8.6 起红队 `permanent_loss_paths` 是结构化 dict（path/veto_candidate/confidence），`'；'.join()` 报 `TypeError: expected str instance, dict found` → `GET /memo` 500；改为 dict/字符串双兼容；
 - 新增 3 个回归测试（memo 结构化红队 + 旧格式字符串 + upsert 不掩盖缺列错误），全量 **584 通过 + ruff 全绿**；docs 更新（chat-record/milestones/progress/10-fc-deployment）。
+
+## Chat #13 — 2026-08-11 — 阿里云云效流水线打包镜像部署
+
+- **主题**：用户要求改用阿里云**云效流水线（Flow）**自动「打包镜像 + 部署」，替代本地手动 docker build/push + 控制台改镜像。
+- **总摘要**：产出 `deploy/flow-pipeline.yml`（YAML 参考：GitHub EconSwarm/backend → ACRDockerBuild 构建推送 ACR 个人版 → FC 发布）与 `.dockerignore`（构建上下文瘦身、排除 .env 密钥）；在 10-fc-deployment.md 新增 §11 云效流水线配置手册（前置准备/可视化步骤/YAML 模式/验证/已知坑）；并先把上一轮 Chat #12 已验证的 financials 修复单独提交（0190db9）。
+
+### 轮次 1 · 2026-08-11
+- 新增 `deploy/flow-pipeline.yml`：云效流水线 YAML 参考（source=GitHub EconSwarm/backend@main、push 触发；阶段1 镜像构建并推送至 ACR 个人版，含 --platform linux/amd64 / --provenance=false / daocloud 基础镜像 build-arg；阶段2 FC 发布以可视化任务组为准，YAML 给出占位注释）；
+- 新增 `.dockerignore`（排除 .git/.venv/frontend/docs/tests/data 等 + .env 密钥，加速云效 buildx 上下文传输）；
+- `docs/10-fc-deployment.md` 新增「十一、云效流水线 CI/CD」手册（前置准备/可视化配置/验证/已知坑）；docs/chat-record 与 progress 同步更新；
+- 先提交上一轮 Chat #12 已验证的 financials 缺列修复 + memo 红队兼容（0190db9，584 测试 + ruff 全绿），本轮改动单独提交；云效流水线需在控制台替换服务连接 ID 后首次运行验证。
