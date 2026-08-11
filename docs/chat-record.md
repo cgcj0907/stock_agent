@@ -378,3 +378,6 @@
 
 ### 轮次 4 · 2026-08-11
 - 用户询问 ACR 构建任务「标签」填什么：确认填 `latest`（与 FC 当前镜像一致、可覆盖；备选 `${DATETIME}` 留版本历史），并同步进 docs/10-fc-deployment.md §11.2。
+
+### 轮次 5 · 2026-08-11
+- 用户询问 ACR 构建任务「Dockerfile 路径」填什么：确认填 `deploy/Dockerfile`（相对代码库根目录，仓库内 Dockerfile 位于 deploy/ 下）。
