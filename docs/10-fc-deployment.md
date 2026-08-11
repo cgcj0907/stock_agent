@@ -208,7 +208,7 @@ value-agent daily
 |---|---|
 | GitHub 服务连接 | ✅ 已创建：**`aliyun5326916119`**（授权 `cgcj0907/stock_agent`） |
 | ACR 服务连接 | 新建 → **阿里云 ACR（个人版）**，按引导完成 RAM 授权；确认成都 ACR 仓库 `zgy_20223090903005/value-agent` 已存在且**公开** |
-| FC 发布授权 | 新建流水线时按引导授权**函数计算**（或新建 FC 服务连接）；确认区域 `cn-chengdu`、服务/函数均为 `value-agent` |
+| FC 服务连接 | ✅ 已创建：**`aliyun5326916119`**（阿里云函数计算 FC） |
 | 代码 | 后端已推送 `git@github.com:cgcj0907/stock_agent.git` 的 `main`，仓库含 `deploy/Dockerfile`、`src/`、`config/` |
 
 ### 11.2 可视化配置步骤（推荐）
@@ -228,12 +228,12 @@ value-agent daily
      - `--build-arg BASE_IMAGE=docker.m.daocloud.io/library/python:3.11-slim`
        （国内构建机直连 docker.io 常超时；也可改用香港构建集群 + 默认基础镜像）；
    - 镜像缓存：默认（远端缓存，二次构建秒级）；
-4. **阶段 2「部署 FC」**：添加任务组 **函数计算应用发布**：
-   - 发布方式：**镜像**（函数是 custom-container）；
-   - 区域 `cn-chengdu`，服务 `value-agent`，函数 `value-agent`；
-   - 镜像地址：`registry.cn-chengdu.aliyuncs.com/zgy_20223090903005/value-agent:latest`
-     （或选「上一步构建产物」引用构建结果）；
-   - 服务授权：按引导新建 FC 服务连接；
+4. **阶段 2「部署 FC」**：添加任务组 **阿里云函数计算部署**（即「函数计算应用发布」）：
+   - 服务连接：`aliyun5326916119`（FC）；
+   - 地域：`西南1（成都）`；函数名：`value-agent`（如有服务名也填 `value-agent`）；
+   - 源码类型：**自定义镜像**；
+   - **镜像**：选「直接输入」填 `registry.cn-chengdu.aliyuncs.com/zgy_20223090903005/value-agent:latest`
+     （必填，否则提示「镜像不能为空」；也可选 ACR 服务连接引用上一步构建产物）；
 5. （可选）阶段间加**人工卡点**，生产发布前审批；
 6. **保存并运行**：首次跑通后，以后 push main 即自动触发。
 

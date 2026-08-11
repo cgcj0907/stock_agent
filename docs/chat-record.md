@@ -381,3 +381,7 @@
 
 ### 轮次 5 · 2026-08-11
 - 用户询问 ACR 构建任务「Dockerfile 路径」填什么：确认填 `deploy/Dockerfile`（相对代码库根目录，仓库内 Dockerfile 位于 deploy/ 下）。
+
+### 轮次 6 · 2026-08-11
+- 用户贴出 FC 部署任务截图（OCR 读取）：服务连接 aliyun5326916119、地域成都、函数 value-agent、源码类型自定义镜像，但「镜像」为空报错；
+  确认镜像字段选「直接输入」填 `registry.cn-chengdu.aliyuncs.com/zgy_20223090903005/value-agent:latest`，并更新 docs/10-fc-deployment.md §11.1/§11.2。
