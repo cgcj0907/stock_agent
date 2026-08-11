@@ -385,3 +385,6 @@
 ### 轮次 6 · 2026-08-11
 - 用户贴出 FC 部署任务截图（OCR 读取）：服务连接 aliyun5326916119、地域成都、函数 value-agent、源码类型自定义镜像，但「镜像」为空报错；
   确认镜像字段选「直接输入」填 `registry.cn-chengdu.aliyuncs.com/zgy_20223090903005/value-agent:latest`，并更新 docs/10-fc-deployment.md §11.1/§11.2。
+
+### 轮次 7 · 2026-08-11
+- 流水线首跑报 `UnitTestReport` 找不到 `report/index.html`：判定为模板自带的默认「测试报告」步骤，Python 后端不生成 HTML 报告 → 指引在流水线编辑器中删除该步骤（保留构建镜像 + FC 部署），并记入 10-fc-deployment.md §11.5 已知坑。
