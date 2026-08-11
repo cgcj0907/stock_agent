@@ -367,3 +367,7 @@
 - 新增 `.dockerignore`（排除 .git/.venv/frontend/docs/tests/data 等 + .env 密钥，加速云效 buildx 上下文传输）；
 - `docs/10-fc-deployment.md` 新增「十一、云效流水线 CI/CD」手册（前置准备/可视化配置/验证/已知坑）；docs/chat-record 与 progress 同步更新；
 - 先提交上一轮 Chat #12 已验证的 financials 缺列修复 + memo 红队兼容（0190db9，584 测试 + ruff 全绿），本轮改动单独提交；云效流水线需在控制台替换服务连接 ID 后首次运行验证。
+
+### 轮次 2 · 2026-08-11
+- 按用户要求，云效流水线代码源由 `EconSwarm/backend` 改为 **origin 仓库** `git@github.com:cgcj0907/stock_agent.git`（main）；
+  同步更新 `deploy/flow-pipeline.yml` 与 docs/10-fc-deployment.md §11 中的仓库地址/授权说明，本仓库 .dockerignore 已排除 frontend/，单仓直连构建不受影响。

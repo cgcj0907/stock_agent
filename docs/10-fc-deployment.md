@@ -198,7 +198,7 @@ value-agent daily
 ## 十一、云效流水线 CI/CD（自动打包镜像 + 部署 FC）
 
 > 目标：把「本地 docker build/push + 控制台改镜像」改为**代码 push 即自动部署**。
-> 链路：GitHub `EconSwarm/backend`（main）→ 云效流水线 → 构建镜像（linux/amd64）→ 推送 ACR 个人版
+> 链路：GitHub `cgcj0907/stock_agent`（main）→ 云效流水线 → 构建镜像（linux/amd64）→ 推送 ACR 个人版
 > → 「函数计算应用发布」（镜像方式）→ FC `value-agent` 拉取新镜像。
 > 配套文件：`deploy/flow-pipeline.yml`（YAML 参考）、`.dockerignore`。
 
@@ -206,15 +206,15 @@ value-agent daily
 
 | 项 | 操作 |
 |---|---|
-| GitHub 服务连接 | 云效 → 企业设置 → 服务连接 → 新建 → **GitHub**（按引导安装 GitHub App 授权 `EconSwarm/backend`），记下服务连接 ID |
+| GitHub 服务连接 | 云效 → 企业设置 → 服务连接 → 新建 → **GitHub**（按引导安装 GitHub App 授权 `cgcj0907/stock_agent`），记下服务连接 ID |
 | ACR 服务连接 | 新建 → **阿里云 ACR（个人版）**，按引导完成 RAM 授权；确认成都 ACR 仓库 `zgy_20223090903005/value-agent` 已存在且**公开** |
 | FC 发布授权 | 新建流水线时按引导授权**函数计算**（或新建 FC 服务连接）；确认区域 `cn-chengdu`、服务/函数均为 `value-agent` |
-| 代码 | 后端已推送 `git@github.com:EconSwarm/backend.git` 的 `main`，仓库含 `deploy/Dockerfile`、`src/`、`config/` |
+| 代码 | 后端已推送 `git@github.com:cgcj0907/stock_agent.git` 的 `main`，仓库含 `deploy/Dockerfile`、`src/`、`config/` |
 
 ### 11.2 可视化配置步骤（推荐）
 
 1. 云效 **flow.aliyun.com** → 流水线 → **新建流水线** → **空模板**；
-2. **添加代码源**：`GitHub` → `EconSwarm/backend` → 分支 `main` → 触发事件：**代码提交 push**；
+2. **添加代码源**：`GitHub` → `cgcj0907/stock_agent` → 分支 `main` → 触发事件：**代码提交 push**；
 3. **阶段 1「构建镜像」**：添加任务 **镜像构建并推送至 ACR（个人版）**：
    - 构建集群：**云效北京公共构建集群**（境内代码库；境外代码库可选香港集群）；
    - 构建环境：默认/指定容器环境（build-steps/alinux3）均可；

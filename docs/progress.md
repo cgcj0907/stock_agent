@@ -817,7 +817,7 @@
 
 > ✅ 2026-08-11 **云效流水线 CI/CD 配置（Chat #13）**：
 > ① 目标：用阿里云云效流水线替代本地 docker build/push + 控制台改镜像，push main 自动打包部署 FC；
-> ② 新增 `deploy/flow-pipeline.yml`（YAML 参考：GitHub `EconSwarm/backend`@main push 触发 → `ACRDockerBuild`
+> ② 新增 `deploy/flow-pipeline.yml`（YAML 参考：GitHub `cgcj0907/stock_agent`@main push 触发 → `ACRDockerBuild`
 >    构建并推送 ACR 个人版 `value-agent:latest`，含 `--platform linux/amd64` / `--provenance=false` /
 >    daocloud 基础镜像 build-arg 防 docker.io 超时；FC 发布阶段以控制台「函数计算应用发布」（镜像方式）为准）；
 > ③ 新增 `.dockerignore`（排除 .git/.venv/frontend/docs/tests/data 及 .env 密钥，加速云效 buildx 上下文）；
