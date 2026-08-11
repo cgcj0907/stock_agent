@@ -371,3 +371,7 @@
 ### 轮次 2 · 2026-08-11
 - 按用户要求，云效流水线代码源由 `EconSwarm/backend` 改为 **origin 仓库** `git@github.com:cgcj0907/stock_agent.git`（main）；
   同步更新 `deploy/flow-pipeline.yml` 与 docs/10-fc-deployment.md §11 中的仓库地址/授权说明，本仓库 .dockerignore 已排除 frontend/，单仓直连构建不受影响。
+
+### 轮次 3 · 2026-08-11
+- 用户回填云效控制台实际值：GitHub 服务连接 `aliyun5326916119`、仓库 `cgcj0907/stock_agent`、分支 `main`、工作目录 `stock_agent_gn1C`；
+  已回填 `deploy/flow-pipeline.yml` 的 serviceConnection 并更新 docs/10-fc-deployment.md §11.1/§11.2，与可视化配置保持一致。

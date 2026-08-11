@@ -8,9 +8,13 @@
 #   2) 粘贴本文件内容，替换全部 <...> 占位符（服务连接 ID，见企业设置 → 服务连接）；
 #   3) 或直接按 docs/10-fc-deployment.md §11 可视化点选（参数与本文件一致，推荐新手）。
 # 占位符：
-#   <GITHUB_SC>  GitHub 服务连接 ID（cgcj0907/stock_agent 授权）
-#   <ACR_SC>     阿里云 ACR（个人版）服务连接 ID
-#   <FC_SC>      函数计算 FC 服务连接 ID（发布任务按引导新建/授权）
+#   GitHub 服务连接：aliyun5326916119（已创建，授权 cgcj0907/stock_agent）
+#   <ACR_SC>      阿里云 ACR（个人版）服务连接（创建后在下方替换）
+#   <FC_SC>       函数计算 FC 服务连接（发布任务按引导新建/授权）
+#
+# 注意：YAML 的 certificate.serviceConnection 填企业设置 → 服务连接管理里的连接 ID；
+# 若在「YAML 模式」下粘贴本文件，控制台通常会自动把服务连接替换成正确 ID。
+# 可视化模式下代码源工作目录为 stock_agent_gn1C（云效自动生成）。
 # 已知坑（详见 docs/10-fc-deployment.md §11.5）：
 #   - 境内构建机直连 docker.io 拉基础镜像常超时 → 用 daocloud 镜像源 build-arg，
 #     或把 runsOn 换成云效香港公共构建集群（public/cn-hongkong）走默认基础镜像；
@@ -28,7 +32,8 @@ sources:
       - push
     certificate:
       type: serviceConnection
-      serviceConnection: <GITHUB_SC>
+      # GitHub 服务连接：aliyun5326916119（若 YAML 模式提示 ID 无效，改为服务连接管理里的连接 ID）
+      serviceConnection: aliyun5326916119
 
 stages:
   # ---------------------------------------------------------------- 构建镜像

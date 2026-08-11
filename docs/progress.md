@@ -824,3 +824,4 @@
 > ④ docs/10-fc-deployment.md 新增 §11 云效流水线手册（前置准备/可视化配置/验证/已知坑）；
 > ⑤ 先提交上一轮 Chat #12 已验证修复（`0190db9`：financials 缺列迁移 + upsert 事务残留 + memo 红队兼容，
 >    584 测试 + ruff 全绿），本轮改动单独提交；流水线首次运行需在控制台替换服务连接 ID 后验证。
+> ⑥ 2026-08-11 用户回填控制台实际值：GitHub 服务连接 `aliyun5326916119`、仓库 `cgcj0907/stock_agent`、分支 `main`、工作目录 `stock_agent_gn1C`；已回填 flow-pipeline.yml 与手册。
