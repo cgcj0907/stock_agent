@@ -121,6 +121,31 @@
 
 ## 历史变更日志（详细）
 
+> ✅ 2026-08-11 **WorkflowRail 投资结论区块行高微调（Chat #9 轮次 8）**：
+> ① 按用户给出的元素路径与预览，定位到 `frontend/src/components/workflow/workflow-rail.tsx` 中“投资结论”区块根 `<section>`；
+> ② 仅在该节点追加 `leading-6`，将区块默认行高调整为 `24px`，不改全局样式，也不影响其他 `section` 或右栏区块；
+> ③ 本轮为单点样式调整，未新增测试。
+
+> ✅ 2026-08-11 **个人资料功能化 + 工作流界面去冗余收敛（Chat #9）**：
+> ① 设置页“个人资料”从占位入口升级为真实功能：确定三层画像结构（基础身份 / 财务画像 / 投资画像），
+>    打通 `profiles` 扩表、`/settings/profile`、`GET/PUT /api/profile`、服务端 `upsert` 与 RLS；
+>    用户身份展示优先读取 `profiles`，头像改走 Supabase Storage public `avatars` bucket，`profiles` 存 `avatar_path`；
+> ② 工作流与备忘录继续去冗余：分析 DAG 顶部装饰线移除，备忘录后段估值图从 `canvas`/ECharts 统一为静态 `div` 区间条，
+>    并去掉多余内层边框、置信度/质量乘数/风险折扣等辅助说明，让内容更聚焦结论；
+> ③ 右栏持续收敛：从多张卡片并为连续分区，保留左侧分割线与折叠按钮；随后按“`main` 没有右边栏”反馈，
+>    升级为 dashboard layout 级右栏视口，运行页与对话详情页通过 portal 复用；“投资结论”从 Card 收成普通 `section`；
+> ④ 结果卡头部按用户最后反馈改成单容器横排：状态点/状态徽章并入标题组右侧，不再单独占一列；
+>    新增 `frontend/src/lib/__tests__/result-card-layout.test.ts` 锁定结构，相关前端校验通过。
+ 
+> ✅ 2026-08-11 **SQL 建表语句整理（Chat #8）**：
+> ① 盘点全项目 4 份 SQL 的建表语句：SCHEMA 自动生成的两份行情表（data/schema.sql 与 src/value_agent/data/schema.sql，
+>    校验 `python -m value_agent data ddl` 与两份文件完全一致无漂移）、frontend/supabase/schema.sql（应用 9 表 + RLS/存储桶/触发器）、
+>    deploy/supabase_sessions.sql（会话表）；
+> ② 去重：deploy/supabase_sessions.sql 删除与 frontend/supabase/schema.sql 重复的 monitor_rules / user_webhooks
+>    建表与 RLS（owner_webhooks），统一由 schema.sql 维护（后端启动仍自动建表，互不影响）；
+> ③ 新增 docs/database-tables.md 建表总览（每表用途/主键/索引/RLS/定义文件 + 文件地图 + 单一事实源说明），
+>    更新 docs/README.md 导航与 docs/07-deployment-guide.md 建表指引（依次执行行情表 → 应用表 → 会话表）；
+> ④ 未改任何 Python/业务逻辑；验证：data ddl 与两份 schema.sql 完全一致。
 > ✅ 2026-08-11 **daily 规则源收口：只读 monitor_rules 表，去除 JSONB/M8 回退**：
 > ① 背景：东方财富 warn 来自会话 JSONB 的 M11 mos_watch 规则（表里没有但 daily 回退扫到）；用户删记录后，
 >    明确「规则管理以表为准——保留会话但删除规则后不应再触发」；
@@ -223,6 +248,11 @@
 
 
 > 要点版见 [milestones.md](milestones.md)；此处为完整明细，按时间倒序。
+
+> ✅ 2026-08-11 **右栏独立滚动修复（sticky 移回 aside）**：
+> ① 现象：主内容区滚动时右栏跟着滚走——`RightRailShell` 把 `lg:sticky/top/max-h` 挂在内层 `motion.div`，其父容器高度只有内容高，sticky 无可移动空间（同历史 commit 0485446 验证过的失效写法）；
+> ② 修复：sticky/top/max-h 移回作为 flex 子项的 `<aside>`，内容区改 `min-h-0 flex-1 overflow-y-auto` 独立滚动，折叠按钮固定在顶部不随内容滚动；
+> ③ `right-rail.test.ts` 新增回归（sticky 必须在 aside、内容区不挂 sticky、必须可独立滚动），前端 65 测试全绿 + `tsc`/`eslint` 通过。
 
 > ✅ 2026-08-09 **估值引擎三处 P1 修复 + 估值法现值/未来标注（会话稽核驱动）**：
 > ① **P1-1 成长次新股保护（2.3b）**：近 N 年年化 EPS CAGR ≥ 20% 时，`relative_median_pe` 改用「最近 250 交易日」PE 中位
@@ -740,3 +770,19 @@
 > ③ RLS 加固：deploy/supabase_sessions.sql 补 user_webhooks owner 策略（sessions 上一轮已补）；
 > ④ 验证：后端 **581 测试全绿 + ruff**、前端 **67 测试通过**、tsc/eslint/构建通过、
 >    浏览器实测仪表盘/对话详情/监控中心/对话列表均正常。
+
+> ✅ 2026-08-11 **结果卡头部状态点右上角修复（Chat #7 轮次 7）**：
+> ① 根因：`CardHeader` 基础 class 是 `grid auto-rows-min`，结果卡只加了 `flex-row`
+>    （仅设 flex-direction 不设 display），状态被排到标题下一行「上下排布」；
+> ② 修复：改为 `flex items-center justify-between`（tailwind-merge 以 flex 覆盖 grid 的 display），
+>    模块名靠左、状态点独立 `shrink-0` 组固定右上角；ResultCardSkeleton 同步；
+> ③ 回归测试：更新 result-card-layout / workflow-rail 断言以锁定「单行 + 右上角」结构；
+> ④ 验证：tsc/eslint 全绿、前端 **69 测试通过**、构建通过、浏览器实测对话详情与报告页头部均单行右上角。
+
+> ✅ 2026-08-11 **合并重复导出入口（Chat #7 轮次 8）**：
+> ① 问题：对话详情页「分析结果」区「导出 PDF」（→/report/[id] 完整报告）与备忘录区「分享 / 打印」（→/memo/[id]）
+>    功能重复——两者都导向打印/PDF，且完整报告包含备忘录；
+> ② 修复：移除备忘录区「分享 / 打印」按钮，统一为「分析结果 → 导出 PDF」单一入口；
+>    报告页操作栏（ReportActions）新增「复制 Markdown / 导出 .md」（有 Markdown 时显示），备忘录分享能力保留；
+>    /memo/[id] 独立打印页保留（直接 URL 可用），仅去掉重复按钮；
+> ③ 验证：tsc/eslint 全绿、前端 **69 测试通过**、构建通过、浏览器实测对话页仅一个导出入口、报告页操作栏正常。

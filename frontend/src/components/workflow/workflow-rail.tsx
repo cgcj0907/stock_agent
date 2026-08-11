@@ -323,7 +323,7 @@ export function WorkflowRail({
 
       {/* 投资结论（已完成） */}
       {showResults && (conclusion || total != null || ivMid != null) && (
-        <section className="flex flex-col gap-3 py-4">
+        <section className="flex flex-col gap-3 py-4 leading-6">
           <div className="text-sm font-semibold">投资结论</div>
           <div className="flex flex-col gap-3">
             <div className="flex flex-col gap-3">

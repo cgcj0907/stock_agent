@@ -38,6 +38,20 @@ test("right rail shell keeps a left divider and collapse toggle", async () => {
   assert.doesNotMatch(source, /RightRailViewport/);
 });
 
+test("right rail shell keeps the sticky scroller on the aside, content scrolls independently", async () => {
+  const source = await readSource("../../components/ui/right-rail.tsx");
+
+  // sticky 必须放在作为 flex 子项的 <aside> 上，否则主内容滚动会顺带把右栏滚走
+  assert.match(
+    source,
+    /<aside\s+className=\{cn\(\s*"hidden w-full lg:flex[\s\S]*?lg:sticky lg:top-20 lg:max-h-\[calc\(100vh_-_5rem\)\]/,
+  );
+  // 内容区（motion.div）负责独立滚动，不能再挂 sticky
+  assert.doesNotMatch(source, /motion\.div[\s\S]*?lg:sticky/);
+  // 内容区必须可独立滚动（flex-1 + overflow-y-auto + min-h-0）
+  assert.match(source, /min-h-0 flex-1 overflow-y-auto overscroll-contain/);
+});
+
 test("right rail provider is hydration-safe (server snapshot, no localStorage in initial render)", async () => {
   const source = await readSource("../../components/ui/right-rail.tsx");
 

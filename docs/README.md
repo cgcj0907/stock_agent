@@ -26,6 +26,7 @@
 | 15 | [milestones.md](milestones.md) | **里程碑记录**：非常关键性项目进展（体系成型/重大方向/关键修复/上线部署），Agent 自动维护 | 有关键进展时更新 |
 | 16 | [templates/module-spec.md](templates/module-spec.md) | **模块规格模板**：新增/完善模块时填写 | 开发某个模块时 |
 | 17 | [progress.md](progress.md) | **任务清单 + 历史日志**：勾选已完成任务并写日期；要点版见 milestones.md | 每个里程碑结束时更新 |
+| 18 | [database-tables.md](database-tables.md) | **建表语句总览**：全项目 CREATE TABLE 清单（行情表/应用表/会话表）+ 单一事实源说明 | 查看/整理建表语句、改表结构时读 |
 
 ## 开发节奏（一句话版）
 

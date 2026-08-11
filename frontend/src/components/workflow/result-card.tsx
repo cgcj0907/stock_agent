@@ -188,10 +188,11 @@ export function ResultCard({
       size="sm"
       className="flex flex-col rounded-2xl transition-shadow hover:shadow-md"
     >
-      <CardHeader className="flex-row items-center justify-between space-y-0 pb-1">
+      {/* 头部单行：模块名靠左，状态点/徽章固定在右上角 */}
+      <CardHeader className="flex items-center justify-between space-y-0 pb-1">
         <div className="flex min-w-0 items-center gap-2">
           <AgentIcon icon={agent?.icon} className="size-5 shrink-0" />
-          <span className="truncate text-sm font-semibold">
+          <span className="min-w-0 truncate text-sm font-semibold">
             {agent?.name ?? moduleShort(result.module)}
           </span>
           {agent && (

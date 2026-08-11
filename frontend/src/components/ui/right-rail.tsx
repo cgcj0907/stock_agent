@@ -96,50 +96,53 @@ export function RightRailShell({
 }) {
   const { open, toggle } = useRightRail();
 
+  // sticky 必须放在作为 flex 子项的 <aside> 上（相对整行高度固定），
+  // 放在内层 div 时父容器高度只有内容高，sticky 无可移动空间，滚动时右栏会随页面滚走。
   return (
     <aside
       className={cn(
-        "hidden w-full lg:block lg:shrink-0",
+        "hidden w-full lg:flex lg:shrink-0 lg:flex-col lg:sticky lg:top-20 lg:max-h-[calc(100vh_-_5rem)] lg:overscroll-contain",
         open ? "lg:w-80" : "lg:w-12",
         className,
       )}
     >
+      {/* 顶部分割线 + 折叠按钮（固定在顶部，不随内容滚动） */}
       <div
         className={cn(
-          "border-t border-border/60 pt-3 lg:border-t-0 lg:border-l lg:pl-4",
-          open && "lg:pr-1",
+          "flex border-t border-border/60 pt-3 lg:border-t-0 lg:border-l lg:pl-4",
+          open ? "mb-3 justify-start lg:pr-1" : "justify-center",
         )}
       >
-        <div className={cn("flex", open ? "mb-3 justify-start" : "justify-center")}>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-8 rounded-full"
-            onClick={toggle}
-            aria-label={open ? "收起右侧栏" : "展开右侧栏"}
-            title={open ? "收起右侧栏" : "展开右侧栏"}
-          >
-            {open ? <ChevronsRight className="size-4" /> : <ChevronsLeft className="size-4" />}
-          </Button>
-        </div>
-
-        {open ? (
-          <motion.div
-            initial={{ opacity: 0, x: 6 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.18, ease: "easeOut" }}
-            className={cn(
-              "lg:sticky lg:top-20 lg:max-h-[calc(100vh_-_5rem)] lg:overflow-y-auto lg:overscroll-contain lg:pb-3",
-              contentClassName,
-            )}
-          >
-            {children}
-          </motion.div>
-        ) : collapsedContent ? (
-          <div className="flex flex-col items-center gap-1">{collapsedContent}</div>
-        ) : null}
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-8 rounded-full"
+          onClick={toggle}
+          aria-label={open ? "收起右侧栏" : "展开右侧栏"}
+          title={open ? "收起右侧栏" : "展开右侧栏"}
+        >
+          {open ? <ChevronsRight className="size-4" /> : <ChevronsLeft className="size-4" />}
+        </Button>
       </div>
+
+      {open ? (
+        <motion.div
+          initial={{ opacity: 0, x: 6 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.18, ease: "easeOut" }}
+          className={cn(
+            "min-h-0 flex-1 overflow-y-auto overscroll-contain pb-3 lg:border-l lg:pl-4 lg:pr-1",
+            contentClassName,
+          )}
+        >
+          {children}
+        </motion.div>
+      ) : collapsedContent ? (
+        <div className="flex flex-col items-center gap-1 lg:border-l lg:pl-4">
+          {collapsedContent}
+        </div>
+      ) : null}
     </aside>
   );
 }

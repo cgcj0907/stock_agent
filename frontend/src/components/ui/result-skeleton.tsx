@@ -7,7 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 export function ResultCardSkeleton() {
   return (
     <Card size="sm" className="flex flex-col gap-3 rounded-2xl">
-      <CardHeader className="flex-row items-center justify-between space-y-0 pb-1">
+      <CardHeader className="flex items-center justify-between space-y-0 pb-1">
         <div className="flex items-center gap-2.5">
           <Skeleton className="size-5 rounded-lg" />
           <div className="flex flex-col gap-1">

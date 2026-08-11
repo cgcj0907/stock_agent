@@ -787,18 +787,10 @@ export function ConversationDetailView({
 
       {(memo || (session && Object.keys(session.module_results ?? {}).length > 0)) && (
         <section id="conv-memo" className="flex scroll-mt-20 flex-col gap-3">
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="flex items-center gap-2 text-base font-semibold">
-              <FileText className="size-4 text-emerald-600 dark:text-emerald-400" />
-              投资备忘录
-            </h2>
-            <Button asChild variant="outline" size="sm" className="rounded-lg">
-              <Link href={`/memo/${conversation.id}`}>
-                <FileText className="size-3.5" />
-                分享 / 打印
-              </Link>
-            </Button>
-          </div>
+          <h2 className="flex items-center gap-2 text-base font-semibold">
+            <FileText className="size-4 text-emerald-600 dark:text-emerald-400" />
+            投资备忘录
+          </h2>
           {session && Object.keys(session.module_results ?? {}).length > 0 ? (
             <MemoCard
               companyCode={conversation.company_code}

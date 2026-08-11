@@ -192,8 +192,13 @@ docker push registry.cn-chengdu.aliyuncs.com/zgy_20223090903005/value-agent:late
 ### 2.1 创建项目
 
 1. supabase.com 注册 → New project（区域选 **Southeast Asia / Singapore**，离国内近）。
-2. 建表：在 Supabase SQL Editor 执行 [`src/value_agent/data/schema.sql`](../src/value_agent/data/schema.sql)（表结构 + 索引），再开启 `create extension vector;`（pgvector，RAG 用）。
-   > schema.sql 由 `python -m value_agent data ddl` 从代码里的 SCHEMA 生成（单一事实源），改表结构后重新生成即可。
+2. 建表：在 Supabase SQL Editor 依次执行
+   - [`src/value_agent/data/schema.sql`](../src/value_agent/data/schema.sql)（行情/财务表 + 索引）
+   - [`frontend/supabase/schema.sql`](../frontend/supabase/schema.sql)（应用表：profiles/conversations/monitor_rules/user_webhooks 等 + RLS）
+   - [`deploy/supabase_sessions.sql`](../deploy/supabase_sessions.sql)（会话表 `sessions`）
+   - 再开启 `create extension vector;`（pgvector，RAG 用）。
+   > 全项目建表语句总览见 [`database-tables.md`](database-tables.md)；行情表 schema.sql 由 `python -m value_agent data ddl`
+   > 从代码里的 SCHEMA 生成（单一事实源），改表结构后重新生成即可。
 
 ### 2.1.1 连接方式选择与排查（Troubleshooting）
 
@@ -283,7 +288,7 @@ DATABASE_URL=postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supaba
 > ✅ **会话持久化已迁移到 Supabase**（2026-08-05）：后端设置环境变量
 > `SESSION_STORE=supabase`（依赖 `DATABASE_URL`）后，会话/备忘录/对话消息存 Supabase
 > `public.sessions`（jsonb payload），重启/换实例不丢。本地开发默认 `SESSION_STORE=sqlite`
-> 或 `memory`。表结构由后端自动创建，也可手动执行 `deploy/supabase_sessions.sql`。
+> 或 `memory`。表结构由后端自动创建，也可手动执行 `deploy/supabase_sessions.sql`（会话表）+ `frontend/supabase/schema.sql`（应用表）。
 > 每日数据刷新与监控由 GitHub Actions 完成（见 §1.7），不占 Render 常驻时间。
 >
 > 🔧 若未来绑卡后仍想用 Blueprint：Docker 运行时用 **`dockerCommand`** 而非 `startCommand`；

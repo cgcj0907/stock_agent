@@ -29,7 +29,7 @@ test("investment conclusion uses a single divider instead of boxed metric cards"
 
   assert.match(
     source,
-    /showResults && \(conclusion \|\| total != null \|\| ivMid != null\)[\s\S]*<section className="flex flex-col gap-3 py-4">/,
+    /showResults && \(conclusion \|\| total != null \|\| ivMid != null\)[\s\S]*<section className="flex flex-col gap-3 py-4[^"]*">/,
   );
   assert.match(
     source,

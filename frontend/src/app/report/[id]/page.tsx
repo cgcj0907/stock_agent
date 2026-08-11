@@ -140,7 +140,11 @@ export default async function ReportPage({
       <div className="mx-auto max-w-4xl px-4 py-8 md:py-12">
         {/* 顶部操作栏（打印时隐藏） */}
         <div className="mb-6 print:hidden">
-          <ReportActions conversationId={conversation.id} />
+          <ReportActions
+            conversationId={conversation.id}
+            markdown={memoMarkdown}
+            fileName={`${label}-${conversation.company_code}-分析报告`}
+          />
         </div>
 
         {/* 报告头 */}
