@@ -391,3 +391,6 @@
 
 ### 轮次 8 · 2026-08-11
 - 构建日志失败两处：① docker.io 拉 python:3.11-slim 超时（「更多构建参数」未生效，options 为空）→ 需填 --platform/--provenance/--build-arg BASE_IMAGE=daocloud；② 上下文被默认成 deploy/ 目录（COPY src/config 将失败）→ 上下文路径填 `.`；已同步 docs/10-fc-deployment.md §11.2/§11.5 与 deploy/flow-pipeline.yml。
+
+### 轮次 9 · 2026-08-11
+- 构建再次失败：日志 `transferring context: 2B`，`COPY src` 与 `COPY config` 均 not found → 判定上下文路径未生效（上下文为空/仍是 deploy 目录），确认「上下文路径」填 `.`；另发现本地 main 领先 origin/main 9 个提交未推送，流水线构建的是远程旧代码，需 push 后部署最新代码。
