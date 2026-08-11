@@ -13,8 +13,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 # 先装依赖再拷代码：只有依赖变化才重跑 pip（代码改动只触发秒级 COPY），
 # 且显式装运行时依赖避免 pip install .（hatchling/pyproject 解析）在旧 pip 上的坑
 ENV PYTHONPATH=/app/src
-# 国内/香港网络用清华 PyPI 镜像，下载快且稳（也可换 aliyun：https://mirrors.aliyun.com/pypi/simple）
-RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple \
+# 云效构建机优先用阿里云 PyPI 镜像（清华 TUNA 对构建机 IP 曾返回 403 Forbidden）；
+# 本地/海外可换回清华 https://pypi.tuna.tsinghua.edu.cn/simple 或默认官方源
+RUN pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ \
     fastapi uvicorn pandas numpy akshare litellm "psycopg2-binary" pyyaml pydantic httpx ecdsa
 COPY src ./src
 COPY config ./config

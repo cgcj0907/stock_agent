@@ -397,3 +397,6 @@
 
 ### 轮次 10 · 2026-08-11
 - 用户截图（OCR）显示「工作目录」字段校验报错：只允许字母、数字、`_`、`-` 且以字母/数字/`_` 开头 → 指引填回合法值 `stock_agent_gn1C`（或 backend 等），去除空格/中文/符号。
+
+### 轮次 12 · 2026-08-11
+- 定位 pip 安装失败：清华 PyPI 镜像对 fastapi wheel 返回 HTTP 403（构建机被限流）→ deploy/Dockerfile pip 源改为阿里云 `https://mirrors.aliyun.com/pypi/simple/`；此改动需 push 到 origin 后流水线才生效。
