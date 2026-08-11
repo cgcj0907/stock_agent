@@ -53,6 +53,8 @@ stages:
               artifact: registry.cn-chengdu.aliyuncs.com/zgy_20223090903005/value-agent:latest
               # Dockerfile 路径相对代码库根目录
               dockerfilePath: deploy/Dockerfile
+              # 构建上下文：必须填仓库根目录，否则默认 Dockerfile 所在目录导致 COPY src/config 失败
+              contextPath: .
               # ACR 个人版服务连接
               dockerRegistry: <ACR_SC>
               # 更多构建参数（可视化里叫「更多构建参数」，逐项填写；

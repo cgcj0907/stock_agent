@@ -219,6 +219,7 @@ value-agent daily
    - 构建集群：**云效北京公共构建集群**（境内代码库；境外代码库可选香港集群）；
    - 构建环境：默认/指定容器环境（build-steps/alinux3）均可；
    - **Dockerfile 路径**：`deploy/Dockerfile`；
+   - **上下文路径（ContextPath）**：填 `.`（仓库根目录；不填会默认成 Dockerfile 所在目录 `deploy/`，导致 `COPY src/config` 找不到文件）；
    - **镜像地址**：`registry.cn-chengdu.aliyuncs.com/zgy_20223090903005/value-agent`；
    - **标签**：`latest`（与 FC 当前镜像一致，可覆盖；想留版本历史用 `${DATETIME}`）；
    - **服务连接**：上一步的 ACR 个人版服务连接；
@@ -265,4 +266,5 @@ curl https://value-agent-vjdugjsdaa.cn-chengdu.fcapp.run/health   # → {"status
 | ACR 个人版并发/速度限制 | 个人版不保障 SLA，量大换企业版 |
 | FC 发布后函数没变化 | 确认发布方式选了「镜像」且镜像地址正确；latest 需重新发布才会被 FC 重新拉取 |
 | 找不到 FC 函数/区域 | 检查 FC 服务连接授权与区域（cn-chengdu） |
+| 构建上下文变成 `deploy/`（日志 `contextPath is set to: .../deploy`） | 步骤的「上下文路径」不填默认取 Dockerfile 所在目录 → 填 `.`（仓库根目录） |
 | `UnitTestReport` 报 `report/index.html does not exist` | 模板自带的默认「测试报告」步骤，Python 后端不生成 HTML 报告 → 在流水线编辑器删除该步骤（及多余测试步骤），只保留构建镜像 + FC 部署 |

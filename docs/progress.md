@@ -826,3 +826,4 @@
 >    584 测试 + ruff 全绿），本轮改动单独提交；流水线首次运行需在控制台替换服务连接 ID 后验证。
 > ⑥ 2026-08-11 用户回填控制台实际值：GitHub 服务连接 `aliyun5326916119`、仓库 `cgcj0907/stock_agent`、分支 `main`、工作目录 `stock_agent_gn1C`；已回填 flow-pipeline.yml 与手册。
 > ⑦ 2026-08-11 用户配置 FC 部署任务：服务连接 aliyun5326916119、地域成都、函数 value-agent、自定义镜像；镜像字段直接输入 `.../value-agent:latest`（手册 §11.2 已更新）。
+> ⑧ 2026-08-11 构建阶段排障：docker.io 基础镜像超时 → 更多构建参数填 daocloud build-arg；上下文路径默认 deploy/ 会致 COPY 失败 → 填 `.`。

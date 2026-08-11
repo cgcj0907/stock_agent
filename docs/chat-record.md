@@ -388,3 +388,6 @@
 
 ### 轮次 7 · 2026-08-11
 - 流水线首跑报 `UnitTestReport` 找不到 `report/index.html`：判定为模板自带的默认「测试报告」步骤，Python 后端不生成 HTML 报告 → 指引在流水线编辑器中删除该步骤（保留构建镜像 + FC 部署），并记入 10-fc-deployment.md §11.5 已知坑。
+
+### 轮次 8 · 2026-08-11
+- 构建日志失败两处：① docker.io 拉 python:3.11-slim 超时（「更多构建参数」未生效，options 为空）→ 需填 --platform/--provenance/--build-arg BASE_IMAGE=daocloud；② 上下文被默认成 deploy/ 目录（COPY src/config 将失败）→ 上下文路径填 `.`；已同步 docs/10-fc-deployment.md §11.2/§11.5 与 deploy/flow-pipeline.yml。
