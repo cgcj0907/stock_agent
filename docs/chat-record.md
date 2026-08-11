@@ -375,3 +375,6 @@
 ### 轮次 3 · 2026-08-11
 - 用户回填云效控制台实际值：GitHub 服务连接 `aliyun5326916119`、仓库 `cgcj0907/stock_agent`、分支 `main`、工作目录 `stock_agent_gn1C`；
   已回填 `deploy/flow-pipeline.yml` 的 serviceConnection 并更新 docs/10-fc-deployment.md §11.1/§11.2，与可视化配置保持一致。
+
+### 轮次 4 · 2026-08-11
+- 用户询问 ACR 构建任务「标签」填什么：确认填 `latest`（与 FC 当前镜像一致、可覆盖；备选 `${DATETIME}` 留版本历史），并同步进 docs/10-fc-deployment.md §11.2。

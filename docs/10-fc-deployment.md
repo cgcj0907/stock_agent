@@ -219,7 +219,8 @@ value-agent daily
    - 构建集群：**云效北京公共构建集群**（境内代码库；境外代码库可选香港集群）；
    - 构建环境：默认/指定容器环境（build-steps/alinux3）均可；
    - **Dockerfile 路径**：`deploy/Dockerfile`；
-   - **镜像地址**：`registry.cn-chengdu.aliyuncs.com/zgy_20223090903005/value-agent:latest`；
+   - **镜像地址**：`registry.cn-chengdu.aliyuncs.com/zgy_20223090903005/value-agent`；
+   - **标签**：`latest`（与 FC 当前镜像一致，可覆盖；想留版本历史用 `${DATETIME}`）；
    - **服务连接**：上一步的 ACR 个人版服务连接；
    - **更多构建参数**（逐项填写）：
      - `--platform linux/amd64`（**必填**：FC 是 amd64，Mac 本机 arm64 镜像不能直接用）；
