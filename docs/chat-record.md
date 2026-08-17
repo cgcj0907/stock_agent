@@ -357,6 +357,9 @@
 - 修复备忘录 `build_memo`：8.6 起红队 `permanent_loss_paths` 是结构化 dict（path/veto_candidate/confidence），`'；'.join()` 报 `TypeError: expected str instance, dict found` → `GET /memo` 500；改为 dict/字符串双兼容；
 - 新增 3 个回归测试（memo 结构化红队 + 旧格式字符串 + upsert 不掩盖缺列错误），全量 **584 通过 + ruff 全绿**；docs 更新（chat-record/milestones/progress/10-fc-deployment）。
 
+### 轮次 2 · 2026-08-12
+- 稽核宁德时代（300750）线上 2 个会话（sess_6cf2a3429987 今日 / sess_f39aa755c2ed 昨日）：方向一致合理（watch / 0 仓位，现价 390 > 内在价值上沿），但今日会话财务输入有硬伤——Supabase financials 缓存 2025 各期负债率 0.0062（单位 bug，真实 ~62%）、ocfps/ocf_to_np 全 NULL（现金流缺失）、历史仅 8 年，导致 IV 中值被压低（278 vs 昨日 336）、买入价 152 vs 188；判断为「结论框架合理、估值被脏数据拉低」，建议修数据入库单位 + 补现金流后重跑复核。
+
 ## Chat #13 — 2026-08-11 — 阿里云云效流水线打包镜像部署
 
 - **主题**：用户要求改用阿里云**云效流水线（Flow）**自动「打包镜像 + 部署」，替代本地手动 docker build/push + 控制台改镜像。
