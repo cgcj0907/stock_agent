@@ -72,13 +72,18 @@ docker push registry.cn-chengdu.aliyuncs.com/zgy_20223090903005/value-agent:late
    | `CORS_ORIGINS` | `*` |
    | `SESSION_STORE` | `supabase` |
    | `DATA_WRITE_BACK` | **`sync`**（关键：FC 请求结束会回收实例掐掉后台线程，同步写保证落库） |
-   | `SUPABASE_URL` | `https://<project-ref>.supabase.co`（**必配**：全局鉴权用它拉 JWKS 验 ES256 token） |
+   | `SUPABASE_URL` | `https://<project-ref>.supabase.co`（**必配**：全局鉴权开关；默认 JWKS 地址） |
+   | `SUPABASE_JWKS` | **推荐（FC 大陆出口到 supabase.co 握手超时）**：静态注入 JWKS JSON（`{"keys":[...]}`，
+     用 `curl https://<ref>.supabase.co/auth/v1/.well-known/jwks.json` 拿）；配置后鉴权**完全不出网** |
+   | `SUPABASE_JWKS_FILE` | 可选：JWKS 文件路径（与 `SUPABASE_JWKS` 二选一；挂载持久卷时用），配置后同样不出网 |
+   | `SUPABASE_JWKS_URL` | 可选：覆盖 JWKS 拉取地址（自建境内代理/CDN 时用；默认 `<SUPABASE_URL>/auth/v1/.well-known/jwks.json`） |
    | `SUPABASE_JWT_SECRET` | 可选：轮换前的 HS256 老 token 回退验签（当前是 ECC 新 key，可不配） |
    | `DAILY_TOKEN` | 可选：`/api/daily` 定时触发器鉴权（请求头 `x-daily-token`） |
 5. **HTTP 触发器认证方式必须选「无需认证」**（否则报 `MissingRequiredHeader: Date` / `invalid authorization`）。
 6. **应用级全局鉴权**：`/api/*` 现在要求 `Authorization: Bearer <Supabase 登录 token>`（ES256，JWKS 验签；
    可选 `SUPABASE_JWT_SECRET` 兼容轮换前 HS256 老 token）。前端已自动附加 token；`/health` 与
    `/api/daily` 例外（daily 用 `DAILY_TOKEN`）。
+   **FC 出网到 supabase.co 不稳时，配 `SUPABASE_JWKS` 静态注入（见第七节 #14），鉴权即不再依赖出网。**
 6. 改代码后：函数 → 配置 → **修改镜像**重新拉取（**保留现有 URL**；删除重建会换域名）。
 
 ## 六、数据层机制
@@ -112,11 +117,14 @@ docker push registry.cn-chengdu.aliyuncs.com/zgy_20223090903005/value-agent:late
 | 11 | `读 financials/600519 失败：column "bvps" does not exist`（读穿 SELECT 与后台回写 INSERT 都报） | backlog 第二批给 financials 加了 bvps/ncav_ps/rd_ratio/interest_debt_ratio/contract_liability_ratio/ocf_to_np_parent 6 列，但存量 Supabase 表是早先 DDL 建的，`CREATE TABLE IF NOT EXISTS` 不会改已存在表 | `PostgresMarketStorage.__init__` 新增 `_MIGRATIONS`：对 financials 幂等 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` 补 6 列（含原 daily_price.turnover）；重新 build/push 后存量库自动补列 |
 | 12 | `[cache] financials 后台回写失败：set_session cannot be used inside a transaction` | upsert 的 execute 抛非 OperationalError（如缺列）后事务残留，finally 直接置 `autocommit=True` 触发 psycopg2 set_session 报错，把真正的缺列错误掩盖 | upsert finally 先 `rollback()` 清事务再复位 autocommit；复位失败仅记 debug 日志，不吞原始异常 |
 | 13 | `GET /api/sessions/<id>/memo` 500：`TypeError: sequence item 0: expected str instance, dict found` | 8.6 起红队 `permanent_loss_paths` 是结构化 dict（path/veto_candidate/confidence），备忘录 `'；'.join()` 按字符串处理 | `report/memo.py` 对 permanent_loss_paths 做 dict/字符串双兼容渲染（key_assumptions 同步过滤非字符串） |
+| 14 | `POST /api/sessions` 连续 401：`鉴权失败：_ssl.c:999: The handshake operation timed out` | FC（成都大陆出口）到 `*.supabase.co`（AWS 新加坡）HTTPS SSL 握手超时，ES256 验签拉 JWKS 失败（本机 curl 可通则是有代理） | ① FC 配置 `SUPABASE_JWKS` 静态注入 JWKS（推荐，完全不出网）；② `core/auth.py` 支持静态注入 + 网络重试 + 本地文件缓存回退 + `SUPABASE_JWKS_URL` 覆盖（2026-08-17） |
 
 ## 八、快速验证
 
 ```bash
 curl https://value-agent-vjdugjsdaa.cn-chengdu.fcapp.run/health   # → {"status":"ok"}
+# 带登录 JWT 调会话 API（鉴权正常应返回业务 2xx/4xx，而非 401 鉴权失败）：
+curl -H "Authorization: Bearer <supabase_token>" https://value-agent-vjdugjsdaa.cn-chengdu.fcapp.run/api/sessions
 # 跑一次分析看 M4：
 #  现价有 + 6 个估值方法 → 正常（大陆 IP 拉到全量数据）
 #  现价无 + 降级徽标 → 日线没拉到或没缓存（先 data fetch 预取，或看分析依据里的失败原因）
@@ -249,6 +257,8 @@ value-agent daily
 
 ```bash
 curl https://value-agent-vjdugjsdaa.cn-chengdu.fcapp.run/health   # → {"status":"ok"}
+# 带登录 JWT 调会话 API（鉴权正常应返回业务 2xx/4xx，而非 401 鉴权失败）：
+curl -H "Authorization: Bearer <supabase_token>" https://value-agent-vjdugjsdaa.cn-chengdu.fcapp.run/api/sessions
 ```
 - 流水线日志：构建 → 推送 → 发布三步全绿；
 - FC 控制台确认函数镜像已更新（最近更新时间变化）；

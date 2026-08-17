@@ -21,6 +21,12 @@
 | 生产部署链路 | 2026-08-09 | ✅ | 阿里云 FC（后端）+ Supabase + Vercel（前端）上线与加固 |
 
 ## 关键里程碑明细
+### 2026-08-17 · FC 鉴权 401 修复（静态 JWKS 注入，解决 supabase.co 握手超时）
+生产日志 `POST /api/sessions` 连续 401（`鉴权失败：_ssl.c:999: The handshake operation timed out`）：根因是 FC（成都大陆出口）
+到 `*.supabase.co`（AWS 新加坡）的 HTTPS SSL 握手超时，ES256 验签拉 JWKS 失败。修复：`core/auth.py` 支持
+`SUPABASE_JWKS`/`SUPABASE_JWKS_FILE` 静态注入 JWKS（配置后完全不出网，FC 主解）+ 网络重试 + 本地文件缓存回退 +
+`SUPABASE_JWKS_URL` 覆盖；新增 6 个回归测试，全量 **590 通过 + ruff**。
+
 
 ### 2026-08-11 · financials 缺列修复（bvps 等 6 列迁移）+ memo 红队结构化回归
 生产日志定位并修复三个真实 bug：① Supabase 存量 `financials` 表缺 bvps/ncav_ps/rd_ratio/interest_debt_ratio/

@@ -829,3 +829,13 @@
 > ⑧ 2026-08-11 构建阶段排障：docker.io 基础镜像超时 → 更多构建参数填 daocloud build-arg；上下文路径默认 deploy/ 会致 COPY 失败 → 填 `.`。
 > ⑨ 2026-08-11 构建仍失败：`transferring context: 2B` + COPY src/config not found → 上下文路径未生效（填 `.`）；本地 9 个提交未推 origin，流水线构建的是远程旧代码。
 > ⑩ 2026-08-11 pip 安装失败：清华 PyPI 403 → deploy/Dockerfile 改用阿里云镜像（需 push origin 生效）。
+
+> ✅ 2026-08-17 **FC 鉴权 401 修复：静态 JWKS 注入 + 网络重试/文件缓存回退（Chat #14）**：
+> ① 现象：生产 FC 日志 `POST /api/sessions` 连续 401，`鉴权失败：_ssl.c:999: The handshake operation timed out`；
+> ② 根因：全局鉴权 ES256 验签从 `https://<ref>.supabase.co/auth/v1/.well-known/jwks.json` 拉公钥，FC（成都大陆出口）
+>    到 supabase.co（AWS 新加坡）SSL 握手超时（本机 curl 可通则是有代理）；
+> ③ 修复：`core/auth.py` 支持 `SUPABASE_JWKS`/`SUPABASE_JWKS_FILE` 静态注入（配置后完全不出网，FC 主解）+
+>    网络拉取重试 2 次 + 成功后写文件缓存、失败回退文件缓存 + `SUPABASE_JWKS_URL` 覆盖；内存缓存逻辑不变；
+> ④ 验证：新增 6 个回归测试（静态 env / 静态文件 / 超时回退文件缓存 / 无兜底抛错 / 重试写缓存 / URL 覆盖），
+>    全量 **590 通过 + ruff**；真实 JWKS 静态注入冒烟通过；
+> ⑤ 部署：FC 控制台新增环境变量 `SUPABASE_JWKS`（当前公钥已抓取），重新发布镜像后鉴权不再依赖出网。

@@ -31,6 +31,7 @@
 | 11 | 2026-08-11 | 前后端拆仓推送到 EconSwarm 仓库 | 将单仓拆分为 frontend/backend 两份快照，分别强制推送到 `EconSwarm/frontend` 与 `EconSwarm/backend` 的 `main`；推送前先把两个目标仓库原 `main` 备份到时间戳分支，且不改本地 `origin` |
 | 12 | 2026-08-11 | financials 缺列修复 + FC 日志费用估算 |
 | 13 | 2026-08-11 | 阿里云云效流水线打包镜像部署 | 依据生产 SLS 日志定位并修复 financials 表缺 bvps 等 6 列（读/写报 column does not exist + 后台回写被 set_session 掩盖）、备忘录红队结构化路径 TypeError；并给出 FC 日志服务费用估算（当前量级在 SLS 免费额度内） |
+| 14 | 2026-08-17 | FC 鉴权 401 修复（静态 JWKS 注入） | 定位 `POST /api/sessions` 401 为 FC 出网到 supabase.co SSL 握手超时（拉 JWKS 失败）；改造 core/auth.py 支持静态 JWKS 注入 + 网络重试/文件缓存回退 + JWKS URL 覆盖，新增 6 个回归测试，全量 590 通过 |
 
 ---
 
@@ -403,3 +404,16 @@
 
 ### 轮次 12 · 2026-08-11
 - 定位 pip 安装失败：清华 PyPI 镜像对 fastapi wheel 返回 HTTP 403（构建机被限流）→ deploy/Dockerfile pip 源改为阿里云 `https://mirrors.aliyun.com/pypi/simple/`；此改动需 push 到 origin 后流水线才生效。
+
+## Chat #14 — 2026-08-17 — FC 鉴权 401 修复（静态 JWKS 注入，解决 supabase.co 握手超时）
+
+- **主题**：用户贴出 FC 生产日志：`POST /api/sessions` 连续 401，`鉴权失败：_ssl.c:999: The handshake operation timed out`，要求排查。
+- **总摘要**：定位为全局鉴权拉 Supabase JWKS 时，FC（成都大陆出口）到 `*.supabase.co`（AWS 新加坡）SSL 握手超时；
+  改造 `core/auth.py` 支持静态注入 JWKS（`SUPABASE_JWKS`/`SUPABASE_JWKS_FILE`，配置后完全不出网）+ 网络重试 +
+  本地文件缓存回退 + `SUPABASE_JWKS_URL` 覆盖；新增 6 个回归测试，全量 **590 通过 + ruff**。
+
+### 轮次 1 · 2026-08-17
+- 定位：`POST /api/sessions` 401 来自中间件验 ES256 token 时 `_fetch_jwks()` 拉 `https://<ref>.supabase.co/auth/v1/.well-known/jwks.json`，
+  FC 出口 SSL 握手超时（本机 curl 可通则是有代理，佐证是 FC 出网问题而非 token 问题）；
+- 修复：静态 JWKS 注入主解 + 重试/文件缓存回退 + JWKS URL 可配置；抓取当前真实 JWKS 供 FC 配置；
+  docs 更新（chat-record / milestones / progress / 10-fc-deployment）。

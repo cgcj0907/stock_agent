@@ -180,3 +180,138 @@ def test_session_ownership_read(es256_env, monkeypatch):
     assert r.status_code == 404
     r = client.delete(f"/api/sessions/{sid}", headers=auth("user-123"))
     assert r.status_code == 200
+
+
+# ---- 静态 JWKS 注入 / 网络失败回退（FC 大陆出口访问 supabase.co 握手超时场景） ----
+
+@pytest.fixture
+def jwks_env_no_patch(monkeypatch):
+    """生成 P-256 密钥对 + 公钥 JWKS 字典，设置 SUPABASE_URL，但不替换 _fetch_jwks。"""
+    import ecdsa
+
+    monkeypatch.setenv("SUPABASE_URL", "https://testref.supabase.co")
+    sk = ecdsa.SigningKey.generate(curve=ecdsa.NIST256p)
+    vk = sk.get_verifying_key()
+    pub = {
+        "kty": "EC",
+        "crv": "P-256",
+        "kid": "test-kid",
+        "x": _b64url(vk.pubkey.point.x().to_bytes(32, "big")),
+        "y": _b64url(vk.pubkey.point.y().to_bytes(32, "big")),
+        "alg": "ES256",
+        "use": "sig",
+    }
+    # 隔离：每个用例清空模块级内存缓存，避免跨用例命中
+    monkeypatch.setattr(auth, "_jwks_cache", {"fetched_at": 0.0, "data": None})
+    return sk, pub
+
+
+def test_verify_es256_with_static_jwks_env(jwks_env_no_patch, monkeypatch):
+    """SUPABASE_JWKS 环境变量注入 JWKS → 完全不走网络即可验签（FC 主解）。"""
+    sk, pub = jwks_env_no_patch
+    monkeypatch.setenv("SUPABASE_JWKS", json.dumps({"keys": [pub]}))
+
+    class _BlockNetwork:
+        @staticmethod
+        def get(*args, **kwargs):  # 触发即失败：静态注入模式下不允许出网
+            raise AssertionError("静态 JWKS 模式下不应发起网络请求")
+
+    monkeypatch.setattr(auth, "httpx", _BlockNetwork)
+    claims = auth.verify_supabase_jwt(_es256_token(sk, _claims()))
+    assert claims["sub"] == "user-123"
+
+
+def test_verify_es256_with_static_jwks_file(jwks_env_no_patch, monkeypatch, tmp_path):
+    """SUPABASE_JWKS_FILE 指向文件注入 JWKS → 不走网络即可验签。"""
+    sk, pub = jwks_env_no_patch
+    jwks_file = tmp_path / "jwks.json"
+    jwks_file.write_text(json.dumps({"keys": [pub]}), encoding="utf-8")
+    monkeypatch.setenv("SUPABASE_JWKS_FILE", str(jwks_file))
+
+    class _BlockNetwork:
+        @staticmethod
+        def get(*args, **kwargs):
+            raise AssertionError("静态 JWKS 模式下不应发起网络请求")
+
+    monkeypatch.setattr(auth, "httpx", _BlockNetwork)
+    claims = auth.verify_supabase_jwt(_es256_token(sk, _claims()))
+    assert claims["sub"] == "user-123"
+
+
+def test_fetch_jwks_network_timeout_falls_back_to_file_cache(
+    jwks_env_no_patch, monkeypatch, tmp_path
+):
+    """网络握手超时 → 回退本地文件缓存仍可验签（不会把故障放大成 401）。"""
+    sk, pub = jwks_env_no_patch
+    cache_file = tmp_path / "value_agent_supabase_jwks.json"
+    cache_file.write_text(json.dumps({"keys": [pub]}), encoding="utf-8")
+    monkeypatch.setenv("SUPABASE_JWKS_CACHE_DIR", str(tmp_path))
+
+    class _TimedOut:
+        @staticmethod
+        def get(*args, **kwargs):
+            raise TimeoutError("_ssl.c:999: The handshake operation timed out")
+
+    monkeypatch.setattr(auth, "httpx", _TimedOut)
+    monkeypatch.setattr(auth, "_JWKS_RETRY_DELAY", 0.0)
+
+    claims = auth.verify_supabase_jwt(_es256_token(sk, _claims()))
+    assert claims["sub"] == "user-123"
+
+
+def test_fetch_jwks_network_timeout_no_fallback_raises(jwks_env_no_patch, monkeypatch, tmp_path):
+    """网络超时且无任何静态/文件兜底 → 抛原始异常（不静默放行）。"""
+    monkeypatch.setenv("SUPABASE_JWKS_CACHE_DIR", str(tmp_path))
+
+    class _TimedOut:
+        @staticmethod
+        def get(*args, **kwargs):
+            raise TimeoutError("_ssl.c:999: The handshake operation timed out")
+
+    monkeypatch.setattr(auth, "httpx", _TimedOut)
+    monkeypatch.setattr(auth, "_JWKS_RETRY_DELAY", 0.0)
+
+    with pytest.raises(TimeoutError, match="handshake"):
+        auth._fetch_jwks()
+
+
+def test_fetch_jwks_retries_then_caches_to_file(jwks_env_no_patch, monkeypatch, tmp_path):
+    """网络首次失败、重试成功后返回并写入文件缓存。"""
+    _, pub = jwks_env_no_patch
+    cache_file = tmp_path / "value_agent_supabase_jwks.json"
+    monkeypatch.setenv("SUPABASE_JWKS_CACHE_DIR", str(tmp_path))
+    monkeypatch.setattr(auth, "_JWKS_RETRY_DELAY", 0.0)
+
+    class _Flaky:
+        def __init__(self):
+            self.calls = 0
+
+        def get(self, *args, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                raise TimeoutError("handshake timed out")
+            return _FakeResp({"keys": [pub]})
+
+    monkeypatch.setattr(auth, "httpx", _Flaky())
+    data = auth._fetch_jwks()
+    assert data["keys"][0]["kid"] == "test-kid"
+    assert cache_file.exists()
+    assert json.loads(cache_file.read_text(encoding="utf-8"))["keys"][0]["kid"] == "test-kid"
+
+
+def test_jwks_url_override(monkeypatch):
+    """SUPABASE_JWKS_URL 覆盖默认 Supabase 官方 JWKS 地址（备用境内代理）。"""
+    monkeypatch.setenv("SUPABASE_URL", "https://testref.supabase.co")
+    monkeypatch.setenv("SUPABASE_JWKS_URL", "https://jwks-proxy.example.com/jwks.json")
+    assert auth._jwks_url() == "https://jwks-proxy.example.com/jwks.json"
+
+
+class _FakeResp:
+    def __init__(self, data):
+        self._data = data
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return self._data
